@@ -623,7 +623,7 @@ export const uk: Dict = {
   'designFiles.selectAll': 'Select all',
   'designFiles.dropTitle': '⤓ Перенесіть файли сюди',
   'designFiles.dropDesc':
-    'Зображення, документи, посилання або папки — агент використовуватиме їх як контекст.',
+    'Зображення, документи, посилання — агент використовуватиме їх як контекст.',
   'designFiles.upload.title': 'Завантажити файли',
   'designFiles.paste.title': 'Вставити текст як файл',
   'designFiles.upload.label': 'Завантажити',

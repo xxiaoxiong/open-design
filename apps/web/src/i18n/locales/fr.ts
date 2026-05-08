@@ -612,7 +612,7 @@ export const fr: Dict = {
   'designFiles.selectAll': 'Select all',
   'designFiles.dropTitle': '⤓ Déposez les fichiers ici',
   'designFiles.dropDesc':
-    'Images, documents, références ou dossiers — l\'agent les utilisera comme contexte.',
+Images, documents, références — l'agent les utilisera comme contexte.
   'designFiles.upload.title': 'Téléverser des fichiers',
   'designFiles.paste.title': 'Coller du texte comme fichier',
   'designFiles.upload.label': 'Téléverser',

@@ -501,7 +501,7 @@ export const esES: Dict = {
   'designFiles.selectAll': 'Select all',
   'designFiles.dropTitle': '⤓ Suelta archivos aquí',
   'designFiles.dropDesc':
-    'Imágenes, documentos, referencias o carpetas: el agente los usará como contexto.',
+    'Imágenes, documentos, referencias: el agente los usará como contexto.',
   'designFiles.upload.title': 'Subir archivos',
   'designFiles.paste.title': 'Pegar texto como archivo',
   'designFiles.upload.label': 'Subir',

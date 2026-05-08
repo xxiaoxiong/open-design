@@ -612,7 +612,7 @@ export const zhTW: Dict = {
   'designFiles.clearSelection': '取消選擇',
   'designFiles.selectAll': '全選',
   'designFiles.dropTitle': '⤓ 把檔案拖到這裡',
-  'designFiles.dropDesc': '圖片、文件、參考資料或資料夾 — 智慧體都會用作上下文。',
+  'designFiles.dropDesc': '圖片、文件、參考資料 — 智慧體都會用作上下文。',
   'designFiles.upload.title': '上傳一張圖片',
   'designFiles.paste.title': '將文字貼上為檔案',
   'designFiles.upload.label': '上傳',

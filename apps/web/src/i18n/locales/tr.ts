@@ -603,7 +603,7 @@ export const tr: Dict = {
   'designFiles.selectAll': 'Select all',
   'designFiles.dropTitle': '⤓ Dosyaları buraya sürükleyin',
   'designFiles.dropDesc':
-    'Görseller, dokümanlar, referanslar, veya klasörler — ajan onları bağlam olarak kullanacak.',
+    'Görseller, dokümanlar, referanslar — ajan onları bağlam olarak kullanacak.',
   'designFiles.upload.title': 'Dosyaları yükleyin',
   'designFiles.paste.title': 'Metin dosyası olarak yapıştır',
   'designFiles.upload.label': 'Yükle',

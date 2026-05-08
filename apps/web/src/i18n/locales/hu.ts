@@ -612,7 +612,7 @@ export const hu: Dict = {
   'designFiles.selectAll': 'Select all',
   'designFiles.dropTitle': '⤓ Húzd ide a fájlokat',
   'designFiles.dropDesc':
-    'Képek, dokumentumok, hivatkozások vagy mappák — az ügynök kontextusként használja őket.',
+    'Képek, dokumentumok, hivatkozások — az ügynök kontextusként használja őket.',
   'designFiles.upload.title': 'Fájlok feltöltése',
   'designFiles.paste.title': 'Szöveg beillesztése fájlként',
   'designFiles.upload.label': 'Feltöltés',

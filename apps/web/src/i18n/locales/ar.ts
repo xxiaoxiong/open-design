@@ -612,7 +612,7 @@ export const ar: Dict = {
   'designFiles.selectAll': 'Select all',
   'designFiles.dropTitle': '⤓ أسقط الملفات هنا',
   'designFiles.dropDesc':
-    'الصور، المستندات، المراجع، أو المجلدات - سيستخدمها الوكيل كسياق.',
+    'الصور، المستندات، المراجع - سيستخدمها الوكيل كسياق.',
   'designFiles.upload.title': 'رفع ملفات',
   'designFiles.paste.title': 'لصق نص كملف',
   'designFiles.upload.label': 'رفع',

@@ -612,7 +612,7 @@ export const ko: Dict = {
   'designFiles.selectAll': 'Select all',
   'designFiles.dropTitle': '⤓ 여기에 파일을 놓으세요',
   'designFiles.dropDesc':
-    '이미지, 문서, 참조 자료, 폴더 등을 놓아주세요. 에이전트가 문맥으로 활용합니다.',
+    '이미지, 문서, 참조 자료를 놓아주세요. 에이전트가 문맥으로 활용합니다.',
   'designFiles.upload.title': '파일 업로드',
   'designFiles.paste.title': '텍스트를 파일로 붙여넣기',
   'designFiles.upload.label': '업로드',

@@ -612,7 +612,7 @@ export const zhCN: Dict = {
   'designFiles.clearSelection': '取消选择',
   'designFiles.selectAll': '全选',
   'designFiles.dropTitle': '⤓ 把文件拖到这里',
-  'designFiles.dropDesc': '图片、文档、参考资料或文件夹 — 智能体都会用作上下文。',
+  'designFiles.dropDesc': '图片、文档、参考资料 — 智能体都会用作上下文。',
   'designFiles.upload.title': '上传文件',
   'designFiles.paste.title': '将文本粘贴为文件',
   'designFiles.upload.label': '上传',

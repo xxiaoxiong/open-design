@@ -622,7 +622,7 @@ export const ru: Dict = {
   'designFiles.selectAll': 'Select all',
   'designFiles.dropTitle': '⤓ Перетащите файлы сюда',
   'designFiles.dropDesc':
-    'Изображения, документы, референсы или папки — агент будет использовать их как контекст.',
+    'Изображения, документы, референсы — агент будет использовать их как контекст.',
   'designFiles.upload.title': 'Загрузить файлы',
   'designFiles.paste.title': 'Вставить текст как файл',
   'designFiles.upload.label': 'Загрузить',

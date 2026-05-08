@@ -623,7 +623,7 @@ export const fa: Dict = {
   'designFiles.selectAll': 'Select all',
   'designFiles.dropTitle': '⤓ فایل‌ها را اینجا رها کنید',
   'designFiles.dropDesc':
-    'تصاویر، اسناد، مراجع یا پوشه‌ها — عامل از آن‌ها به عنوان زمینه استفاده خواهد کرد.',
+    'تصاویر، اسناد، مراجع — عامل از آن‌ها به عنوان زمینه استفاده خواهد کرد.',
   'designFiles.upload.title': 'آپلود فایل‌ها',
   'designFiles.paste.title': 'چسباندن متن به عنوان فایل',
   'designFiles.upload.label': 'آپلود',

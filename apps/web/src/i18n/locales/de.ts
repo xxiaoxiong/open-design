@@ -500,7 +500,7 @@ export const de: Dict = {
   'designFiles.selectAll': 'Select all',
   'designFiles.dropTitle': '⤓ Dateien hier ablegen',
   'designFiles.dropDesc':
-    'Bilder, Docs, Referenzen oder Ordner — der Agent nutzt sie als Kontext.',
+    'Bilder, Docs, Referenzen — der Agent nutzt sie als Kontext.',
   'designFiles.upload.title': 'Dateien hochladen',
   'designFiles.paste.title': 'Text als Datei einfügen',
   'designFiles.upload.label': 'Hochladen',

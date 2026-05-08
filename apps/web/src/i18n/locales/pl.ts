@@ -612,7 +612,7 @@ export const pl: Dict = {
   'designFiles.selectAll': 'Select all',
   'designFiles.dropTitle': '⤓ Upuść pliki tutaj',
   'designFiles.dropDesc':
-      'Obrazy, dokumenty, referencje lub foldery — agent użyje ich jako kontekstu.',
+      'Obrazy, dokumenty, referencje — agent użyje ich jako kontekstu.',
   'designFiles.upload.title': 'Prześlij pliki',
   'designFiles.paste.title': 'Wklej tekst jako plik',
   'designFiles.upload.label': 'Prześlij',

@@ -499,7 +499,7 @@ export const ja: Dict = {
   'designFiles.selectAll': 'Select all',
   'designFiles.dropTitle': '⤓ ファイルをここにドロップ',
   'designFiles.dropDesc':
-    '画像、ドキュメント、参考資料、フォルダー — エージェントがコンテキストとして使用します。',
+    '画像、ドキュメント、参考資料 — エージェントがコンテキストとして使用します。',
   'designFiles.upload.title': 'ファイルをアップロード',
   'designFiles.paste.title': 'テキストをファイルとして貼り付け',
   'designFiles.upload.label': 'アップロード',
