@@ -1430,7 +1430,7 @@ function DesignSystemPicker({
               </button>
             </div>
           </div>
-          <div className="ds-picker-list">
+          <div className="ds-picker-list ds-picker-list-design-systems">
             <DsPickerItem
               active={selectedIds.length === 0}
               multi={multi}

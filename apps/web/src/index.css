@@ -4338,10 +4338,12 @@ code {
 .ds-picker-list {
   display: flex;
   flex-direction: column;
-  min-height: 120px;
   max-height: 320px;
   overflow-y: auto;
   padding: 4px;
+}
+.ds-picker-list-design-systems {
+  min-height: 120px;
 }
 .ds-picker-empty {
   padding: 16px 12px;
