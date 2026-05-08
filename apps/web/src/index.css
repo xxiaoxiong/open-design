@@ -1187,7 +1187,7 @@ code {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  padding: 16px var(--modal-padding) 12px;
+  padding: 16px var(--modal-padding, 22px) 12px;
   border-top: 1px solid var(--border);
   margin-top: 0;
   flex-shrink: 0;
