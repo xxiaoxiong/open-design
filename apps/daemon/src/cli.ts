@@ -134,7 +134,19 @@ for (let i = 0; i < argv.length; i++) {
   }
 }
 
-startServer({ port, host }).then(url => {
+startServer({ port, host, returnServer: true }).then((started) => {
+  const { url, server, shutdown } = started;
+  let shuttingDown = false;
+  const stop = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    void Promise.resolve()
+      .then(() => shutdown?.())
+      .then(() => new Promise((resolve) => server.close(() => resolve())))
+      .finally(() => process.exit(0));
+  };
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
   console.log(`[od] listening on ${url}`);
   if (open) {
     const opener = process.platform === 'darwin' ? 'open'

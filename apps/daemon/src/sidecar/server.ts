@@ -18,6 +18,12 @@ import { startServer } from "../server.js";
 const DAEMON_PORT_ENV = SIDECAR_ENV.DAEMON_PORT;
 const TOOLS_DEV_PARENT_PID_ENV = SIDECAR_ENV.TOOLS_DEV_PARENT_PID;
 
+type StartedDaemonServer = {
+  server: Server;
+  url: string;
+  shutdown?: () => Promise<void>;
+};
+
 export type DaemonSidecarHandle = {
   status(): Promise<DaemonStatusSnapshot>;
   stop(): Promise<void>;
@@ -64,7 +70,7 @@ function attachParentMonitor(stop: () => Promise<void>): void {
 export async function startDaemonSidecar(runtime: SidecarRuntimeContext<SidecarStamp>): Promise<DaemonSidecarHandle> {
   const started = await startServer({ port: parsePort(process.env[DAEMON_PORT_ENV]), returnServer: true }) as
     | string
-    | { server: Server; url: string };
+    | StartedDaemonServer;
   if (typeof started === "string") {
     throw new Error("daemon startServer did not return a server handle");
   }
@@ -88,6 +94,9 @@ export async function startDaemonSidecar(runtime: SidecarRuntimeContext<SidecarS
     stopped = true;
     state.state = "stopped";
     state.updatedAt = new Date().toISOString();
+    await serverHandle.shutdown?.().catch((error: unknown) => {
+      console.error("daemon shutdown cleanup failed", error);
+    });
     await ipcServer?.close().catch(() => undefined);
     await closeHttpServer(serverHandle.server).catch(() => undefined);
     resolveStopped();

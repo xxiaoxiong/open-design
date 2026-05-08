@@ -1189,7 +1189,7 @@ export function ProjectView({
           updateAssistant((prev) => ({
             ...prev,
             endedAt: Date.now(),
-            runStatus: config.mode === 'api' || prev.runId ? 'succeeded' : prev.runStatus,
+            runStatus: resolveSucceededRunStatus(prev.runStatus),
           }));
           if (commentAttachments.length > 0) {
             void patchAttachedStatuses(commentAttachments, 'needs_review');
@@ -1932,6 +1932,10 @@ function isTerminalRunStatus(status: ChatMessage['runStatus']): boolean {
 
 function isActiveRunStatus(status: ChatMessage['runStatus']): boolean {
   return status === 'queued' || status === 'running';
+}
+
+export function resolveSucceededRunStatus(status: ChatMessage['runStatus']): ChatMessage['runStatus'] {
+  return status === 'failed' || status === 'canceled' ? status : 'succeeded';
 }
 
 type BufferedTextUpdates = ReturnType<typeof createBufferedTextUpdates>;
