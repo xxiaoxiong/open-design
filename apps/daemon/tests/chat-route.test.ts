@@ -387,6 +387,35 @@ setInterval(() => {}, 1000);
   });
 });
 
+describe('daemon run creation during shutdown', () => {
+  it('rejects new run creation after shutdown starts', async () => {
+    const started = await startServer({ port: 0, returnServer: true }) as {
+      url: string;
+      server: http.Server;
+      shutdown: () => Promise<void>;
+    };
+    try {
+      await started.shutdown();
+
+      const runResponse = await fetch(`${started.url}/api/runs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId: 'opencode', message: 'hello' }),
+      });
+      const chatResponse = await fetch(`${started.url}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId: 'opencode', message: 'hello' }),
+      });
+
+      expect(runResponse.status).toBe(503);
+      expect(chatResponse.status).toBe(503);
+    } finally {
+      await new Promise<void>((resolve) => started.server.close(() => resolve()));
+    }
+  });
+});
+
 async function readSseUntil(response: Response, marker: string): Promise<string> {
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();

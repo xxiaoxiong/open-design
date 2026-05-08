@@ -253,6 +253,7 @@ export function attachAcpSession({
   let emittedFirstTokenStatus = false;
   let finished = false;
   let fatal = false;
+  let aborted = false;
   let stageTimer = null;
 
   const resetStageTimer = (label) => {
@@ -317,6 +318,7 @@ export function attachAcpSession({
   };
 
   const parser = createJsonLineStream((raw, rawLine) => {
+    if (aborted) return;
     resetStageTimer('response');
     const rpcErr = rpcErrorMessage(raw);
     if (rpcErr) {
@@ -485,6 +487,19 @@ export function attachAcpSession({
   return {
     hasFatalError() {
       return fatal;
+    },
+    abort() {
+      if (aborted || finished) return;
+      aborted = true;
+      finished = true;
+      clearStageTimer();
+      if (!sessionId || !child.stdin || child.stdin.destroyed || child.stdin.writableEnded) return;
+      try {
+        sendRpc(child.stdin, nextId, 'session/cancel', { sessionId });
+        nextId += 1;
+      } catch {
+        // The caller owns process-signal fallback if the ACP transport is gone.
+      }
     },
   };
 }
