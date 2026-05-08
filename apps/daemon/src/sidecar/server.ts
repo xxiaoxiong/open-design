@@ -39,10 +39,39 @@ function parsePort(value: string | undefined): number {
   return port;
 }
 
-async function closeHttpServer(server: Server): Promise<void> {
+export async function closeHttpServer(
+  server: Server,
+  { closeTimeoutMs = 5_000, idleCloseMs = 1_000 } = {},
+): Promise<void> {
   if (!server.listening) return;
   await new Promise<void>((resolveClose, rejectClose) => {
-    server.close((error) => (error == null ? resolveClose() : rejectClose(error)));
+    let resolved = false;
+    const resolveOnce = () => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(idleTimer);
+      clearTimeout(hardTimer);
+      resolveClose();
+    };
+    const rejectOnce = (error: Error) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(idleTimer);
+      clearTimeout(hardTimer);
+      rejectClose(error);
+    };
+    const idleTimer = setTimeout(() => {
+      server.closeIdleConnections?.();
+    }, Math.min(idleCloseMs, closeTimeoutMs));
+    const hardTimer = setTimeout(() => {
+      server.closeAllConnections?.();
+      resolveOnce();
+    }, closeTimeoutMs);
+    idleTimer.unref?.();
+    hardTimer.unref?.();
+    server.close((error) => (error == null ? resolveOnce() : rejectOnce(error)));
+  }).finally(() => {
+    server.closeIdleConnections?.();
   });
 }
 
@@ -94,11 +123,12 @@ export async function startDaemonSidecar(runtime: SidecarRuntimeContext<SidecarS
     stopped = true;
     state.state = "stopped";
     state.updatedAt = new Date().toISOString();
-    await serverHandle.shutdown?.().catch((error: unknown) => {
+    const closePromise = closeHttpServer(serverHandle.server).catch(() => undefined);
+    const shutdownPromise = serverHandle.shutdown?.().catch((error: unknown) => {
       console.error("daemon shutdown cleanup failed", error);
-    });
+    }) ?? Promise.resolve();
     await ipcServer?.close().catch(() => undefined);
-    await closeHttpServer(serverHandle.server).catch(() => undefined);
+    await Promise.allSettled([closePromise, shutdownPromise]);
     resolveStopped();
   }
 
