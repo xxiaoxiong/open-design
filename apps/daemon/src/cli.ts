@@ -136,14 +136,41 @@ for (let i = 0; i < argv.length; i++) {
 
 startServer({ port, host, returnServer: true }).then((started) => {
   const { url, server, shutdown } = started;
+  const closeTimeoutMs = 5_000;
   let shuttingDown = false;
   const stop = () => {
-    if (shuttingDown) return;
+    if (shuttingDown) {
+      process.exit(0);
+    }
     shuttingDown = true;
+    let closeTimedOut = false;
+    let closeTimeout;
     void Promise.resolve()
       .then(() => shutdown?.())
-      .then(() => new Promise((resolve) => server.close(() => resolve())))
-      .finally(() => process.exit(0));
+      .then(() => new Promise((resolve) => {
+        let resolved = false;
+        const resolveOnce = () => {
+          if (resolved) return;
+          resolved = true;
+          resolve();
+        };
+        closeTimeout = setTimeout(() => {
+          closeTimedOut = true;
+          server.closeAllConnections?.();
+          resolveOnce();
+        }, closeTimeoutMs);
+        closeTimeout.unref?.();
+        server.close(() => resolveOnce());
+      }))
+      .finally(() => {
+        if (closeTimeout) {
+          clearTimeout(closeTimeout);
+        }
+        if (!closeTimedOut) {
+          server.closeIdleConnections?.();
+        }
+        process.exit(0);
+      });
   };
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
