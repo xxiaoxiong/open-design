@@ -1489,6 +1489,14 @@ code {
   opacity: 0.85;
   cursor: progress;
 }
+.settings-connectors-save.is-success {
+  background: var(--success-bg, #10b981);
+  border-color: var(--success-border, #059669);
+  color: white;
+}
+.settings-connectors-save.is-success:hover {
+  background: var(--success-bg-hover, #059669);
+}
 .settings-section-connectors .field-row {
   /* Allow the input + Save key + Clear triplet to wrap on narrow widths
      instead of crushing the input. */

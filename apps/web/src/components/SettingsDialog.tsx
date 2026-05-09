@@ -2492,7 +2492,7 @@ function ConnectorSection({
   // completes, the daemon returns a tail-only echo, and we land in
   // the saved state with the same UI as a key loaded from disk.
   const [keySaveStatus, setKeySaveStatus] =
-    useState<'idle' | 'saving' | 'error'>('idle');
+    useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [catalogRefreshNonce, setCatalogRefreshNonce] = useState(0);
   const handleSaveKey = async () => {
     if (keySaveStatus === 'saving') return;
@@ -2513,7 +2513,11 @@ function ConnectorSection({
         apiKeyTail: pendingKey.trim().slice(-4),
       });
       setCatalogRefreshNonce((nonce) => nonce + 1);
-      setKeySaveStatus('idle');
+      setKeySaveStatus('saved');
+      // Reset to idle after showing success feedback
+      setTimeout(() => {
+        setKeySaveStatus('idle');
+      }, 3000);
     } catch {
       setKeySaveStatus('error');
     }
@@ -2693,7 +2697,7 @@ function ConnectorSection({
           </span>
           <button
             type="button"
-            className={'primary settings-connectors-save' + (keySaveStatus === 'saving' ? ' is-busy' : '')}
+            className={'primary settings-connectors-save' + (keySaveStatus === 'saving' ? ' is-busy' : '') + (keySaveStatus === 'saved' ? ' is-success' : '')}
             disabled={saveDisabled}
             onClick={() => void handleSaveKey()}
             title={
@@ -2706,6 +2710,11 @@ function ConnectorSection({
               <>
                 <Icon name="spinner" size={12} className="icon-spin" />
                 <span>{t('settings.connectorsKeySaving')}</span>
+              </>
+            ) : keySaveStatus === 'saved' ? (
+              <>
+                <Icon name="check" size={12} />
+                <span>{t('settings.connectorsKeySaved')}</span>
               </>
             ) : (
               t('settings.connectorsSaveKey')
