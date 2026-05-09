@@ -142,6 +142,7 @@ type InspectTarget = {
   label: string;
   text: string;
   style: InspectStyleSnapshot;
+  clickedDescendant?: { label: string; text: string };
 };
 
 const MAX_CACHED_SLIDE_STATES = 64;
@@ -1670,6 +1671,18 @@ function InspectPanel({
           ×
         </button>
       </header>
+
+      {target.clickedDescendant && (
+        <div className="inspect-ancestor-notice" data-testid="inspect-ancestor-notice">
+          <div className="inspect-ancestor-notice-icon">ℹ️</div>
+          <div className="inspect-ancestor-notice-text">
+            You clicked <strong>{target.clickedDescendant.label}</strong>
+            {target.clickedDescendant.text && ` ("${target.clickedDescendant.text.slice(0, 40)}${target.clickedDescendant.text.length > 40 ? '…' : ''}")`},
+            but it has no <code>data-od-id</code> annotation.
+            Editing <strong>{target.label}</strong> instead (the nearest annotated ancestor).
+          </div>
+        </div>
+      )}
 
       <section className="inspect-section">
         <div className="inspect-section-label">Colors</div>
@@ -3703,7 +3716,7 @@ function HtmlViewer({
     function onMessage(ev: MessageEvent) {
       if (ev.source !== iframeRef.current?.contentWindow) return;
       const data = ev.data as
-        | { type?: string; elementId?: string; selector?: string; label?: string; text?: string; style?: InspectStyleSnapshot }
+        | { type?: string; elementId?: string; selector?: string; label?: string; text?: string; style?: InspectStyleSnapshot; clickedDescendant?: { label: string; text: string } }
         | null;
       if (!data || data.type !== 'od:comment-target') return;
       if (!data.elementId || !data.selector) return;
@@ -3713,6 +3726,7 @@ function HtmlViewer({
         label: String(data.label || ''),
         text: String(data.text || ''),
         style: data.style && typeof data.style === 'object' ? data.style : {},
+        clickedDescendant: data.clickedDescendant,
       });
       setInspectError(null);
       setInspectSavedAt(null);

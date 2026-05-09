@@ -8610,6 +8610,36 @@ button.connector-action.is-loading {
      #785. */
   flex-shrink: 0;
 }
+.inspect-ancestor-notice {
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg-info, #e3f2fd);
+  border: 1px solid var(--border-info, #90caf9);
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-secondary, #424242);
+}
+.inspect-ancestor-notice-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+}
+.inspect-ancestor-notice-text {
+  flex: 1;
+  min-width: 0;
+}
+.inspect-ancestor-notice-text strong {
+  font-weight: 600;
+  color: var(--text-primary, #1a1a1a);
+}
+.inspect-ancestor-notice-text code {
+  padding: 1px 4px;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 3px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+  font-size: 10px;
+}
 .inspect-panel-title {
   display: grid;
   gap: 2px;

@@ -448,24 +448,35 @@ function injectSelectionBridge(
       };
     } catch (_) { return null; }
   }
-  function targetFrom(el){
+  function targetFrom(el, clickedEl){
     var id = el.getAttribute('data-od-id') || el.getAttribute('data-screen-label');
     if (!id) return null;
     var rect = el.getBoundingClientRect();
     var tag = el.tagName ? el.tagName.toLowerCase() : 'element';
-    var cls = typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\\s+/).slice(0,2).join('.') : '';
+    var cls = typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\s+/).slice(0,2).join('.') : '';
     var html = '';
-    try { html = (el.outerHTML || '').replace(/\\s+/g, ' ').match(/^<[^>]+>/)?.[0] || ''; } catch (_) {}
-    return {
+    try { html = (el.outerHTML || '').replace(/\s+/g, ' ').match(/^<[^>]+>/)?.[0] || ''; } catch (_) {}
+    var payload = {
       type: 'od:comment-target',
       elementId: id,
       selector: el.hasAttribute('data-od-id') ? '[data-od-id="' + esc(id) + '"]' : '[data-screen-label="' + esc(id) + '"]',
       label: tag + cls,
-      text: (el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 160),
+      text: (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 160),
       position: { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) },
       htmlHint: html.slice(0, 180),
       style: styleSnapshot(el)
     };
+    // If the clicked element differs from the resolved annotated ancestor,
+    // include a clickedDescendant field so the host can signal the user.
+    if (clickedEl && clickedEl !== el) {
+      var clickedTag = clickedEl.tagName ? clickedEl.tagName.toLowerCase() : 'element';
+      var clickedCls = typeof clickedEl.className === 'string' && clickedEl.className.trim() ? '.' + clickedEl.className.trim().split(/\s+/).slice(0,2).join('.') : '';
+      payload.clickedDescendant = {
+        label: clickedTag + clickedCls,
+        text: (clickedEl.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80)
+      };
+    }
+    return payload;
   }
   function allTargets(){
     var nodes = document.querySelectorAll('[data-od-id], [data-screen-label]');
@@ -500,9 +511,12 @@ function injectSelectionBridge(
     window.parent.postMessage({ type: type, points: stroke.slice() }, '*');
   }
   function closestTarget(event){
-    var el = event.target;
+    var clicked = event.target;
+    var el = clicked;
     while (el && el !== document.documentElement) {
-      if (el.getAttribute && (el.hasAttribute('data-od-id') || el.hasAttribute('data-screen-label'))) return el;
+      if (el.getAttribute && (el.hasAttribute('data-od-id') || el.hasAttribute('data-screen-label'))) {
+        return { target: el, clicked: clicked };
+      }
       el = el.parentElement;
     }
     return null;
@@ -634,11 +648,11 @@ function injectSelectionBridge(
   }, true);
   document.addEventListener('click', function(ev){
     if (!pickerActive()) return;
-    var el = closestTarget(ev);
-    if (!el) return;
+    var result = closestTarget(ev);
+    if (!result) return;
     ev.preventDefault();
     ev.stopPropagation();
-    var payload = targetFrom(el);
+    var payload = targetFrom(result.target, result.clicked);
     if (payload) window.parent.postMessage(payload, '*');
   }, true);
   // Pod drawing — only active in comment mode with the 'pod' tool.
