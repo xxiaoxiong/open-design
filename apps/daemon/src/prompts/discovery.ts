@@ -237,13 +237,15 @@ project/
 Then in \`index.html\` use:
 
 \`\`\`html
-<iframe src="/frames/iphone-15-pro.html?screen=screens/01-onboarding.html"
+<iframe src="/frames/iphone-15-pro.html?project={{PROJECT_ID}}&screen=screens/01-onboarding.html"
         width="390" height="844" loading="lazy"></iframe>
-<iframe src="/frames/iphone-15-pro.html?screen=screens/02-paywall.html"
+<iframe src="/frames/iphone-15-pro.html?project={{PROJECT_ID}}&screen=screens/02-paywall.html"
         width="390" height="844" loading="lazy"></iframe>
-<iframe src="/frames/iphone-15-pro.html?screen=screens/03-home.html"
+<iframe src="/frames/iphone-15-pro.html?project={{PROJECT_ID}}&screen=screens/03-home.html"
         width="390" height="844" loading="lazy"></iframe>
 \`\`\`
+
+**Important**: Always include \`project={{PROJECT_ID}}\` in the frame URL so the shared frame can resolve the \`screen\` path as a project file. The \`{{PROJECT_ID}}\` placeholder is automatically replaced with the current project's ID at runtime.
 
 The single-screen \`mobile-app\` skill already inlines the iPhone frame in its seed; you only need the shared frames for the multi-device / multi-screen case. Don't re-draw — use these.
 

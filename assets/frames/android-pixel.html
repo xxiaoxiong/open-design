@@ -149,9 +149,19 @@
   <script>
     (function () {
       var qs = new URLSearchParams(location.search);
-      var src = qs.get('screen');
+      var screen = qs.get('screen');
+      var project = qs.get('project');
       var iframe = document.getElementById('screen');
-      if (src) iframe.src = src;
+      
+      if (!screen) return;
+      
+      // If project ID is provided, resolve screen path as a project file.
+      // Otherwise, treat screen as an absolute or relative URL (legacy behavior).
+      var src = project
+        ? '/api/projects/' + encodeURIComponent(project) + '/files/' + screen
+        : screen;
+      
+      iframe.src = src;
     })();
   </script>
 </body>

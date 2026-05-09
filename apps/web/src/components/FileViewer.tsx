@@ -3257,6 +3257,7 @@ function HtmlViewer({
       commentBridge: boardMode && !manualEditMode,
       inspectBridge: inspectMode,
       editBridge: manualEditMode,
+      projectId,
     }) : ''),
     [previewSource, effectiveDeck, projectId, file.name, previewStateKey, boardMode, manualEditMode, inspectMode],
   );

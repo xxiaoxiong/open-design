@@ -28,6 +28,7 @@ export type SrcdocOptions = {
   commentBridge?: boolean;
   inspectBridge?: boolean;
   editBridge?: boolean;
+  projectId?: string;
 };
 
 export function buildSrcdoc(
@@ -46,7 +47,8 @@ export function buildSrcdoc(
   </head>
   <body>${html}</body>
 </html>`;
-  const withSourcePaths = options.editBridge ? annotateManualEditSourcePaths(wrapped) : wrapped;
+  const withProjectId = options.projectId ? replaceProjectIdPlaceholder(wrapped, options.projectId) : wrapped;
+  const withSourcePaths = options.editBridge ? annotateManualEditSourcePaths(withProjectId) : withProjectId;
   const withBase = options.baseHref ? injectBaseHref(withSourcePaths, options.baseHref) : withSourcePaths;
   const withShim = injectSandboxShim(withBase);
   const withDeck = options.deck ? injectDeckBridge(withShim, options.initialSlideIndex) : withShim;
@@ -65,6 +67,10 @@ export function buildSrcdoc(
       })
     : withDeck;
   return options.editBridge ? injectManualEditBridge(withSelection) : withSelection;
+}
+
+function replaceProjectIdPlaceholder(doc: string, projectId: string): string {
+  return doc.replace(/\{\{PROJECT_ID\}\}/g, projectId);
 }
 
 function annotateManualEditSourcePaths(doc: string): string {
