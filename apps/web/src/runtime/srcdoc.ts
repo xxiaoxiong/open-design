@@ -627,20 +627,20 @@ function injectSelectionBridge(
   function pickerActive(){ return inspectEnabled || (commentEnabled && mode === 'picker'); }
   document.addEventListener('mouseover', function(ev){
     if (!pickerActive()) return;
-    var el = closestTarget(ev);
-    if (!el) return;
-    var payload = targetFrom(el);
+    var result = closestTarget(ev);
+    if (!result) return;
+    var payload = targetFrom(result.target);
     if (!payload || payload.elementId === hoveredId) return;
     hoveredId = payload.elementId;
     window.parent.postMessage(Object.assign({}, payload, { type: 'od:comment-hover' }), '*');
   }, true);
   document.addEventListener('mouseout', function(ev){
     if (!pickerActive()) return;
-    var el = closestTarget(ev);
-    if (!el) return;
+    var result = closestTarget(ev);
+    if (!result) return;
     var next = ev.relatedTarget;
     while (next && next !== document.documentElement) {
-      if (next === el) return;
+      if (next === result.target) return;
       next = next.parentElement;
     }
     hoveredId = null;
