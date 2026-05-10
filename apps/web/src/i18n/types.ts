@@ -790,6 +790,8 @@ export interface Dict {
   'chat.importGitHub': string;
   'chat.importWeb': string;
   'chat.importFolder': string;
+  'chat.uploadFolder': string;
+  'chat.uploadNoProjectError': string;
   'chat.importSkills': string;
   'chat.importProject': string;
   'chat.linkedFolderRemoveAria': string;

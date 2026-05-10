@@ -144,6 +144,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
     type ToolsTab = 'mcp' | 'import' | 'pet';
     const [toolsTab, setToolsTab] = useState<ToolsTab>('mcp');
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const folderInputRef = useRef<HTMLInputElement | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
     const toolsMenuRef = useRef<HTMLDivElement | null>(null);
     const toolsTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -474,7 +475,10 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
     async function uploadFiles(files: File[]) {
       if (files.length === 0) return;
       const id = await ensureProject();
-      if (!id) return;
+      if (!id) {
+        setUploadError(t('chat.uploadNoProjectError'));
+        return;
+      }
       setUploading(true);
       setUploadError(null);
       try {
@@ -758,6 +762,19 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
                 e.target.value = '';
               }}
             />
+            <input
+              ref={folderInputRef}
+              data-testid="chat-folder-input"
+              type="file"
+              /* @ts-expect-error webkitdirectory is not in the standard but widely supported */
+              webkitdirectory=""
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? []);
+                void uploadFiles(files);
+                e.target.value = '';
+              }}
+            />
             <div className="composer-tools-wrap">
               <button
                 ref={toolsTriggerRef}
@@ -852,6 +869,10 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
                         onLinkFolder={async () => {
                           setToolsOpen(false);
                           await handleLinkFolder();
+                        }}
+                        onUploadFolder={() => {
+                          setToolsOpen(false);
+                          folderInputRef.current?.click();
                         }}
                       />
                     ) : null}
@@ -1059,9 +1080,11 @@ function ToolsMcpPanel({
 function ToolsImportPanel({
   t,
   onLinkFolder,
+  onUploadFolder,
 }: {
   t: TranslateFn;
   onLinkFolder: () => Promise<void> | void;
+  onUploadFolder: () => void;
 }) {
   return (
     <div className="composer-tools-list">
@@ -1073,6 +1096,13 @@ function ToolsImportPanel({
         t={t}
         enabled
         onClick={() => void onLinkFolder()}
+      />
+      <ImportItem
+        icon="upload"
+        label={t('chat.uploadFolder')}
+        t={t}
+        enabled
+        onClick={onUploadFolder}
       />
       <ImportItem icon="sparkles" label={t('chat.importSkills')} t={t} />
       <ImportItem icon="file" label={t('chat.importProject')} t={t} />

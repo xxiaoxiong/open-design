@@ -642,6 +642,8 @@ export const en: Dict = {
   'chat.importGitHub': 'Connect GitHub',
   'chat.importWeb': 'Grab web element',
   'chat.importFolder': 'Link code folder',
+  'chat.uploadFolder': 'Upload folder',
+  'chat.uploadNoProjectError': 'Start a conversation first before uploading files',
   'chat.importSkills': 'Skills and design systems',
   'chat.importProject': 'Reference another project',
   'chat.linkedFolderRemoveAria': 'Remove linked folder {path}',
