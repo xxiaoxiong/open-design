@@ -48,8 +48,10 @@ Produce a friendly, helpful 404 error page that guides users back to useful cont
    - **Search bar** (optional) — If the site has search, include a prominent
      search input to help users find what they're looking for.
    - **Helpful links** — 3-5 navigation links to key pages:
-     - Home / Homepage
-     - Popular pages (Products, Blog, About, etc.)
+     - Home / Homepage (always use `/`)
+     - Popular pages (Products, Blog, About, etc.) — use real routes from
+       the brief or sitemap context. If not provided, use `#` placeholders
+       with TODO comments noting they must be replaced before deployment.
      - Contact / Support
    - **Footer** (optional) — Small site logo or copyright notice
 4. **Write** a single HTML document:

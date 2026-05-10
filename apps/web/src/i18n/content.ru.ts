@@ -58,10 +58,6 @@ export const RU_SKILL_COPY: Record<string, { description?: string; examplePrompt
     examplePrompt:
       'Дружелюбная страница ошибки 404 с полезной навигацией, поиском и визуальными элементами.',
   },
-  'coming-soon-page': {
-    examplePrompt:
-      'Страница "Скоро запуск" с таймером обратного отсчета, подпиской на email и ссылками на соцсети.',
-  },
   'gamified-app': {
     examplePrompt:
       'Спроектируйте геймифицированное приложение для управления жизнью — мобильный мультиэкранный прототип: постер-обложка, сегодняшние квесты с XP и детализация квеста. "Daily quests for becoming a better human."',
