@@ -56,7 +56,7 @@ export const FR_SKILL_COPY: Record<string, { description?: string; examplePrompt
   },
   '404-error-page': {
     examplePrompt:
-      'Une page d'erreur 404 conviviale avec navigation utile, barre de recherche et éléments visuels.',
+      "Une page d'erreur 404 conviviale avec navigation utile, barre de recherche et éléments visuels.",
   },
   'coming-soon-page': {
     examplePrompt:
