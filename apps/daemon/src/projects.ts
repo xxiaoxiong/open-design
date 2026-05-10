@@ -337,6 +337,29 @@ async function collectArchiveEntries(dir, relDir, out) {
   }
 }
 
+/**
+ * Resolve the absolute file path for a project file without reading it into memory.
+ * Use this for streaming large files (video, audio) via HTTP range requests.
+ */
+export async function resolveProjectFilePath(projectsRoot, projectId, name, metadata?) {
+  const dir = resolveProjectDir(projectsRoot, projectId, metadata);
+  const file = await resolveSafeReal(dir, name);
+  const st = await stat(file);
+  const rel = toProjectPath(path.relative(dir, file));
+  const manifest = await readManifestForPath(dir, rel);
+  return {
+    absolutePath: file,
+    name: rel,
+    path: rel,
+    size: st.size,
+    mtime: st.mtimeMs,
+    mime: mimeFor(rel),
+    kind: kindFor(rel),
+    artifactKind: manifest?.kind,
+    artifactManifest: manifest,
+  };
+}
+
 export async function readProjectFile(projectsRoot, projectId, name, metadata?) {
   const dir = resolveProjectDir(projectsRoot, projectId, metadata);
   const file = await resolveSafeReal(dir, name);

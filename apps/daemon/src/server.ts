@@ -138,6 +138,7 @@ import {
   readProjectFile,
   renameProjectFile,
   removeProjectDir,
+  resolveProjectFilePath,
   sanitizeName,
   searchProjectFiles,
   writeProjectFile,
@@ -4521,13 +4522,56 @@ export async function startServer({
   app.get('/api/projects/:id/files/*', async (req, res) => {
     try {
       const project = getProject(db, req.params.id);
-      const file = await readProjectFile(
+      const file = await resolveProjectFilePath(
         PROJECTS_DIR,
         req.params.id,
         req.params[0],
         project?.metadata,
       );
-      res.type(file.mime).send(file.buffer);
+
+      // For video and audio files, support HTTP range requests so browsers
+      // can seek/scrub. For other files, read into memory and send as before.
+      const isStreamable = file.mime.startsWith('video/') || file.mime.startsWith('audio/');
+
+      if (isStreamable) {
+        const range = req.headers.range;
+        if (range) {
+          // Parse range header (e.g., "bytes=0-1023")
+          const parts = range.replace(/bytes=/, '').split('-');
+          const start = parseInt(parts[0], 10);
+          const end = parts[1] ? parseInt(parts[1], 10) : file.size - 1;
+          const chunkSize = end - start + 1;
+
+          res.status(206); // Partial Content
+          res.set({
+            'Content-Range': `bytes ${start}-${end}/${file.size}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': chunkSize,
+            'Content-Type': file.mime,
+          });
+
+          const stream = fs.createReadStream(file.absolutePath, { start, end });
+          stream.pipe(res);
+        } else {
+          // No range header — send the whole file
+          res.set({
+            'Accept-Ranges': 'bytes',
+            'Content-Length': file.size,
+            'Content-Type': file.mime,
+          });
+          const stream = fs.createReadStream(file.absolutePath);
+          stream.pipe(res);
+        }
+      } else {
+        // Non-streamable files: read into memory and send (existing behavior)
+        const fullFile = await readProjectFile(
+          PROJECTS_DIR,
+          req.params.id,
+          req.params[0],
+          project?.metadata,
+        );
+        res.type(fullFile.mime).send(fullFile.buffer);
+      }
     } catch (err) {
       const status = err && err.code === 'ENOENT' ? 404 : 400;
       sendApiError(
