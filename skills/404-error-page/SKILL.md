@@ -16,7 +16,6 @@ od:
   mode: prototype
   platform: desktop
   scenario: error-handling
-  featured: 6
   preview:
     type: html
     entry: index.html
@@ -24,7 +23,7 @@ od:
     requires: true
     sections: [color, typography, layout, components]
   craft:
-    requires: [typography, accessibility]
+    requires: [typography, accessibility-baseline]
 ---
 
 # 404 Error Page Skill

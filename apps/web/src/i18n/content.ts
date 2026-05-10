@@ -103,6 +103,14 @@ const DE_SKILL_COPY: Record<string, LocalizedSkillCopy> = {
     examplePrompt:
       'Erstellen Sie einen Q3-Finanzbericht für ein Early-Stage-SaaS — MRR, Burn, Bruttomarge, Top-Accounts.',
   },
+  '404-error-page': {
+    examplePrompt:
+      'Eine freundliche 404-Fehlerseite mit hilfreicher Navigation, Suchleiste und visuellen Elementen.',
+  },
+  'coming-soon-page': {
+    examplePrompt:
+      'Eine Coming-Soon-Seite mit Countdown-Timer, E-Mail-Anmeldung und Social-Media-Links.',
+  },
   'gamified-app': {
     examplePrompt:
       'Entwerfen Sie eine gamifizierte Life-Management-App — mobiler Multi-Screen-Prototyp: Cover-Poster, heutige Quests mit XP und Quest-Detail. ‚Daily quests for becoming a better human.‘',

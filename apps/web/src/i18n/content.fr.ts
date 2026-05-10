@@ -54,6 +54,14 @@ export const FR_SKILL_COPY: Record<string, { description?: string; examplePrompt
     examplePrompt:
       'Créez un rapport financier Q3 pour un SaaS early-stage — MRR, burn, marge brute, top accounts.',
   },
+  '404-error-page': {
+    examplePrompt:
+      'Une page d'erreur 404 conviviale avec navigation utile, barre de recherche et éléments visuels.',
+  },
+  'coming-soon-page': {
+    examplePrompt:
+      'Une page "bientôt disponible" avec compte à rebours, inscription par e-mail et liens sociaux.',
+  },
   'gamified-app': {
     examplePrompt:
       'Concevez une app gamifiée de life management — prototype mobile multi-screen : cover poster, quêtes du jour avec XP et détail de quête. “Daily quests for becoming a better human.”',
