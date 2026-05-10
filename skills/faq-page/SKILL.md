@@ -10,7 +10,6 @@ triggers:
   - "frequently asked questions"
   - "help center"
   - "support page"
-  - "questions and answers"
   - "Q&A"
   - "常见问题"
   - "帮助中心"
@@ -26,7 +25,7 @@ od:
     requires: true
     sections: [color, typography, layout, components]
   craft:
-    requires: [typography, accessibility, interactive-states]
+    requires: [typography, accessibility-baseline, state-coverage]
 ---
 
 # FAQ Page Skill
@@ -39,6 +38,12 @@ Produce a single FAQ page with collapsible accordion sections, search, and categ
    interactive elements (accordion headers, search input, category pills).
 2. **Pick the domain** from the brief (e.g., SaaS product, e-commerce, service)
    and write 12–18 real FAQ entries across 3–4 categories.
+   - **Edge cases**:
+     - If the brief provides fewer than 8 FAQs, ask for more content or generate
+       realistic questions based on the domain.
+     - For 1–5 FAQs, skip categories and search; show a simple list.
+     - For very long answers (>100 words), break into paragraphs or bullet points
+       to maintain readability.
 3. **Sections**, in order:
    - **Header** — page title ("Frequently Asked Questions" or "Help Center"),
      optional subtitle (1 sentence explaining what users can find here).
@@ -64,7 +69,7 @@ Produce a single FAQ page with collapsible accordion sections, search, and categ
    - Questions are specific and realistic (not generic placeholders).
    - Answers are concise (2–4 sentences) but complete.
    - Keyboard navigation works (Tab through questions, Enter to expand).
-   - Search is case-insensitive and highlights matches.
+   - Search is case-insensitive and filters by matching text.
    - Only one accordion item expanded at a time (optional, depends on UX preference).
    - Mobile-friendly (accordion headers are tappable, search is usable).
 
