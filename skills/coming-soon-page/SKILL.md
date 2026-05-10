@@ -16,7 +16,6 @@ od:
   mode: prototype
   platform: desktop
   scenario: marketing
-  featured: 7
   preview:
     type: html
     entry: index.html
@@ -24,7 +23,7 @@ od:
     requires: true
     sections: [color, typography, layout, components]
   craft:
-    requires: [typography, forms]
+    requires: [typography, form-validation]
 ---
 
 # Coming Soon Page Skill
