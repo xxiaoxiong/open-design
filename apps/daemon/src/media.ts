@@ -418,6 +418,11 @@ export async function generateMedia(args: {
       bytes = result.bytes;
       providerNote = result.providerNote;
       suggestedExt = result.suggestedExt;
+    } else if (def.provider === 'fal' && surface === 'image') {
+      const result = await renderFalImage(ctx, credentials);
+      bytes = result.bytes;
+      providerNote = result.providerNote;
+      suggestedExt = result.suggestedExt;
     } else if (def.provider === 'hyperframes' && surface === 'video') {
       // HyperFrames is templated by the agent (it reads the vendored
       // skill at skills/hyperframes/SKILL.md and writes a composition
@@ -1211,6 +1216,92 @@ function sniffImageExt(bytes: Buffer): string {
   }
   return '.png';
 }
+
+async function renderFalImage(ctx: MediaContext, credentials: ProviderConfig): Promise<RenderResult> {
+  if (!credentials.apiKey) {
+    throw new Error(
+      'no Fal.ai API key — configure it in Settings or set FAL_KEY',
+    );
+  }
+  const baseUrl = (credentials.baseUrl || 'https://fal.run').replace(/\/$/, '');
+  
+  // Map model IDs to Fal.ai endpoint paths
+  const modelEndpoints: Record<string, string> = {
+    'sd-3.5': 'fal-ai/stable-diffusion-v3-5-large',
+    'flux-pro': 'fal-ai/flux-pro',
+    'flux-schnell': 'fal-ai/flux/schnell',
+    'recraft-v3': 'fal-ai/recraft-v3',
+  };
+  
+  const endpoint = modelEndpoints[ctx.model];
+  if (!endpoint) {
+    throw new Error(`unsupported fal.ai model: ${ctx.model}`);
+  }
+  
+  // Map aspect ratios to Fal.ai format (width x height)
+  const aspectMap: Record<string, { width: number; height: number }> = {
+    '1:1': { width: 1024, height: 1024 },
+    '16:9': { width: 1344, height: 768 },
+    '9:16': { width: 768, height: 1344 },
+    '4:3': { width: 1152, height: 896 },
+    '3:4': { width: 896, height: 1152 },
+  };
+  
+  const size = aspectMap[ctx.aspect] || { width: 1024, height: 1024 };
+  
+  const body = {
+    prompt: ctx.prompt || 'A high-quality reference image.',
+    image_size: size,
+    num_images: 1,
+  };
+  
+  const resp = await fetch(`${baseUrl}/${endpoint}`, {
+    method: 'POST',
+    headers: {
+      'authorization': `Key ${credentials.apiKey}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  
+  const text = await resp.text();
+  if (!resp.ok) {
+    throw new Error(`fal.ai ${resp.status}: ${truncate(text, 240)}`);
+  }
+  
+  let data: any;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(`fal.ai non-JSON: ${truncate(text, 200)}`);
+  }
+  
+  // Fal.ai returns images in data.images array
+  const images = data?.images;
+  if (!Array.isArray(images) || images.length === 0) {
+    throw new Error('fal.ai response had no images');
+  }
+  
+  const imageUrl = images[0]?.url;
+  if (!imageUrl) {
+    throw new Error('fal.ai response missing image URL');
+  }
+  
+  // Fetch the image from the URL
+  const imgResp = await fetch(imageUrl);
+  if (!imgResp.ok) {
+    throw new Error(`fal.ai image fetch ${imgResp.status}`);
+  }
+  
+  const bytes = Buffer.from(await imgResp.arrayBuffer());
+  
+  return {
+    bytes,
+    providerNote: `fal.ai/${ctx.model} · ${ctx.aspect} · ${bytes.length} bytes`,
+    suggestedExt: sniffImageExt(bytes),
+  };
+}
+
 
 async function renderGrokVideo(ctx: MediaContext, credentials: ProviderConfig, onProgress?: ProgressFn): Promise<RenderResult> {
   if (!credentials.apiKey) {

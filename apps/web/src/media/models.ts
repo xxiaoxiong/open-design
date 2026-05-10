@@ -128,7 +128,9 @@ export const MEDIA_PROVIDERS: MediaProvider[] = [
     id: 'fal',
     label: 'Fal.ai',
     hint: 'Sora / Seedance / Veo / FLUX',
-    integrated: false,
+    integrated: true,
+    credentialsRequired: true,
+    settingsVisible: true,
     defaultBaseUrl: 'https://fal.run',
     docsUrl: 'https://fal.ai/dashboard/keys',
   },
@@ -329,6 +331,9 @@ export const IMAGE_MODELS: MediaModel[] = [
   { id: 'ideogram-v2', label: 'ideogram-v2', hint: 'Replicate · typography', provider: 'replicate', caps: ['t2i'] },
   { id: 'sdxl', label: 'stable-diffusion-xl', hint: 'Replicate · SDXL', provider: 'replicate', caps: ['t2i'] },
   { id: 'sd-3.5', label: 'stable-diffusion-3.5', hint: 'Fal · SD 3.5', provider: 'fal', caps: ['t2i'] },
+  { id: 'flux-pro', label: 'flux-pro', hint: 'Fal · FLUX Pro', provider: 'fal', caps: ['t2i'] },
+  { id: 'flux-schnell', label: 'flux-schnell', hint: 'Fal · FLUX Schnell', provider: 'fal', caps: ['t2i'] },
+  { id: 'recraft-v3', label: 'recraft-v3', hint: 'Fal · Recraft v3', provider: 'fal', caps: ['t2i'] },
 
   // Midjourney via community proxies.
   { id: 'midjourney-v7', label: 'midjourney-v7', hint: 'Midjourney · via proxy', provider: 'midjourney', caps: ['t2i'] },
