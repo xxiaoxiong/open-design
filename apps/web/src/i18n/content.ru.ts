@@ -54,10 +54,6 @@ export const RU_SKILL_COPY: Record<string, { description?: string; examplePrompt
     examplePrompt:
       'Подготовьте финансовый отчет за Q3 для early-stage SaaS — MRR, burn, gross margin, top accounts.',
   },
-  '404-error-page': {
-    examplePrompt:
-      'Дружелюбная страница ошибки 404 с полезной навигацией, поиском и визуальными элементами.',
-  },
   'coming-soon-page': {
     examplePrompt:
       'Страница "Скоро запуск" с таймером обратного отсчета, подпиской на email и ссылками на соцсети.',

@@ -35,6 +35,8 @@ Produce a compelling coming soon / launch page with countdown timer and email si
 1. **Read the active DESIGN.md** (injected above). Use the brand's visual
    language to build anticipation and excitement.
 2. **Pick the launch date** from the brief, or use a placeholder 30 days out.
+   Use UTC timezone for consistency. If the brief specifies a timezone,
+   convert to UTC and document the original timezone in a comment.
 3. **Sections**, in order:
    - **Logo / Brand** — Small logo or wordmark at the top
    - **Headline** — Bold, exciting announcement like "Something amazing is coming"
@@ -46,7 +48,9 @@ Produce a compelling coming soon / launch page with countdown timer and email si
    - **Email signup** — Simple form with email input and submit button.
      Copy like "Be the first to know" or "Get notified at launch"
    - **Social links** — 3-5 icon links to social media profiles (Twitter, LinkedIn,
-     Instagram, etc.). Use simple SVG icons.
+     Instagram, etc.). Use simple SVG icons. If social links are not provided
+     in the brief, use placeholder `#` hrefs with a comment noting they should
+     be updated before launch.
    - **Footer** — Copyright notice or small tagline
 4. **Write** a single HTML document:
    - `<!doctype html>` through `</html>`, CSS and JS inline.
@@ -56,6 +60,9 @@ Produce a compelling coming soon / launch page with countdown timer and email si
    - Form submission shows success message (no backend needed for prototype).
    - Social icons use DS accent color with hover effects.
    - `data-od-id` on logo, headline, timer, form, social links.
+   - **Content sanitization**: Escape all user-provided text (headlines, copy)
+     using `textContent` instead of `innerHTML` to prevent XSS. If HTML is
+     required, use a whitelist approach with explicit allowed tags.
 5. **Self-check**:
    - Countdown timer is accurate and updates smoothly.
    - Email input has proper validation and feedback.
