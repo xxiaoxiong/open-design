@@ -2494,10 +2494,28 @@ function ConnectorSection({
   const [keySaveStatus, setKeySaveStatus] =
     useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [catalogRefreshNonce, setCatalogRefreshNonce] = useState(0);
+  const keySaveResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  // Clear the success reset timer on unmount to prevent stale state updates
+  useEffect(() => {
+    return () => {
+      if (keySaveResetTimerRef.current) {
+        clearTimeout(keySaveResetTimerRef.current);
+        keySaveResetTimerRef.current = null;
+      }
+    };
+  }, []);
+  
   const handleSaveKey = async () => {
     if (keySaveStatus === 'saving') return;
     if (!hasPendingEdit) return;
     if (composioConfigLoading) return;
+    
+    // Clear any pending success reset timer before starting a new save
+    if (keySaveResetTimerRef.current) {
+      clearTimeout(keySaveResetTimerRef.current);
+      keySaveResetTimerRef.current = null;
+    }
     const pendingKey = composio.apiKey ?? '';
     setKeySaveStatus('saving');
     try {
@@ -2515,8 +2533,9 @@ function ConnectorSection({
       setCatalogRefreshNonce((nonce) => nonce + 1);
       setKeySaveStatus('saved');
       // Reset to idle after showing success feedback
-      setTimeout(() => {
+      keySaveResetTimerRef.current = setTimeout(() => {
         setKeySaveStatus('idle');
+        keySaveResetTimerRef.current = null;
       }, 3000);
     } catch {
       setKeySaveStatus('error');
