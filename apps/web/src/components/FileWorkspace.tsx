@@ -24,6 +24,7 @@ import {
   type PreviewCommentTarget,
   type ProjectFile,
 } from '../types';
+import { playSound, DEFAULT_SUCCESS_SOUND_ID } from '../utils/notifications';
 import { DesignFilesPanel } from './DesignFilesPanel';
 import { FileViewer, LiveArtifactViewer } from './FileViewer';
 import { Icon } from './Icon';
@@ -500,6 +501,8 @@ export function FileWorkspace({
         active: name,
       });
       setActiveTab(name);
+      // Play success sound to confirm save completed
+      playSound(DEFAULT_SUCCESS_SOUND_ID);
       await onRefreshFiles();
     } else {
       setSketches((curr) => ({ ...curr, [name]: { ...curr[name]!, saving: false } }));
