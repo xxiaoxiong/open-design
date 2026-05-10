@@ -625,6 +625,9 @@ export const zhTW: Dict = {
   'chat.importFig': '上傳 .fig 檔案',
   'chat.importGitHub': '連接 GitHub',
   'chat.importWeb': '擷取網頁元素',
+  'chat.importFolder':
+  'chat.uploadFolder': '上傳資料夾',
+  'chat.uploadNoProjectError': '上傳檔案前請先開始對話',
   'chat.importFolder': '關聯程式碼目錄',
   'chat.importSkills': '技能與設計系統',
   'chat.importProject': '引用其它專案',

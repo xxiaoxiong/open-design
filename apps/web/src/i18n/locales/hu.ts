@@ -574,6 +574,9 @@ export const hu: Dict = {
   'chat.importFig': '.fig fájl feltöltése',
   'chat.importGitHub': 'GitHub csatlakoztatása',
   'chat.importWeb': 'Webelem mentése',
+  'chat.importFolder':
+  'chat.uploadFolder': 'Mappa feltöltése',
+  'chat.uploadNoProjectError': 'Indítson beszélgetést a fájlok feltöltése előtt',
   'chat.importFolder': 'Kódmappa hozzákapcsolása',
   'chat.importSkills': 'Skillek és designrendszerek',
   'chat.importProject': 'Reference another project',

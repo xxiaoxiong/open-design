@@ -586,6 +586,9 @@ export const ptBR: Dict = {
   'chat.importFig': 'Enviar arquivo .fig',
   'chat.importGitHub': 'Conectar GitHub',
   'chat.importWeb': 'Capturar elemento web',
+  'chat.importFolder':
+  'chat.uploadFolder': 'Enviar pasta',
+  'chat.uploadNoProjectError': 'Inicie uma conversa antes de enviar arquivos',
   'chat.importFolder': 'Vincular pasta de código',
   'chat.importSkills': 'Skills e sistemas de design',
   'chat.importProject': 'Reference another project',

@@ -562,6 +562,9 @@ export const th: Dict = {
   'chat.importFig': 'อัปโหลดไฟล์ Figma',
   'chat.importGitHub': 'ต่อ GitHub',
   'chat.importWeb': 'ดึงหน้าเว็บ',
+  'chat.importFolder':
+  'chat.uploadFolder': 'อัปโหลดโฟลเดอร์',
+  'chat.uploadNoProjectError': 'เริ่มการสนทนาก่อนอัปโหลดไฟล์',
   'chat.importFolder': 'ลิ้งก์โค้ดโฟลเดอร์',
   'chat.importSkills': 'ทักษะและระบบการออกแบบ',
   'chat.importProject': 'อ้างอิงโปรเจกต์อื่น',

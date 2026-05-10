@@ -574,6 +574,9 @@ export const ar: Dict = {
   'chat.importFig': 'رفع ملف .fig',
   'chat.importGitHub': 'ربط GitHub',
   'chat.importWeb': 'جلب عنصر ويب',
+  'chat.importFolder':
+  'chat.uploadFolder': 'تحميل مجلد',
+  'chat.uploadNoProjectError': 'ابدأ محادثة أولاً قبل تحميل الملفات',
   'chat.importFolder': 'ربط مجلد كود',
   'chat.importSkills': 'المهارات وأنظمة التصميم',
   'chat.importProject': 'Reference another project',

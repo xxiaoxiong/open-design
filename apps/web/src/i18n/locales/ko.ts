@@ -574,6 +574,9 @@ export const ko: Dict = {
   'chat.importFig': '.fig 파일 업로드',
   'chat.importGitHub': 'GitHub 연결',
   'chat.importWeb': '웹 요소 가져오기',
+  'chat.importFolder':
+  'chat.uploadFolder': '폴더 업로드',
+  'chat.uploadNoProjectError': '파일을 업로드하기 전에 먼저 대화를 시작하세요',
   'chat.importFolder': '코드 폴더 연결',
   'chat.importSkills': '스킬 및 디자인 시스템',
   'chat.importProject': 'Reference another project',
