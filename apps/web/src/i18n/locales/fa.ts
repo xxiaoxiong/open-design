@@ -587,7 +587,6 @@ export const fa: Dict = {
   'chat.importFig': 'آپلود فایل .fig',
   'chat.importGitHub': 'اتصال به GitHub',
   'chat.importWeb': 'گرفتن عنصر وب',
-  'chat.importFolder':
   'chat.uploadFolder': 'آپلود پوشه',
   'chat.uploadNoProjectError': 'ابتدا یک مکالمه شروع کنید قبل از آپلود فایل‌ها',
   'chat.importFolder': 'لینک کردن پوشه کد',

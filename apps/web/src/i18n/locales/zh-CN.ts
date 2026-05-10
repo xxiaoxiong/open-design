@@ -632,7 +632,6 @@ export const zhCN: Dict = {
   'chat.importFig': '上传 .fig 文件',
   'chat.importGitHub': '连接 GitHub',
   'chat.importWeb': '抓取网页元素',
-  'chat.importFolder':
   'chat.uploadFolder': '上传文件夹',
   'chat.uploadNoProjectError': '上传文件前请先开始对话',
   'chat.importFolder': '关联代码目录',

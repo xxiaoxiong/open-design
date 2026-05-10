@@ -574,7 +574,6 @@ export const fr: Dict = {
   'chat.importFig': 'Téléverser un fichier .fig',
   'chat.importGitHub': 'Connecter GitHub',
   'chat.importWeb': 'Capturer un élément web',
-  'chat.importFolder':
   'chat.uploadFolder': 'Télécharger un dossier',
   'chat.uploadNoProjectError': 'Démarrez une conversation avant de télécharger des fichiers',
   'chat.importFolder': 'Lier un dossier de code',

@@ -587,7 +587,6 @@ export const uk: Dict = {
   'chat.importFig': 'Завантажити файл .fig',
   'chat.importGitHub': 'Підключити GitHub',
   'chat.importWeb': 'Захопити веб-елемент',
-  'chat.importFolder':
   'chat.uploadFolder': 'Завантажити папку',
   'chat.uploadNoProjectError': 'Почніть розмову перед завантаженням файлів',
   'chat.importFolder': 'Пов\'язати папку коду',

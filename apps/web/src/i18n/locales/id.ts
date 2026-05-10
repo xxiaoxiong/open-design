@@ -677,7 +677,6 @@ export const id: Dict = {
   'chat.importFig': 'File desain',
   'chat.importGitHub': 'GitHub',
   'chat.importWeb': 'Web',
-  'chat.importFolder':
   'chat.uploadFolder': 'Unggah folder',
   'chat.uploadNoProjectError': 'Mulai percakapan terlebih dahulu sebelum mengunggah file',
   'chat.importFolder': 'Tautkan folder kode',
