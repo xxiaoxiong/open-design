@@ -125,20 +125,20 @@
       var iframe = document.getElementById('screen');
       
       if (screen) {
-        // Validate screen parameter to prevent path traversal
-        // Screen should be a valid file path (alphanumeric, hyphens, underscores, slashes, dots)
-        // and must end with .html
-        if (!/^[a-zA-Z0-9_\/-]+\.html$/.test(screen)) {
-          console.error('Invalid screen path:', screen);
-          return;
-        }
-        
         // If project ID is provided, resolve screen path as a project file.
         // Otherwise, treat screen as an absolute or relative URL (legacy behavior).
-        var src = project
-          ? '/api/projects/' + encodeURIComponent(project) + '/files/' + screen
-          : screen;
-        iframe.src = src;
+        if (project) {
+          // Validate screen parameter to prevent path traversal
+          // Screen should be a valid file path (alphanumeric, hyphens, underscores, slashes, dots)
+          // and must end with .html
+          if (!/^[a-zA-Z0-9_\/-]+\.html$/.test(screen)) {
+            console.error('Invalid screen path:', screen);
+            return;
+          }
+          iframe.src = '/api/projects/' + encodeURIComponent(project) + '/files/' + screen;
+        } else {
+          iframe.src = screen;
+        }
       }
       
       if (url) document.getElementById('url-text').textContent = url;
