@@ -429,6 +429,7 @@ const DE_SKILL_IDS_WITH_EN_FALLBACK = [
   'web-prototype-taste-editorial',
   'web-prototype-taste-soft',
   'waitlist-page',
+  'terms-of-service',
   'x-research',
   'trading-analysis-dashboard-template',
   'swiss-creative-mode-template',
