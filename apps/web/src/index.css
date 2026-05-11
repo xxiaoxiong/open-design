@@ -4275,6 +4275,30 @@ code {
   color: var(--text-muted);
   line-height: 1.4;
 }
+.template-option-delete {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  margin-top: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+}
+.template-option:hover .template-option-delete {
+  opacity: 1;
+}
+.template-option-delete:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
 .template-howto {
   display: flex;
   flex-direction: column;

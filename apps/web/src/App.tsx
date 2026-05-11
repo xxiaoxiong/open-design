@@ -844,6 +844,7 @@ export function App() {
           projectsLoading={projectsLoading}
           promptTemplatesLoading={promptTemplatesLoading}
           onCreateProject={handleCreateProject}
+          onTemplatesRefresh={refreshTemplates}
           onImportClaudeDesign={handleImportClaudeDesign}
           onImportFolder={handleImportFolder}
           onImportFolderResponse={handleImportFolderResponse}

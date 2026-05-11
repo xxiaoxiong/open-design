@@ -10,6 +10,7 @@ import type { ConnectorDetail, ImportFolderResponse } from '@open-design/contrac
 import { useT } from '../i18n';
 import type { Dict } from '../i18n/types';
 import { fetchPromptTemplate } from '../providers/registry';
+import { deleteTemplate } from '../state/projects';
 import { isStoredMediaProviderEntryPresent } from '../state/config';
 import type {
   AudioKind,
@@ -95,6 +96,7 @@ interface Props {
   templates: ProjectTemplate[];
   promptTemplates: PromptTemplateSummary[];
   onCreate: (input: CreateInput) => void;
+  onTemplateDeleted?: () => void;
   onImportClaudeDesign?: (file: File) => Promise<void> | void;
   // Web fallback: the user types an absolute baseDir into the manual
   // input and the renderer POSTs `/api/import/folder` itself. Browser
@@ -154,6 +156,7 @@ export function NewProjectPanel({
   templates,
   promptTemplates,
   onCreate,
+  onTemplateDeleted,
   onImportClaudeDesign,
   onImportFolder,
   onImportFolderResponse,
@@ -411,6 +414,28 @@ export function NewProjectPanel({
     setSelectedDsIds(ids);
   }
 
+  async function handleDeleteTemplate(id: string) {
+    const template = templates.find((t) => t.id === id);
+    if (!template) return;
+    
+    const confirmed = window.confirm(
+      t('newproj.deleteTemplateConfirm', { name: template.name })
+    );
+    if (!confirmed) return;
+
+    const success = await deleteTemplate(id);
+    if (success) {
+      // Clear selection if the deleted template was selected
+      if (templateId === id) {
+        setTemplateId(null);
+      }
+      // Notify parent to refresh the template list
+      onTemplateDeleted?.();
+    } else {
+      alert(t('newproj.deleteTemplateFailed'));
+    }
+  }
+
   useEffect(() => {
     const el = tabsRef.current;
     if (!el) return;
@@ -653,6 +678,7 @@ export function NewProjectPanel({
               templates={templates}
               value={templateId}
               onChange={setTemplateId}
+              onDelete={handleDeleteTemplate}
             />
             <ToggleRow
               label={t('newproj.toggleAnimations')}
@@ -1010,10 +1036,12 @@ function TemplatePicker({
   templates,
   value,
   onChange,
+  onDelete,
 }: {
   templates: ProjectTemplate[];
   value: string | null;
   onChange: (id: string | null) => void;
+  onDelete: (id: string) => void;
 }) {
   const t = useT();
   return (
@@ -1043,6 +1071,7 @@ function TemplatePicker({
                 onClick={() => onChange(tpl.id)}
                 name={tpl.name}
                 description={tpl.description ?? fallbackDesc}
+                onDelete={() => onDelete(tpl.id)}
               />
             );
           })}
@@ -1353,11 +1382,13 @@ function TemplateOption({
   onClick,
   name,
   description,
+  onDelete,
 }: {
   active: boolean;
   onClick: () => void;
   name: string;
   description: string;
+  onDelete?: () => void;
 }) {
   return (
     <button
@@ -1371,6 +1402,20 @@ function TemplateOption({
         <span className="template-option-name">{name}</span>
         <span className="template-option-desc">{description}</span>
       </span>
+      {onDelete ? (
+        <button
+          type="button"
+          className="template-option-delete"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          aria-label={`Delete ${name}`}
+          title={`Delete ${name}`}
+        >
+          <Icon name="close" size={12} />
+        </button>
+      ) : null}
     </button>
   );
 }

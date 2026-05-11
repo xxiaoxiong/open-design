@@ -405,6 +405,8 @@ export const en: Dict = {
   'newproj.savedTemplate': 'Saved template',
   'newproj.fileSingular': 'file',
   'newproj.filePlural': 'files',
+  'newproj.deleteTemplateConfirm': 'Delete template "{name}"?',
+  'newproj.deleteTemplateFailed': 'Could not delete template. Please try again.',
   'newproj.create': 'Create',
   'newproj.createLiveArtifact': 'Create live artifact',
   'newproj.createFromTemplate': 'Create from template',

@@ -57,6 +57,7 @@ interface Props {
   projectsLoading?: boolean;
   promptTemplatesLoading?: boolean;
   onCreateProject: (input: CreateInput & { pendingPrompt?: string }) => void;
+  onTemplatesRefresh?: () => void;
   onImportClaudeDesign: (file: File) => Promise<void> | void;
   onImportFolder?: (baseDir: string) => Promise<void> | void;
   onImportFolderResponse?: (response: ImportFolderResponse) => Promise<void> | void;
@@ -228,6 +229,7 @@ export function EntryView({
   projectsLoading = false,
   promptTemplatesLoading = false,
   onCreateProject,
+  onTemplatesRefresh,
   onImportClaudeDesign,
   onImportFolder,
   onImportFolderResponse,
@@ -478,6 +480,7 @@ export function EntryView({
           templates={templates}
           promptTemplates={promptTemplates}
           onCreate={handleCreate}
+          onTemplateDeleted={onTemplatesRefresh}
           onImportClaudeDesign={onImportClaudeDesign}
           onImportFolder={onImportFolder}
           onImportFolderResponse={onImportFolderResponse}
