@@ -1615,6 +1615,11 @@ export function ProjectView({
     async (id: string) => {
       const ok = await deleteConversationApi(project.id, id);
       if (!ok) return;
+      
+      // Refresh the project list so the home screen status updates
+      // (e.g., "Needs input" clears if the deleted conversation was blocking).
+      onProjectsRefresh?.();
+      
       setConversations((curr) => {
         const next = curr.filter((c) => c.id !== id);
         if (next.length === 0) {
@@ -1632,7 +1637,7 @@ export function ProjectView({
         return next;
       });
     },
-    [project.id, activeConversationId],
+    [project.id, activeConversationId, onProjectsRefresh],
   );
 
   const handleRenameConversation = useCallback(
