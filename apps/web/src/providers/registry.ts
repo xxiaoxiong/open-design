@@ -748,7 +748,9 @@ export type SkillExampleResult =
   // is the raw `od.preview.type` from SKILL.md so future preview kinds
   // can be picked up by name without a registry change. Issue #897.
   | { unavailable: true; kind: string }
-  | { error: string };
+  // Error with a specific code to distinguish different failure scenarios.
+  // Issue #1218.
+  | { error: string; errorCode?: 'not_found' | 'network' | 'server' };
 
 // Returns a discriminated result so callers can distinguish a real
 // failure (network error, daemon unreachable, non-2xx) from a normal
@@ -760,6 +762,11 @@ export type SkillExampleResult =
 // daemon-side). Anything other than `'html'` short-circuits to an
 // `unavailable` result so we don't fire a network call against a
 // daemon endpoint that only resolves HTML files. Issue #897.
+//
+// Error codes distinguish failure scenarios (Issue #1218):
+// - `not_found`: The skill has no shipped HTML preview (404)
+// - `network`: Network error or daemon unreachable
+// - `server`: Other HTTP errors (5xx, etc.)
 export async function fetchSkillExample(
   id: string,
   previewType: string = 'html',
@@ -770,12 +777,22 @@ export async function fetchSkillExample(
   try {
     const resp = await fetch(`/api/skills/${encodeURIComponent(id)}/example`);
     if (!resp.ok) {
+      if (resp.status === 404) {
+        // 404 means the skill has no shipped HTML preview asset, not that
+        // Open Design is down. Return unavailable instead of error so the
+        // modal shows a calm "no preview available" state instead of the
+        // misleading "Make sure Open Design is running" message. Issue #1218.
+        return { unavailable: true, kind: 'html' };
+      }
+      if (resp.status >= 500) {
+        return { error: `HTTP ${resp.status}`, errorCode: 'server' };
+      }
       return { error: `HTTP ${resp.status}` };
     }
     return { html: await resp.text() };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'network error';
-    return { error: message };
+    return { error: message, errorCode: 'network' };
   }
 }
 
