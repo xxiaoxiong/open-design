@@ -5579,8 +5579,21 @@ function TextViewer({
   useEffect(() => {
     setText(null);
     let cancelled = false;
-    void fetchProjectFileText(projectId, file.name).then((t) => {
-      if (!cancelled) setText(t ?? '');
+    void fetchProjectFileText(projectId, file.name).then((rawText) => {
+      if (cancelled) return;
+      let displayText = rawText ?? '';
+      
+      // Pretty-print JSON files for better readability (fixes #1199)
+      if (file.name.toLowerCase().endsWith('.json') && displayText.trim()) {
+        try {
+          const parsed = JSON.parse(displayText);
+          displayText = JSON.stringify(parsed, null, 2);
+        } catch {
+          // Not valid JSON or parse error — show raw text as-is
+        }
+      }
+      
+      setText(displayText);
     });
     return () => {
       cancelled = true;
