@@ -816,7 +816,11 @@ export const ar: Dict = {
   'fileViewer.saveAsTemplate': 'حفظ كقالب...',
   'fileViewer.savingTemplate': 'جاري حفظ القالب...',
   'fileViewer.savedTemplate': 'تم الحفظ باسم "{name}"',
+  'fileViewer.templateSaved': 'محفوظ',
+  'fileViewer.templateSaveSuccess': 'تم حفظ القالب بنجاح',
   'fileViewer.savedTemplateFail': 'تعذر حفظ القالب - حاول مرة أخرى.',
+  'fileViewer.templateSaved': 'محفوظ',
+  'fileViewer.templateSaveSuccess': 'تم حفظ القالب بنجاح',
   'fileViewer.templateNamePrompt': 'اسم القالب',
   'fileViewer.templateNameDefault': 'قالب بدون عنوان',
   'fileViewer.templateDescPrompt':

@@ -816,7 +816,11 @@ export const hu: Dict = {
   'fileViewer.saveAsTemplate': 'Mentés sablonként…',
   'fileViewer.savingTemplate': 'Sablon mentése…',
   'fileViewer.savedTemplate': 'Mentve „{name}" néven',
+  'fileViewer.templateSaved': 'Mentve',
+  'fileViewer.templateSaveSuccess': 'Sablon sikeresen mentve',
   'fileViewer.savedTemplateFail': 'A sablon mentése nem sikerült — próbáld újra.',
+  'fileViewer.templateSaved': 'Mentve',
+  'fileViewer.templateSaveSuccess': 'Sablon sikeresen mentve',
   'fileViewer.templateNamePrompt': 'Sablon neve',
   'fileViewer.templateNameDefault': 'Cím nélküli sablon',
   'fileViewer.templateDescPrompt':

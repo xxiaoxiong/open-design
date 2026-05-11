@@ -704,7 +704,11 @@ export const de: Dict = {
   'fileViewer.saveAsTemplate': 'Als Template speichern…',
   'fileViewer.savingTemplate': 'Template wird gespeichert…',
   'fileViewer.savedTemplate': 'Als „{name}“ gespeichert',
+  'fileViewer.templateSaved': 'Gespeichert',
+  'fileViewer.templateSaveSuccess': 'Vorlage erfolgreich gespeichert',
   'fileViewer.savedTemplateFail': 'Template konnte nicht gespeichert werden — bitte erneut versuchen.',
+  'fileViewer.templateSaved': 'Gespeichert',
+  'fileViewer.templateSaveSuccess': 'Vorlage erfolgreich gespeichert',
   'fileViewer.templateNamePrompt': 'Template-Name',
   'fileViewer.templateNameDefault': 'Template ohne Titel',
   'fileViewer.templateDescPrompt':

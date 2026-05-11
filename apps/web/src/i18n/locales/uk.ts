@@ -849,7 +849,11 @@ export const uk: Dict = {
   'fileViewer.saveAsTemplate': 'Зберегти як шаблон…',
   'fileViewer.savingTemplate': 'Збереження шаблону…',
   'fileViewer.savedTemplate': 'Збережено як "{name}"',
+  'fileViewer.templateSaved': 'Збережено',
+  'fileViewer.templateSaveSuccess': 'Шаблон успішно збережено',
   'fileViewer.savedTemplateFail': 'Не вдалося зберегти шаблон — спробуйте ще раз.',
+  'fileViewer.templateSaved': 'Збережено',
+  'fileViewer.templateSaveSuccess': 'Шаблон успішно збережено',
   'fileViewer.templateNamePrompt': 'Назва шаблону',
   'fileViewer.templateNameDefault': 'Шаблон без назви',
   'fileViewer.templateDescPrompt':

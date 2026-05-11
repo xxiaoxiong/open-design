@@ -807,7 +807,11 @@ export const tr: Dict = {
   'fileViewer.saveAsTemplate': 'Şablon olarak kaydet…',
   'fileViewer.savingTemplate': 'Şablon kaydediliyor…',
   'fileViewer.savedTemplate': '"{name}" olarak kaydedildi',
+  'fileViewer.templateSaved': 'Kaydedildi',
+  'fileViewer.templateSaveSuccess': 'Şablon başarıyla kaydedildi',
   'fileViewer.savedTemplateFail': 'Şablon olarak kaydedilemedi — yeniden deneyin.',
+  'fileViewer.templateSaved': 'Kaydedildi',
+  'fileViewer.templateSaveSuccess': 'Şablon başarıyla kaydedildi',
   'fileViewer.templateNamePrompt': 'Şablon ismi',
   'fileViewer.templateNameDefault': 'Başlıksız şablon',
   'fileViewer.templateDescPrompt':

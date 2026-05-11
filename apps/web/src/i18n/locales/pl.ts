@@ -816,7 +816,11 @@ export const pl: Dict = {
   'fileViewer.saveAsTemplate': 'Zapisz jako szablon…',
   'fileViewer.savingTemplate': 'Zapisywanie szablonu…',
   'fileViewer.savedTemplate': 'Zapisano jako „{name}”',
+  'fileViewer.templateSaved': 'Zapisano',
+  'fileViewer.templateSaveSuccess': 'Szablon zapisany pomyślnie',
   'fileViewer.savedTemplateFail': 'Nie udało się zapisać szablonu — spróbuj ponownie.',
+  'fileViewer.templateSaved': 'Zapisano',
+  'fileViewer.templateSaveSuccess': 'Szablon zapisany pomyślnie',
   'fileViewer.templateNamePrompt': 'Nazwa szablonu',
   'fileViewer.templateNameDefault': 'Szablon bez tytułu',
   'fileViewer.templateDescPrompt':

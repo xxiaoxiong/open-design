@@ -703,7 +703,11 @@ export const ja: Dict = {
   'fileViewer.saveAsTemplate': 'テンプレートとして保存…',
   'fileViewer.savingTemplate': 'テンプレートを保存中…',
   'fileViewer.savedTemplate': '"{name}" として保存しました',
+  'fileViewer.templateSaved': '保存済み',
+  'fileViewer.templateSaveSuccess': 'テンプレートを保存しました',
   'fileViewer.savedTemplateFail': 'テンプレートを保存できませんでした — もう一度試してください。',
+  'fileViewer.templateSaved': '保存済み',
+  'fileViewer.templateSaveSuccess': 'テンプレートを保存しました',
   'fileViewer.templateNamePrompt': 'テンプレート名',
   'fileViewer.templateNameDefault': '無題のテンプレート',
   'fileViewer.templateDescPrompt':

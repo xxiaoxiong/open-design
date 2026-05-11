@@ -831,7 +831,11 @@ export const fa: Dict = {
   'fileViewer.saveAsTemplate': 'ذخیره به عنوان قالب…',
   'fileViewer.savingTemplate': 'در حال ذخیره قالب…',
   'fileViewer.savedTemplate': 'به عنوان «{name}» ذخیره شد',
+  'fileViewer.templateSaved': 'ذخیره شد',
+  'fileViewer.templateSaveSuccess': 'الگو با موفقیت ذخیره شد',
   'fileViewer.savedTemplateFail': 'ذخیره قالب ناموفق بود — دوباره امتحان کنید.',
+  'fileViewer.templateSaved': 'ذخیره شد',
+  'fileViewer.templateSaveSuccess': 'الگو با موفقیت ذخیره شد',
   'fileViewer.templateNamePrompt': 'نام قالب',
   'fileViewer.templateNameDefault': 'قالب بدون عنوان',
   'fileViewer.templateDescPrompt':
