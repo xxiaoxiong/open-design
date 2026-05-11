@@ -60,7 +60,9 @@ Produce a friendly, helpful 404 error page that guides users back to useful cont
    - Large, readable typography for the 404 number (display token).
    - Links use DS link color with hover states.
    - `data-od-id` on visual, headline, body, search, links.
-5. **Self-check**:
+5. **Run the checklist** (`references/checklist.md`) before emitting the artifact.
+   Verify all P0 items pass. Address any P1 issues that are quick wins.
+6. **Self-check**:
    - Tone matches the DS mood (playful vs. professional).
    - Copy is helpful, not frustrating ("We couldn't find that page" not
      "Error 404: Resource not located").
