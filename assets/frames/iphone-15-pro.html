@@ -1,9 +1,14 @@
 <!doctype html>
 <!--
   Shared frame: iPhone 15 Pro (390 × 844).
-  Usage:  <iframe src="iphone-15-pro.html?screen=path/to/screen.html"></iframe>
+  Usage:  <iframe src="iphone-15-pro.html?screen=path/to/screen.html&project=PROJECT_ID"></iframe>
   Renders: the bezel + Dynamic Island + status bar + home indicator,
            with the ?screen content embedded as an iframe in the screen area.
+  
+  Parameters:
+    - screen: Path to the screen HTML file
+    - project: Project ID to resolve screen as a project file via /api/projects/{project}/files/{screen}
+               (omit to treat screen as an absolute or relative URL for legacy compatibility)
 -->
 <html lang="en">
 <head>
@@ -166,9 +171,24 @@
   <script>
     (function () {
       var qs = new URLSearchParams(location.search);
-      var src = qs.get('screen');
+      var screen = qs.get('screen');
+      var project = qs.get('project');
       var iframe = document.getElementById('screen');
-      if (src) iframe.src = src;
+      
+      if (screen) {
+        // If project ID is provided, resolve screen path as a project file.
+        // Otherwise, treat screen as an absolute or relative URL (legacy behavior).
+        if (project) {
+          // Validate screen parameter to prevent path traversal
+          if (!/^[a-zA-Z0-9_\/-]+\.html$/.test(screen)) {
+            console.error('Invalid screen path:', screen);
+            return;
+          }
+          iframe.src = '/api/projects/' + encodeURIComponent(project) + '/files/' + screen;
+        } else {
+          iframe.src = screen;
+        }
+      }
     })();
   </script>
 </body>

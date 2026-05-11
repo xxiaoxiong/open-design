@@ -243,13 +243,15 @@ project/
 Then in \`index.html\` use:
 
 \`\`\`html
-<iframe src="/frames/iphone-15-pro.html?screen=screens/01-onboarding.html"
+<iframe src="/frames/iphone-15-pro.html?screen=screens/01-onboarding.html&project=PROJECT_ID"
         width="390" height="844" loading="lazy"></iframe>
-<iframe src="/frames/iphone-15-pro.html?screen=screens/02-paywall.html"
+<iframe src="/frames/iphone-15-pro.html?screen=screens/02-paywall.html&project=PROJECT_ID"
         width="390" height="844" loading="lazy"></iframe>
-<iframe src="/frames/iphone-15-pro.html?screen=screens/03-home.html"
+<iframe src="/frames/iphone-15-pro.html?screen=screens/03-home.html&project=PROJECT_ID"
         width="390" height="844" loading="lazy"></iframe>
 \`\`\`
+
+Replace \`PROJECT_ID\` with the actual project identifier. The \`project\` parameter tells the frame to resolve \`screen\` paths as project files via \`/api/projects/{project}/files/{screen}\` instead of treating them as relative URLs.
 
 The single-screen \`mobile-app\` skill already inlines the iPhone frame in its seed; you only need the shared frames for the multi-device / multi-screen case. Don't re-draw — use these.
 
