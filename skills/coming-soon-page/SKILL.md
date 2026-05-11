@@ -23,7 +23,7 @@ od:
     requires: true
     sections: [color, typography, layout, components]
   craft:
-    requires: [typography, form-validation]
+    requires: [typography, form-validation, accessibility-baseline]
 ---
 
 # Coming Soon Page Skill
