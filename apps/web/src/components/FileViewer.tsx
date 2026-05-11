@@ -2959,6 +2959,7 @@ function HtmlViewer({
   // Template save UX. We surface a transient "Saved" pill in the share
   // menu so the user gets feedback without a noisy toast layer.
   const [savingTemplate, setSavingTemplate] = useState(false);
+  const [templateSaveSuccess, setTemplateSaveSuccess] = useState(false);
   const [templateNote, setTemplateNote] = useState<string | null>(null);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [templateName, setTemplateName] = useState('');
@@ -3932,6 +3933,7 @@ function HtmlViewer({
     setSavingTemplate(true);
     setTemplateNote(null);
     setTemplateSaveError(null);
+    setTemplateSaveSuccess(false);
     let savedName: string | null = null;
     try {
       const tpl = await saveTemplate({
@@ -3944,9 +3946,14 @@ function HtmlViewer({
         return;
       }
       savedName = tpl.name;
-      setTemplateModalOpen(false);
-      setTemplateName('');
-      setTemplateDescription('');
+      // Show success state for 1.5 seconds before closing
+      setTemplateSaveSuccess(true);
+      setTimeout(() => {
+        setTemplateModalOpen(false);
+        setTemplateName('');
+        setTemplateDescription('');
+        setTemplateSaveSuccess(false);
+      }, 1500);
       setTemplateNote(t('fileViewer.savedTemplate', { name: tpl.name }));
     } finally {
       setSavingTemplate(false);
@@ -4957,6 +4964,7 @@ function HtmlViewer({
                 />
               </label>
               {templateSaveError ? <p className="deploy-error">{templateSaveError}</p> : null}
+              {templateSaveSuccess ? <p className="deploy-success">{t('fileViewer.templateSaveSuccess')}</p> : null}
             </div>
             <div className="modal-foot">
               <button
@@ -4973,12 +4981,12 @@ function HtmlViewer({
               <button
                 type="button"
                 className="viewer-action primary"
-                disabled={savingTemplate || !templateName.trim()}
+                disabled={savingTemplate || templateSaveSuccess || !templateName.trim()}
                 onClick={() => {
                   void handleSaveAsTemplate();
                 }}
               >
-                {savingTemplate ? t('fileViewer.savingTemplate') : t('common.save')}
+                {savingTemplate ? t('fileViewer.savingTemplate') : templateSaveSuccess ? t('fileViewer.templateSaved') : t('common.save')}
               </button>
             </div>
           </div>

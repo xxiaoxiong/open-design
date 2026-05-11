@@ -10102,6 +10102,10 @@ button.ghost.mcp-copy-btn:hover:not(:disabled) {
   margin: 0;
   color: var(--red);
 }
+.deploy-success {
+  margin: 0;
+  color: var(--green);
+}
 .deploy-result-block {
   overflow: hidden;
   border: 1px solid var(--border);

@@ -885,6 +885,8 @@ export const en: Dict = {
   'fileViewer.saveAsTemplate': 'Save as template…',
   'fileViewer.savingTemplate': 'Saving template…',
   'fileViewer.savedTemplate': 'Saved as "{name}"',
+  'fileViewer.templateSaved': 'Saved',
+  'fileViewer.templateSaveSuccess': 'Template saved successfully',
   'fileViewer.savedTemplateFail': 'Could not save template — try again.',
   'fileViewer.templateNamePrompt': 'Template name',
   'fileViewer.templateNameDefault': 'Untitled template',

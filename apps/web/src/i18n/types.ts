@@ -1034,6 +1034,8 @@ export interface Dict {
   'fileViewer.saveAsTemplate': string;
   'fileViewer.savingTemplate': string;
   'fileViewer.savedTemplate': string;
+  'fileViewer.templateSaved': string;
+  'fileViewer.templateSaveSuccess': string;
   'fileViewer.savedTemplateFail': string;
   'fileViewer.templateNamePrompt': string;
   'fileViewer.templateNameDefault': string;
