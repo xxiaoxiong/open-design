@@ -318,6 +318,7 @@ export const FR_DESIGN_SYSTEM_CATEGORIES: Record<string, string> = {
 };
 
 export const FR_SKILL_IDS_WITH_EN_FALLBACK = [
+  'about-page',
   'clinical-case-report',
   'dcf-valuation',
   'editorial-burgundy-principles-template',

@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>About Us — Finwise</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      line-height: 1.6;
+      color: #1a1a1a;
+      background: #ffffff;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 80px 24px;
+    }
+    
+    .hero {
+      text-align: center;
+      margin-bottom: 120px;
+    }
+    
+    .hero h1 {
+      font-size: 56px;
+      font-weight: 700;
+      margin-bottom: 24px;
+      color: #0a0a0a;
+    }
+    
+    .hero p {
+      font-size: 24px;
+      color: #666;
+      max-width: 700px;
+      margin: 0 auto;
+    }
+    
+    .story {
+      max-width: 800px;
+      margin: 0 auto 120px;
+    }
+    
+    .story h2 {
+      font-size: 32px;
+      font-weight: 600;
+      margin-bottom: 32px;
+      color: #0a0a0a;
+    }
+    
+    .story p {
+      font-size: 18px;
+      line-height: 1.8;
+      color: #333;
+      margin-bottom: 24px;
+    }
+    
+    .mission {
+      text-align: center;
+      padding: 80px 24px;
+      background: #f8f9fa;
+      margin-bottom: 120px;
+    }
+    
+    .mission h2 {
+      font-size: 40px;
+      font-weight: 700;
+      color: #0a0a0a;
+      max-width: 900px;
+      margin: 0 auto;
+      line-height: 1.3;
+    }
+    
+    .values {
+      margin-bottom: 120px;
+    }
+    
+    .values h2 {
+      font-size: 32px;
+      font-weight: 600;
+      text-align: center;
+      margin-bottom: 64px;
+      color: #0a0a0a;
+    }
+    
+    .values-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 40px;
+    }
+    
+    .value-card {
+      text-align: center;
+      padding: 40px 24px;
+    }
+    
+    .value-icon {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 24px;
+      background: #e6f2ff;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .value-icon svg {
+      width: 32px;
+      height: 32px;
+      stroke: #0066cc;
+    }
+    
+    .value-card h3 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #0a0a0a;
+    }
+    
+    .value-card p {
+      font-size: 16px;
+      color: #666;
+      line-height: 1.6;
+    }
+    
+    .team {
+      margin-bottom: 120px;
+    }
+    
+    .team h2 {
+      font-size: 32px;
+      font-weight: 600;
+      text-align: center;
+      margin-bottom: 64px;
+      color: #0a0a0a;
+    }
+    
+    .team-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 48px;
+    }
+    
+    .team-member {
+      text-align: center;
+    }
+    
+    .member-avatar {
+      width: 120px;
+      height: 120px;
+      margin: 0 auto 20px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
+      font-weight: 600;
+      color: white;
+    }
+    
+    .member-avatar:nth-child(2) {
+      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    }
+    
+    .member-avatar:nth-child(3) {
+      background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    }
+    
+    .team-member h3 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #0a0a0a;
+    }
+    
+    .team-member .role {
+      font-size: 16px;
+      color: #0066cc;
+      margin-bottom: 12px;
+    }
+    
+    .team-member p {
+      font-size: 14px;
+      color: #666;
+      line-height: 1.5;
+    }
+    
+    .milestones {
+      max-width: 800px;
+      margin: 0 auto 120px;
+    }
+    
+    .milestones h2 {
+      font-size: 32px;
+      font-weight: 600;
+      text-align: center;
+      margin-bottom: 64px;
+      color: #0a0a0a;
+    }
+    
+    .timeline {
+      position: relative;
+      padding-left: 40px;
+    }
+    
+    .timeline::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: #e5e5e5;
+    }
+    
+    .milestone {
+      position: relative;
+      margin-bottom: 48px;
+    }
+    
+    .milestone::before {
+      content: '';
+      position: absolute;
+      left: -45px;
+      top: 4px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #0066cc;
+      border: 3px solid white;
+      box-shadow: 0 0 0 2px #0066cc;
+    }
+    
+    .milestone-year {
+      font-size: 14px;
+      font-weight: 600;
+      color: #0066cc;
+      margin-bottom: 8px;
+    }
+    
+    .milestone h3 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #0a0a0a;
+    }
+    
+    .milestone p {
+      font-size: 16px;
+      color: #666;
+      line-height: 1.6;
+    }
+    
+    .stats {
+      background: #f8f9fa;
+      padding: 80px 24px;
+      margin-bottom: 120px;
+    }
+    
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 48px;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    
+    .stat {
+      text-align: center;
+    }
+    
+    .stat-number {
+      font-size: 56px;
+      font-weight: 700;
+      color: #0066cc;
+      margin-bottom: 8px;
+    }
+    
+    .stat-label {
+      font-size: 16px;
+      color: #666;
+    }
+    
+    .cta {
+      text-align: center;
+      padding: 80px 24px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    
+    .cta h2 {
+      font-size: 40px;
+      font-weight: 700;
+      margin-bottom: 24px;
+    }
+    
+    .cta p {
+      font-size: 20px;
+      margin-bottom: 32px;
+      opacity: 0.9;
+    }
+    
+    .cta-button {
+      display: inline-block;
+      padding: 16px 40px;
+      background: white;
+      color: #667eea;
+      text-decoration: none;
+      border-radius: 8px;
+      font-size: 18px;
+      font-weight: 600;
+      transition: transform 0.2s;
+    }
+    
+    .cta-button:hover {
+      transform: translateY(-2px);
+    }
+    
+    @media (max-width: 768px) {
+      .container {
+        padding: 40px 20px;
+      }
+      
+      .hero h1 {
+        font-size: 40px;
+      }
+      
+      .hero p {
+        font-size: 20px;
+      }
+      
+      .mission h2 {
+        font-size: 32px;
+      }
+      
+      .values h2,
+      .team h2,
+      .milestones h2 {
+        font-size: 28px;
+      }
+      
+      .values-grid,
+      .team-grid {
+        grid-template-columns: 1fr;
+      }
+      
+      .cta h2 {
+        font-size: 32px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="hero" data-od-id="hero">
+      <h1>Building the future of investing</h1>
+      <p>We're making financial markets accessible to everyone, one trade at a time.</p>
+    </div>
+    
+    <div class="story" data-od-id="story">
+      <h2>Our Story</h2>
+      <p>
+        Finwise was born in 2020 when our founders realized that traditional investing 
+        platforms were built for Wall Street, not Main Street. After years of working 
+        in finance, they saw firsthand how complex fees, confusing interfaces, and 
+        minimum balance requirements kept millions of people from building wealth.
+      </p>
+      <p>
+        We started with a simple question: What if investing was as easy as sending 
+        a text message? That question led us to build a platform that removes barriers, 
+        eliminates hidden fees, and puts powerful investment tools in everyone's hands.
+      </p>
+      <p>
+        Today, we're a team of builders, designers, and financial experts working to 
+        democratize access to financial markets. We believe that everyone deserves the 
+        opportunity to grow their wealth, regardless of their starting point.
+      </p>
+    </div>
+  </div>
+  
+  <div class="mission" data-od-id="mission">
+    <h2>Our mission is to make investing accessible, transparent, and empowering for everyone.</h2>
+  </div>
+  
+  <div class="container">
+    <div class="values" data-od-id="values">
+      <h2>Our Values</h2>
+      <div class="values-grid">
+        <div class="value-card">
+          <div class="value-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+          </div>
+          <h3>Transparency</h3>
+          <p>No hidden fees, no fine print. We believe in honest, straightforward communication about costs and risks.</p>
+        </div>
+        
+        <div class="value-card">
+          <div class="value-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
+            </svg>
+          </div>
+          <h3>Accessibility</h3>
+          <p>Financial tools should work for everyone, regardless of experience level or account size.</p>
+        </div>
+        
+        <div class="value-card">
+          <div class="value-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
+              <polyline points="22 4 12 14.01 9 11.01"/>
+            </svg>
+          </div>
+          <h3>Simplicity</h3>
+          <p>Complex doesn't mean better. We design for clarity and ease of use at every step.</p>
+        </div>
+      </div>
+    </div>
+    
+    <div class="team" data-od-id="team">
+      <h2>Meet the Team</h2>
+      <div class="team-grid">
+        <div class="team-member">
+          <div class="member-avatar">SJ</div>
+          <h3>Sarah Johnson</h3>
+          <div class="role">Co-Founder & CEO</div>
+          <p>Former VP at Goldman Sachs, passionate about financial inclusion.</p>
+        </div>
+        
+        <div class="team-member">
+          <div class="member-avatar">MC</div>
+          <h3>Michael Chen</h3>
+          <div class="role">Co-Founder & CTO</div>
+          <p>Ex-Google engineer with a decade of fintech experience.</p>
+        </div>
+        
+        <div class="team-member">
+          <div class="member-avatar">EP</div>
+          <h3>Emily Park</h3>
+          <div class="role">Head of Product</div>
+          <p>Product leader from Stripe, focused on user experience.</p>
+        </div>
+        
+        <div class="team-member">
+          <div class="member-avatar">DM</div>
+          <h3>David Martinez</h3>
+          <div class="role">Head of Engineering</div>
+          <p>Infrastructure expert who scaled systems at Coinbase.</p>
+        </div>
+        
+        <div class="team-member">
+          <div class="member-avatar">LW</div>
+          <h3>Lisa Wang</h3>
+          <div class="role">Head of Design</div>
+          <p>Design lead from Airbnb, believer in accessible interfaces.</p>
+        </div>
+      </div>
+    </div>
+    
+    <div class="milestones" data-od-id="milestones">
+      <h2>Our Journey</h2>
+      <div class="timeline">
+        <div class="milestone">
+          <div class="milestone-year">2020</div>
+          <h3>Founded</h3>
+          <p>Finwise was founded with a mission to democratize investing.</p>
+        </div>
+        
+        <div class="milestone">
+          <div class="milestone-year">2021</div>
+          <h3>Seed Funding</h3>
+          <p>Raised $5M in seed funding from top fintech investors.</p>
+        </div>
+        
+        <div class="milestone">
+          <div class="milestone-year">2022</div>
+          <h3>Public Launch</h3>
+          <p>Launched our platform to the public with zero-commission trading.</p>
+        </div>
+        
+        <div class="milestone">
+          <div class="milestone-year">2023</div>
+          <h3>Series A</h3>
+          <p>Closed $25M Series A to expand our product offerings.</p>
+        </div>
+        
+        <div class="milestone">
+          <div class="milestone-year">2024</div>
+          <h3>100K Users</h3>
+          <p>Reached 100,000 active users managing over $500M in assets.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="stats" data-od-id="stats">
+    <div class="stats-grid">
+      <div class="stat">
+        <div class="stat-number">100K+</div>
+        <div class="stat-label">Active Users</div>
+      </div>
+      
+      <div class="stat">
+        <div class="stat-number">$500M+</div>
+        <div class="stat-label">Assets Under Management</div>
+      </div>
+      
+      <div class="stat">
+        <div class="stat-number">$0</div>
+        <div class="stat-label">Commission Fees</div>
+      </div>
+      
+      <div class="stat">
+        <div class="stat-number">24/7</div>
+        <div class="stat-label">Customer Support</div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="cta" data-od-id="cta">
+    <h2>Join Us</h2>
+    <p>We're always looking for talented people who share our mission.</p>
+    <a href="#" class="cta-button">View Open Positions</a>
+  </div>
+</body>
+</html>

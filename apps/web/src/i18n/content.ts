@@ -365,6 +365,7 @@ const DE_DESIGN_SYSTEM_CATEGORIES: Record<string, string> = {
 };
 
 const DE_SKILL_IDS_WITH_EN_FALLBACK = [
+  'about-page',
   'clinical-case-report',
   'dcf-valuation',
   'editorial-burgundy-principles-template',
