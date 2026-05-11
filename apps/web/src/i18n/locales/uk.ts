@@ -352,6 +352,8 @@ export const uk: Dict = {
   'newproj.savedTemplate': 'Збережений шаблон',
   'newproj.fileSingular': 'файл',
   'newproj.filePlural': 'файли',
+  'newproj.deleteTemplateConfirm': 'Видалити шаблон "{name}"?',
+  'newproj.deleteTemplateFailed': 'Не вдалося видалити шаблон. Спробуйте ще раз.',
   'newproj.create': 'Створити',
   'newproj.createLiveArtifact': 'Створити live-артефакт',
   'newproj.createFromTemplate': 'Створити з шаблону',

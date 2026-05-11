@@ -247,6 +247,8 @@ export const esES: Dict = {
   'newproj.savedTemplate': 'Plantilla guardada',
   'newproj.fileSingular': 'archivo',
   'newproj.filePlural': 'archivos',
+  'newproj.deleteTemplateConfirm': '¿Eliminar plantilla "{name}"?',
+  'newproj.deleteTemplateFailed': 'No se pudo eliminar la plantilla. Por favor, inténtelo de nuevo.',
   'newproj.create': 'Crear',
   'newproj.createFromTemplate': 'Crear desde plantilla',
   'newproj.createDisabledTitle':

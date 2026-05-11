@@ -349,6 +349,8 @@ export const ko: Dict = {
   'newproj.savedTemplate': '저장된 템플릿',
   'newproj.fileSingular': '파일',
   'newproj.filePlural': '파일들',
+  'newproj.deleteTemplateConfirm': '템플릿 "{name}"을(를) 삭제하시겠습니까?',
+  'newproj.deleteTemplateFailed': '템플릿을 삭제할 수 없습니다. 다시 시도해 주세요.',
   'newproj.create': '생성',
   'newproj.createFromTemplate': '템플릿으로 생성',
   'newproj.createDisabledTitle':

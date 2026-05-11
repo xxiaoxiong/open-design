@@ -352,6 +352,8 @@ export const fa: Dict = {
   'newproj.savedTemplate': 'قالب ذخیره شده',
   'newproj.fileSingular': 'فایل',
   'newproj.filePlural': 'فایل',
+  'newproj.deleteTemplateConfirm': 'حذف الگو "{name}"؟',
+  'newproj.deleteTemplateFailed': 'حذف الگو ناموفق بود. لطفاً دوباره تلاش کنید.',
   'newproj.create': 'ایجاد',
   'newproj.createLiveArtifact': 'ایجاد مصنوع زنده',
   'newproj.createFromTemplate': 'ایجاد از قالب',

@@ -343,6 +343,8 @@ export const tr: Dict = {
   'newproj.savedTemplate': 'Şablon kaydedildi',
   'newproj.fileSingular': 'dosya',
   'newproj.filePlural': 'dosyalar',
+  'newproj.deleteTemplateConfirm': '"{name}" şablonu silinsin mi?',
+  'newproj.deleteTemplateFailed': 'Şablon silinemedi. Lütfen tekrar deneyin.',
   'newproj.create': 'Oluştur',
   'newproj.createFromTemplate': 'Şablondan oluştur',
   'newproj.createDisabledTitle':

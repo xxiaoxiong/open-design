@@ -336,6 +336,8 @@ export const th: Dict = {
   'newproj.savedTemplate': 'เทมเพลตที่บันทึกแล้ว',
   'newproj.fileSingular': 'ไฟล์',
   'newproj.filePlural': 'ไฟล์',
+  'newproj.deleteTemplateConfirm': 'ลบเทมเพลต "{name}"?',
+  'newproj.deleteTemplateFailed': 'ไม่สามารถลบเทมเพลตได้ กรุณาลองอีกครั้ง',
   'newproj.create': 'สร้าง',
   'newproj.createLiveArtifact': 'สร้าง live artifact',
   'newproj.createFromTemplate': 'สร้างจากเทมเพลต',

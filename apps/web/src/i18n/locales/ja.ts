@@ -246,6 +246,8 @@ export const ja: Dict = {
   'newproj.savedTemplate': '保存済みテンプレート',
   'newproj.fileSingular': 'ファイル',
   'newproj.filePlural': 'ファイル',
+  'newproj.deleteTemplateConfirm': 'テンプレート「{name}」を削除しますか？',
+  'newproj.deleteTemplateFailed': 'テンプレートを削除できませんでした。もう一度お試しください。',
   'newproj.create': '作成',
   'newproj.createFromTemplate': 'テンプレートから作成',
   'newproj.createDisabledTitle':

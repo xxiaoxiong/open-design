@@ -349,6 +349,8 @@ export const pl: Dict = {
   'newproj.savedTemplate': 'Zapisany szablon',
   'newproj.fileSingular': 'plik',
   'newproj.filePlural': 'pliki',
+  'newproj.deleteTemplateConfirm': 'Usunąć szablon "{name}"?',
+  'newproj.deleteTemplateFailed': 'Nie udało się usunąć szablonu. Spróbuj ponownie.',
   'newproj.create': 'Utwórz',
   'newproj.createFromTemplate': 'Utwórz z szablonu',
   'newproj.createDisabledTitle':

@@ -448,6 +448,8 @@ export const id: Dict = {
   'newproj.savedTemplate': 'Templat tersimpan',
   'newproj.fileSingular': 'berkas',
   'newproj.filePlural': 'berkas',
+  'newproj.deleteTemplateConfirm': 'Hapus templat "{name}"?',
+  'newproj.deleteTemplateFailed': 'Tidak dapat menghapus templat. Silakan coba lagi.',
   'newproj.create': 'Buat',
   'newproj.createLiveArtifact': 'Buat live artifact',
   'newproj.createFromTemplate': 'Buat dari templat',

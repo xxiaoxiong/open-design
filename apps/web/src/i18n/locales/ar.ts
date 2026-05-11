@@ -349,6 +349,8 @@ export const ar: Dict = {
   'newproj.savedTemplate': 'قالب محفوظ',
   'newproj.fileSingular': 'ملف',
   'newproj.filePlural': 'ملفات',
+  'newproj.deleteTemplateConfirm': 'حذف القالب "{name}"؟',
+  'newproj.deleteTemplateFailed': 'تعذر حذف القالب. يرجى المحاولة مرة أخرى.',
   'newproj.create': 'إنشاء',
   'newproj.createFromTemplate': 'إنشاء من قالب',
   'newproj.createDisabledTitle':

@@ -246,6 +246,8 @@ export const de: Dict = {
   'newproj.savedTemplate': 'Gespeichertes Template',
   'newproj.fileSingular': 'Datei',
   'newproj.filePlural': 'Dateien',
+  'newproj.deleteTemplateConfirm': 'Vorlage "{name}" löschen?',
+  'newproj.deleteTemplateFailed': 'Vorlage konnte nicht gelöscht werden. Bitte versuchen Sie es erneut.',
   'newproj.create': 'Erstellen',
   'newproj.createFromTemplate': 'Aus Template erstellen',
   'newproj.createDisabledTitle':

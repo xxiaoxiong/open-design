@@ -350,6 +350,8 @@ export const ptBR: Dict = {
   'newproj.savedTemplate': 'Template salvo',
   'newproj.fileSingular': 'arquivo',
   'newproj.filePlural': 'arquivos',
+  'newproj.deleteTemplateConfirm': 'Excluir modelo "{name}"?',
+  'newproj.deleteTemplateFailed': 'Não foi possível excluir o modelo. Tente novamente.',
   'newproj.create': 'Criar',
   'newproj.createLiveArtifact': 'Criar artefato live',
   'newproj.createFromTemplate': 'Criar a partir do template',

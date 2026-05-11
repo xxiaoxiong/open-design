@@ -349,6 +349,8 @@ export const hu: Dict = {
   'newproj.savedTemplate': 'Mentett sablon',
   'newproj.fileSingular': 'fájl',
   'newproj.filePlural': 'fájl',
+  'newproj.deleteTemplateConfirm': 'Törli a(z) "{name}" sablont?',
+  'newproj.deleteTemplateFailed': 'A sablon törlése sikertelen. Kérjük, próbálja újra.',
   'newproj.create': 'Létrehozás',
   'newproj.createFromTemplate': 'Létrehozás sablonból',
   'newproj.createDisabledTitle':

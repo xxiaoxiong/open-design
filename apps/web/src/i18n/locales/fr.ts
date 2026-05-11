@@ -349,6 +349,8 @@ export const fr: Dict = {
   'newproj.savedTemplate': 'Modèle enregistré',
   'newproj.fileSingular': 'fichier',
   'newproj.filePlural': 'fichiers',
+  'newproj.deleteTemplateConfirm': 'Supprimer le modèle "{name}" ?',
+  'newproj.deleteTemplateFailed': 'Impossible de supprimer le modèle. Veuillez réessayer.',
   'newproj.create': 'Créer',
   'newproj.createFromTemplate': 'Créer depuis le modèle',
   'newproj.createDisabledTitle':
