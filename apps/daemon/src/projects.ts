@@ -33,7 +33,18 @@ export function projectDir(projectsRoot, projectId) {
 export function resolveProjectDir(projectsRoot, projectId, metadata?) {
   if (typeof metadata?.baseDir === 'string') {
     const p = path.normalize(metadata.baseDir);
-    if (path.isAbsolute(p)) return p;
+    if (path.isAbsolute(p)) {
+      // Reject dangerous paths that would break template creation/deletion
+      if (p === '/' || p === '\\') {
+        throw new Error('Root directory (/) is not allowed as a custom path');
+      }
+      // Reject system directories
+      const dangerousPaths = ['/bin', '/boot', '/dev', '/etc', '/lib', '/proc', '/root', '/sbin', '/sys', '/usr', '/var'];
+      if (dangerousPaths.some(dangerous => p === dangerous || p.startsWith(dangerous + '/'))) {
+        throw new Error('System directories are not allowed as custom paths');
+      }
+      return p;
+    }
   }
   if (!isSafeId(projectId)) throw new Error('invalid project id');
   return path.join(projectsRoot, projectId);
