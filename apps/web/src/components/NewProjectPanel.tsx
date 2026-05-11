@@ -468,9 +468,25 @@ export function NewProjectPanel({
     if (!onImportFolder) return;
     const trimmed = baseDir.trim();
     if (!trimmed) return;
+    
+    // Validate path before attempting import
+    if (!trimmed.startsWith('/')) {
+      setImportFolderError({
+        message: 'Invalid path',
+        details: 'Path must be an absolute path starting with /',
+      });
+      return;
+    }
+    
+    setImportFolderError(null);
     setImportingFolder(true);
     try {
       await onImportFolder(trimmed);
+    } catch (err) {
+      setImportFolderError({
+        message: 'Failed to import folder',
+        details: err instanceof Error ? err.message : 'Unknown error',
+      });
     } finally {
       setImportingFolder(false);
     }
