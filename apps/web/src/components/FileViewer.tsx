@@ -1506,6 +1506,7 @@ function BoardComposerPopover({
   onSaveComment,
   onSendBatch,
   onRemove,
+  onRemovePodMember,
   sending,
   t,
 }: {
@@ -1520,6 +1521,7 @@ function BoardComposerPopover({
   onSaveComment: () => void | Promise<void>;
   onSendBatch: () => void | Promise<void>;
   onRemove: (commentId: string) => void | Promise<void>;
+  onRemovePodMember?: (elementId: string) => void;
   sending: boolean;
   t: TranslateFn;
 }) {
@@ -1556,7 +1558,18 @@ function BoardComposerPopover({
           <div className="board-pod-members">
             {podMembers.slice(0, 6).map((member) => (
               <span key={member.elementId} className="board-pod-chip">
-                {summarizeMember(member)}
+                <span className="board-pod-chip-label">{summarizeMember(member)}</span>
+                {onRemovePodMember ? (
+                  <button
+                    type="button"
+                    className="board-pod-chip-remove"
+                    onClick={() => onRemovePodMember(member.elementId)}
+                    aria-label={t('chat.comments.removePodMember', { name: member.label || member.elementId })}
+                    title={t('chat.comments.removePodMember', { name: member.label || member.elementId })}
+                  >
+                    ×
+                  </button>
+                ) : null}
               </span>
             ))}
           </div>
@@ -4874,6 +4887,21 @@ function HtmlViewer({
                   if (!onRemovePreviewComment) return;
                   await onRemovePreviewComment(commentId);
                   clearBoardComposer();
+                }}
+                onRemovePodMember={(elementId) => {
+                  if (activeCommentTarget.selectionKind !== 'pod' || !activeCommentTarget.podMembers) return;
+                  const updatedMembers = activeCommentTarget.podMembers.filter(
+                    (member) => member.elementId !== elementId
+                  );
+                  if (updatedMembers.length === 0) {
+                    clearBoardComposer();
+                    return;
+                  }
+                  setActiveCommentTarget({
+                    ...activeCommentTarget,
+                    podMembers: updatedMembers,
+                    memberCount: updatedMembers.length,
+                  });
                 }}
                 sending={sendingBoardBatch || streaming}
                 t={t}

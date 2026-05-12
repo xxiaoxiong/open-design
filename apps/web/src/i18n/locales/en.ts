@@ -602,6 +602,7 @@ export const en: Dict = {
   'chat.comments.add': 'Add',
   'chat.comments.addAll': 'Add all',
   'chat.comments.remove': 'Remove',
+  'chat.comments.removePodMember': 'Remove {name} from pod',
   'chat.comments.placeholder': 'Comment on this element…',
   'chat.comments.addSend': 'Add & send',
   'chat.comments.updateSend': 'Update & send',
