@@ -287,6 +287,7 @@ export function MemorySection() {
   // fetch on mount + live SSE updates merged by id so phase transitions
   // (running → success) replace the row in place.
   const [extractions, setExtractions] = useState<MemoryExtractionRecord[]>([]);
+  const [refreshingExtractions, setRefreshingExtractions] = useState(false);
 
   const fireFlash = useCallback((kind: FlashKind) => {
     setFlash({ kind, key: Date.now() });
@@ -327,7 +328,12 @@ export function MemorySection() {
   }, []);
 
   const reloadExtractions = useCallback(async () => {
-    setExtractions(await fetchExtractions());
+    setRefreshingExtractions(true);
+    try {
+      setExtractions(await fetchExtractions());
+    } finally {
+      setRefreshingExtractions(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -923,11 +929,14 @@ export function MemorySection() {
             type="button"
             className="ghost"
             onClick={() => void reloadExtractions()}
+            disabled={refreshingExtractions}
             title={t('settings.memoryExtractionsRefresh')}
           >
             <Icon name="refresh" size={12} />{' '}
             <span style={{ marginLeft: 4 }}>
-              {t('settings.memoryExtractionsRefresh')}
+              {refreshingExtractions
+                ? t('settings.memoryExtractionsRefreshing')
+                : t('settings.memoryExtractionsRefresh')}
             </span>
           </button>
         </div>
