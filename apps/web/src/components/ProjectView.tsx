@@ -2141,6 +2141,18 @@ export function ProjectView({
   // shortcut wiring. Close to the JSX so the data flow is easy to
   // trace from the toolbar back to its sources.
   const handleFinalize = useCallback(() => {
+    // Gate finalize when required provider config is missing (#1348).
+    // The daemon returns BAD_REQUEST when apiKey or model is empty, but
+    // we should prevent the request from being sent in the first place
+    // and show a clear preflight message instead.
+    if (!config.apiKey || !config.model) {
+      setProjectActionsToast({
+        message: 'Cannot finalize: API key and model are required.',
+        details: 'Configure your provider in Settings → Execution before finalizing.',
+      });
+      return;
+    }
+
     void finalize.trigger({
       apiKey: config.apiKey,
       baseUrl: config.baseUrl,
