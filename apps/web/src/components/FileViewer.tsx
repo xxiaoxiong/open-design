@@ -81,6 +81,7 @@ import {
 } from '../edit-mode/source-patches';
 import type { ManualEditBridgeMessage, ManualEditHistoryEntry, ManualEditPatch, ManualEditTarget } from '../edit-mode/types';
 import { isRenderableSketchJson, SketchPreview } from './SketchPreview';
+import { Toast } from './Toast';
 
 type TranslateFn = (key: keyof Dict, vars?: Record<string, string | number>) => string;
 type SlideState = { active: number; count: number };
@@ -2968,6 +2969,7 @@ function HtmlViewer({
   const [templateName, setTemplateName] = useState('');
   const [templateDescription, setTemplateDescription] = useState('');
   const [templateSaveError, setTemplateSaveError] = useState<string | null>(null);
+  const [templateToast, setTemplateToast] = useState<{ message: string; isError: boolean } | null>(null);
   const [deployment, setDeployment] = useState<WebDeploymentInfo | null>(null);
   const [deploymentsByProvider, setDeploymentsByProvider] = useState<Partial<Record<WebDeployProviderId, WebDeploymentInfo>>>({});
   const [deployModalOpen, setDeployModalOpen] = useState(false);
@@ -3936,6 +3938,7 @@ function HtmlViewer({
     setSavingTemplate(true);
     setTemplateNote(null);
     setTemplateSaveError(null);
+    setTemplateToast(null);
     let savedName: string | null = null;
     try {
       const tpl = await saveTemplate({
@@ -3944,14 +3947,18 @@ function HtmlViewer({
         sourceProjectId: projectId,
       });
       if (!tpl) {
-        setTemplateSaveError(t('fileViewer.savedTemplateFail'));
+        const errorMsg = t('fileViewer.savedTemplateFail');
+        setTemplateSaveError(errorMsg);
+        setTemplateToast({ message: errorMsg, isError: true });
         return;
       }
       savedName = tpl.name;
+      const successMsg = t('fileViewer.savedTemplate', { name: tpl.name });
+      setTemplateToast({ message: successMsg, isError: false });
       setTemplateModalOpen(false);
       setTemplateName('');
       setTemplateDescription('');
-      setTemplateNote(t('fileViewer.savedTemplate', { name: tpl.name }));
+      setTemplateNote(successMsg);
     } finally {
       setSavingTemplate(false);
       if (savedName) {
@@ -5240,6 +5247,12 @@ function HtmlViewer({
             </div>
           </div>
         </div>
+      ) : null}
+      {templateToast ? (
+        <Toast
+          message={templateToast.message}
+          onDismiss={() => setTemplateToast(null)}
+        />
       ) : null}
     </div>
   );
