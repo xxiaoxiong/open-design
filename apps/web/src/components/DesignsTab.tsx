@@ -371,7 +371,14 @@ export function DesignsTab({
 										) : (
 											<span>{t("designs.cardFreeform")}</span>
 										)}
-										{skill ? ` · ${skill}` : ""}
+										{skill ? (
+											<>
+												{" · "}
+												<span className="design-card-skill" title={skill}>
+													{skill}
+												</span>
+											</>
+										) : null}
 										{" · "}
 										<span
 											className={`design-card-status design-card-status-${status}`}
@@ -458,7 +465,14 @@ export function DesignsTab({
 														) : (
 															<span>{t("designs.cardFreeform")}</span>
 														)}
-														{skill ? ` · ${skill}` : ""}
+														{skill ? (
+															<>
+																{" · "}
+																<span className="design-card-skill" title={skill}>
+																	{skill}
+																</span>
+															</>
+														) : null}
 														{sub === "recent"
 															? ` · ${relativeTime(p.updatedAt, t)}`
 															: sub === "yours"

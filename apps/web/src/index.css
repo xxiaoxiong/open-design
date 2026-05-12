@@ -6470,6 +6470,14 @@ button.connector-action.is-loading {
 .design-card-meta .ds {
   color: var(--accent);
 }
+.design-card-skill {
+  display: inline-block;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
 .design-card-status {
   font-weight: 500;
 }
