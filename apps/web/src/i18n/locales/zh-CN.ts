@@ -167,6 +167,7 @@ export const zhCN: Dict = {
   'settings.mediaProviderReloadError': '无法从本地守护进程重新加载媒体提供方设置。',
   'settings.mediaProviderReloadSuccess': '已从本地守护进程重新加载媒体提供方设置。',
   'settings.mediaProviderLoadError': '无法从本地守护进程加载媒体提供方设置。当前将使用浏览器中保存的设置。',
+  'settings.mediaProviderSaved': '{name} 设置已保存',
   'settings.privacy': '隐私',
   'settings.privacyHint': '与 Open Design 团队共享哪些数据',
   'settings.privacyConsentKicker': '帮助我们改进 Open Design',

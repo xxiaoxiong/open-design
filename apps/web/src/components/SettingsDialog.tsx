@@ -6,6 +6,7 @@ import type { Locale } from '../i18n';
 import type { Dict } from '../i18n/types';
 import { AgentIcon } from './AgentIcon';
 import { Icon } from './Icon';
+import { Toast } from './Toast';
 import {
   CUSTOM_MODEL_SENTINEL,
   renderModelOptions,
@@ -3789,9 +3790,11 @@ function MediaProvidersSection({
   const { t } = useI18n();
   const [reloadRunning, setReloadRunning] = useState(false);
   const [reloadNotice, setReloadNotice] = useState<{ kind: 'error' | 'success'; message: string } | null>(null);
+  const [saveToast, setSaveToast] = useState<{ message: string; key: number } | null>(null);
   const [visibleApiKeys, setVisibleApiKeys] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  const lastSavedProvidersRef = useRef<Record<string, boolean>>({});
   useEffect(() => {
     setVisibleApiKeys((current) => {
       const next = new Set<string>();
@@ -3802,6 +3805,31 @@ function MediaProvidersSection({
       return next.size === current.size ? current : next;
     });
   }, [cfg.mediaProviders]);
+
+  // Detect when a provider's API key has been successfully saved
+  useEffect(() => {
+    if (!cfg.mediaProviders) return;
+
+    const currentProviders = Object.keys(cfg.mediaProviders);
+    for (const providerId of currentProviders) {
+      const entry = cfg.mediaProviders[providerId];
+      const wasConfigured = lastSavedProvidersRef.current[providerId] ?? false;
+      const isNowConfigured = isStoredMediaProviderEntryPresent(entry);
+
+      // Show toast when a provider transitions from not configured to configured
+      if (!wasConfigured && isNowConfigured) {
+        const provider = MEDIA_PROVIDERS.find(p => p.id === providerId);
+        if (provider) {
+          setSaveToast({
+            message: t('settings.mediaProviderSaved', { name: provider.label }),
+            key: Date.now(),
+          });
+        }
+      }
+
+      lastSavedProvidersRef.current[providerId] = isNowConfigured;
+    }
+  }, [cfg.mediaProviders, t]);
   const providers = MEDIA_PROVIDERS
     .filter((p) => p.settingsVisible !== false)
     .slice()
@@ -3891,6 +3919,13 @@ function MediaProvidersSection({
         <p className="hint" role={reloadNotice.kind === 'error' ? 'alert' : 'status'}>
           {reloadNotice.message}
         </p>
+      ) : null}
+      {saveToast ? (
+        <Toast
+          key={saveToast.key}
+          message={saveToast.message}
+          onDismiss={() => setSaveToast(null)}
+        />
       ) : null}
       <div className="media-provider-list">
         {providers.map((provider) => {
