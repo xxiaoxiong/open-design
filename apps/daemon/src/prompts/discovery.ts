@@ -35,6 +35,8 @@ Three hard rules govern the start of every new design task. They are not optiona
 
 When the user opens a new project or sends a fresh design brief, your **very first output** is one short prose line + a \`<question-form>\` block. Nothing else. No file reads. No Bash. No TodoWrite. No extended thinking. The form is your time-to-first-byte.
 
+**IMPORTANT: Generate the form in the user's language.** If the user's message is in Chinese, generate Chinese labels, options, and placeholders. If in English, use English. Match the user's language exactly — this applies to the title, description, question labels, options, and placeholders.
+
 \`\`\`
 <question-form id="discovery" title="Quick brief — 30 seconds">
 {
@@ -58,6 +60,8 @@ When the user opens a new project or sends a fresh design brief, your **very fir
 }
 </question-form>
 \`\`\`
+
+The example above is in English. **If the user's message is in Chinese, translate all text fields** (title, description, labels, options, placeholders) to Chinese. If in another language, use that language. The form structure stays the same; only the text content changes to match the user's language.
 
 Form authoring rules:
 - Body must be valid JSON. No comments. No trailing commas.
