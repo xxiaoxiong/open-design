@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { APP_CHROME_FILE_ACTIONS_ID } from './AppChromeHeader';
+import { Toast } from './Toast';
 import { MarkdownRenderer, artifactRendererRegistry } from '../artifacts/renderer-registry';
 import { renderMarkdownToSafeHtml } from '../artifacts/markdown';
 import { useT, useI18n } from '../i18n';
@@ -397,6 +398,7 @@ export function LiveArtifactViewer({
   const [refreshHistory, setRefreshHistory] = useState<LiveArtifactRefreshLogEntry[]>([]);
   const [presentMenuOpen, setPresentMenuOpen] = useState(false);
   const [inTabPresent, setInTabPresent] = useState(false);
+  const [exportToast, setExportToast] = useState<string | null>(null);
   const previewBodyRef = useRef<HTMLDivElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const presentWrapRef = useRef<HTMLDivElement | null>(null);
@@ -4623,15 +4625,25 @@ function HtmlViewer({
                     type="button"
                     className="share-menu-item"
                     role="menuitem"
-                    onClick={() => {
+                    onClick={async () => {
                       setShareMenuOpen(false);
-                      void exportProjectAsPdf({
-                        deck: effectiveDeck,
-                        fallbackPdf: () => exportAsPdf(source ?? '', exportTitle, { deck: effectiveDeck }),
-                        filePath: file.name,
-                        projectId,
-                        title: exportTitle,
-                      });
+                      try {
+                        await exportProjectAsPdf({
+                          deck: effectiveDeck,
+                          fallbackPdf: () => exportAsPdf(source ?? '', exportTitle, { deck: effectiveDeck }),
+                          filePath: file.name,
+                          projectId,
+                          title: exportTitle,
+                        });
+                        setExportToast(
+                          effectiveDeck
+                            ? t('fileViewer.exportPdfSuccess')
+                            : t('fileViewer.exportPdfSuccess')
+                        );
+                      } catch (err) {
+                        console.error('[exportProjectAsPdf] failed:', err);
+                        setExportToast(t('fileViewer.exportPdfError'));
+                      }
                     }}
                   >
                     <span className="share-menu-icon"><Icon name="file" size={14} /></span>
@@ -4666,14 +4678,20 @@ function HtmlViewer({
                     type="button"
                     className="share-menu-item"
                     role="menuitem"
-                    onClick={() => {
+                    onClick={async () => {
                       setShareMenuOpen(false);
-                      void exportProjectAsZip({
-                        projectId,
-                        filePath: file.name,
-                        fallbackHtml: source ?? '',
-                        fallbackTitle: exportTitle,
-                      });
+                      try {
+                        await exportProjectAsZip({
+                          projectId,
+                          filePath: file.name,
+                          fallbackHtml: source ?? '',
+                          fallbackTitle: exportTitle,
+                        });
+                        setExportToast(t('fileViewer.exportZipSuccess'));
+                      } catch (err) {
+                        console.error('[exportProjectAsZip] failed:', err);
+                        setExportToast(t('fileViewer.exportZipError'));
+                      }
                     }}
                   >
                     <span className="share-menu-icon"><Icon name="download" size={14} /></span>
@@ -4686,6 +4704,7 @@ function HtmlViewer({
                     onClick={() => {
                       setShareMenuOpen(false);
                       exportAsHtml(source ?? '', exportTitle);
+                      setExportToast(t('fileViewer.exportHtmlSuccess'));
                     }}
                   >
                     <span className="share-menu-icon"><Icon name="file-code" size={14} /></span>
@@ -4704,6 +4723,7 @@ function HtmlViewer({
                     onClick={() => {
                       setShareMenuOpen(false);
                       exportAsMd(source ?? '', exportTitle);
+                      setExportToast(t('fileViewer.exportMdSuccess'));
                     }}
                   >
                     <span className="share-menu-icon"><Icon name="file" size={14} /></span>
@@ -5310,6 +5330,9 @@ function HtmlViewer({
             </div>
           </div>
         </div>
+      ) : null}
+      {exportToast ? (
+        <Toast message={exportToast} onDismiss={() => setExportToast(null)} />
       ) : null}
     </div>
   );
