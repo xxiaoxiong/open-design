@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import { deleteLiveArtifact, fetchLiveArtifacts } from "../providers/registry";
+import { deleteProject } from "../state/projects";
 import type {
 	DesignSystemSummary,
 	LiveArtifactSummary,
@@ -23,6 +24,53 @@ type DesignListItem =
 			updatedAt: number;
 			createdAt: number;
 	  };
+
+interface ConfirmModalProps {
+	isOpen: boolean;
+	title: string;
+	message: string;
+	projectNames?: string[];
+	onConfirm: () => void;
+	onCancel: () => void;
+	t: ReturnType<typeof useT>;
+}
+
+function ConfirmModal({
+	isOpen,
+	title,
+	message,
+	projectNames,
+	onConfirm,
+	onCancel,
+	t,
+}: ConfirmModalProps) {
+	if (!isOpen) return null;
+
+	return (
+		<div className="modal-overlay" onClick={onCancel}>
+			<div className="modal-content" onClick={(e) => e.stopPropagation()}>
+				<h2>{title}</h2>
+				<p>{message}</p>
+				{projectNames && projectNames.length > 0 && (
+					<div className="bulk-delete-list">
+						<p>{t("designs.bulkDelete.confirm.list")}</p>
+						<ul>
+							{projectNames.map((name, i) => (
+								<li key={i}>{name}</li>
+							))}
+						</ul>
+					</div>
+				)}
+				<div className="modal-actions">
+					<button onClick={onCancel}>{t("common.cancel")}</button>
+					<button onClick={onConfirm} className="danger">
+						{t("common.delete")}
+					</button>
+				</div>
+			</div>
+		</div>
+	);
+}
 
 const DESIGNS_VIEW_STORAGE_KEY = "od:designs:view";
 
@@ -68,6 +116,9 @@ export function DesignsTab({
 	const t = useT();
 	const [filter, setFilter] = useState("");
 	const [sub, setSub] = useState<SubTab>("recent");
+	const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(new Set());
+	const [showConfirmModal, setShowConfirmModal] = useState(false);
+	const [toastMessage, setToastMessage] = useState<string | null>(null);
 	const [liveArtifactsByProject, setLiveArtifactsByProject] = useState<
 		Record<string, LiveArtifactSummary[]>
 	>({});
@@ -187,10 +238,84 @@ export function DesignsTab({
 		}));
 	};
 
+	const handleToggleProject = (projectId: string) => {
+		setSelectedProjectIds((prev) => {
+			const next = new Set(prev);
+			if (next.has(projectId)) {
+				next.delete(projectId);
+			} else {
+				next.add(projectId);
+			}
+			return next;
+		});
+	};
+
+	const handleSelectAll = () => {
+		const projectIds = filteredProjects.map((item) => item.project.id);
+		setSelectedProjectIds(new Set(projectIds));
+	};
+
+	const handleDeselectAll = () => {
+		setSelectedProjectIds(new Set());
+	};
+
+	const handleBulkDelete = async () => {
+		setShowConfirmModal(false);
+		const idsToDelete = Array.from(selectedProjectIds);
+		let successCount = 0;
+
+		for (const id of idsToDelete) {
+			const success = await deleteProject(id);
+			if (success) {
+				successCount++;
+				onDelete(id);
+			}
+		}
+
+		setSelectedProjectIds(new Set());
+
+		if (successCount === idsToDelete.length) {
+			setToastMessage(t("designs.bulkDelete.success", { count: successCount }));
+		} else {
+			setToastMessage(
+				t("designs.bulkDelete.partialFailure", {
+					success: successCount,
+					total: idsToDelete.length,
+				}),
+			);
+		}
+
+		setTimeout(() => setToastMessage(null), 3000);
+	};
+
+	const selectedProjects = useMemo(() => {
+		return projects.filter((p) => selectedProjectIds.has(p.id));
+	}, [projects, selectedProjectIds]);
+
 	return (
 		<div
 			className={`tab-panel${view === "kanban" ? " design-kanban-view" : ""}`}
 		>
+			{toastMessage && (
+				<div className="toast-notification">
+					{toastMessage}
+				</div>
+			)}
+			<ConfirmModal
+				isOpen={showConfirmModal}
+				title={t("designs.bulkDelete.confirm.title", {
+					count: selectedProjectIds.size,
+				})}
+				message={t("designs.bulkDelete.confirm.message")}
+				projectNames={
+					selectedProjectIds.size <= 5
+						? selectedProjects.map((p) => p.name)
+						: undefined
+				}
+				onConfirm={handleBulkDelete}
+				onCancel={() => setShowConfirmModal(false)}
+				t={t}
+			/>
 			<div className="tab-panel-toolbar">
 				<div className="toolbar-left">
 					<div
@@ -213,6 +338,41 @@ export function DesignsTab({
 							{t("designs.subYours")}
 						</button>
 					</div>
+					{filteredProjects.length > 0 && (
+						<div className="bulk-actions">
+							{selectedProjectIds.size === 0 ? (
+								<button
+									className="select-all-btn"
+									onClick={handleSelectAll}
+									title={t("designs.bulkDelete.selectAll")}
+								>
+									{t("designs.bulkDelete.selectAll")}
+								</button>
+							) : (
+								<>
+									<button
+										className="deselect-all-btn"
+										onClick={handleDeselectAll}
+										title={t("designs.bulkDelete.deselectAll")}
+									>
+										{t("designs.bulkDelete.deselectAll")}
+									</button>
+									<button
+										className="bulk-delete-btn"
+										onClick={() => setShowConfirmModal(true)}
+										title={t("designs.bulkDelete.button", {
+											count: selectedProjectIds.size,
+										})}
+									>
+										<Icon name="trash" size={14} />
+										{t("designs.bulkDelete.button", {
+											count: selectedProjectIds.size,
+										})}
+									</button>
+								</>
+							)}
+						</div>
+					)}
 				</div>
 				<div className="toolbar-right">
 					<div className="toolbar-search">
@@ -328,10 +488,11 @@ export function DesignsTab({
 
 						const liveCount = liveArtifactsByProject[p.id]?.length ?? 0;
 						const status = p.status?.value ?? "not_started";
+						const isSelected = selectedProjectIds.has(p.id);
 						return (
 							<div
 								key={p.id}
-								className="design-card"
+								className={`design-card${isSelected ? " selected" : ""}`}
 								role="button"
 								tabIndex={0}
 								onClick={() => onOpen(p.id)}
@@ -342,6 +503,19 @@ export function DesignsTab({
 									}
 								}}
 							>
+								<div className="design-card-checkbox-wrapper">
+									<input
+										type="checkbox"
+										className="design-card-checkbox"
+										checked={isSelected}
+										onChange={(e) => {
+											e.stopPropagation();
+											handleToggleProject(p.id);
+										}}
+										onClick={(e) => e.stopPropagation()}
+										aria-label={`Select ${p.name}`}
+									/>
+								</div>
 								<button
 									className="design-card-close"
 									title={t("designs.deleteTitle")}

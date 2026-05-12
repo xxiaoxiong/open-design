@@ -16969,3 +16969,197 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
 .routines-status-succeeded { background: #e3efe6; color: #2e7d5b; }
 .routines-status-failed { background: #f6dfdc; color: #b3382b; }
 .routines-status-canceled { background: #ece9e2; color: var(--text-muted); }
+
+/* Bulk delete feature styles */
+.bulk-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: 12px;
+}
+
+.select-all-btn,
+.deselect-all-btn {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.select-all-btn:hover,
+.deselect-all-btn:hover {
+  background: var(--bg-subtle);
+  border-color: var(--text);
+}
+
+.bulk-delete-btn {
+  background: var(--red);
+  border: 1px solid var(--red);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  font-size: 13px;
+  color: white;
+  cursor: pointer;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.bulk-delete-btn:hover {
+  background: #8a2420;
+  border-color: #8a2420;
+}
+
+.design-card-checkbox-wrapper {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+}
+
+.design-card-checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.design-card.selected {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: var(--shadow-lg);
+}
+
+.modal-content h2 {
+  margin: 0 0 12px 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.modal-content p {
+  margin: 0 0 16px 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.bulk-delete-list {
+  margin: 16px 0;
+  padding: 12px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.bulk-delete-list p {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.bulk-delete-list ul {
+  margin: 0;
+  padding-left: 20px;
+  list-style: disc;
+}
+
+.bulk-delete-list li {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 4px 0;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.modal-actions button {
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.modal-actions button:first-child {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+}
+
+.modal-actions button:first-child:hover {
+  background: var(--bg-subtle);
+  border-color: var(--text);
+}
+
+.modal-actions button.danger {
+  background: var(--red);
+  border: 1px solid var(--red);
+  color: white;
+}
+
+.modal-actions button.danger:hover {
+  background: #8a2420;
+  border-color: #8a2420;
+}
+
+.toast-notification {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--text-strong);
+  color: var(--bg-panel);
+  padding: 12px 20px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  font-size: 14px;
+  font-weight: 500;
+  z-index: 1001;
+  animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(100px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
