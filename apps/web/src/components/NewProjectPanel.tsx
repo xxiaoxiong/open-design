@@ -176,6 +176,7 @@ export function NewProjectPanel({
   const [importFolderError, setImportFolderError] = useState<
     { message: string; details?: string } | null
   >(null);
+  const [importFolderSuccess, setImportFolderSuccess] = useState<string | null>(null);
   const [tab, setTab] = useState<CreateTab>('prototype');
   const tabsRef = useRef<HTMLDivElement | null>(null);
   const [tabScroll, setTabScroll] = useState({ left: false, right: false });
@@ -534,8 +535,15 @@ export function NewProjectPanel({
     const trimmed = baseDir.trim();
     if (!trimmed) return;
     setImportingFolder(true);
+    setImportFolderError(null);
+    setImportFolderSuccess(null);
     try {
       await onImportFolder(trimmed);
+      setImportFolderSuccess(`Folder opened successfully: ${trimmed}`);
+    } catch (err) {
+      setImportFolderError({
+        message: `Open folder failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+      });
     } finally {
       setImportingFolder(false);
     }
@@ -784,6 +792,14 @@ export function NewProjectPanel({
           details={importFolderError.details ?? null}
           ttlMs={6000}
           onDismiss={() => setImportFolderError(null)}
+        />
+      ) : null}
+      {importFolderSuccess ? (
+        <Toast
+          message={importFolderSuccess}
+          details={null}
+          ttlMs={3000}
+          onDismiss={() => setImportFolderSuccess(null)}
         />
       ) : null}
     </div>
