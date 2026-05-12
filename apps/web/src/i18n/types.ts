@@ -1297,6 +1297,8 @@ export interface Dict {
   'assistant.unfinishedSummary': string;
   'assistant.unfinishedMore': string;
   'assistant.continueRemaining': string;
+  'assistant.runFailed': string;
+  'assistant.retry': string;
   'assistant.outTokens': string;
   'assistant.producedFiles': string;
   'assistant.openFile': string;

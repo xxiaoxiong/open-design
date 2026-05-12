@@ -1744,6 +1744,34 @@ export function ProjectView({
     [currentConversationActionDisabled, handleSend],
   );
 
+  const handleRetry = useCallback(
+    (_assistantMessage: ChatMessage) => {
+      if (currentConversationActionDisabled) return;
+      // Find the last user message before this assistant message
+      const assistantIndex = messages.findIndex((m) => m.id === _assistantMessage.id);
+      if (assistantIndex <= 0) return;
+
+      // Look backwards from the assistant message to find the preceding user message
+      let lastUserMessage: ChatMessage | null = null;
+      for (let i = assistantIndex - 1; i >= 0; i--) {
+        if (messages[i]!.role === 'user') {
+          lastUserMessage = messages[i]!;
+          break;
+        }
+      }
+
+      if (!lastUserMessage) return;
+
+      // Resend the last user message with its original attachments and comment attachments
+      void handleSend(
+        lastUserMessage.content,
+        lastUserMessage.attachments ?? [],
+        lastUserMessage.commentAttachments ?? [],
+      );
+    },
+    [currentConversationActionDisabled, handleSend, messages],
+  );
+
   const handleExportAsPptx = useCallback(
     (fileName: string) => {
       if (currentConversationActionDisabled) return;
@@ -2336,6 +2364,7 @@ export function ProjectView({
                 void handleSend(text, [], []);
               }}
               onContinueRemainingTasks={handleContinueRemainingTasks}
+              onRetry={handleRetry}
               onNewConversation={handleNewConversation}
               newConversationDisabled={newConversationDisabled}
               conversations={conversations}

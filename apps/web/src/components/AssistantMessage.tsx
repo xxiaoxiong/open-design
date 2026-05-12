@@ -43,6 +43,7 @@ interface Props {
   // to AssistantMessage; ProjectView wires it into onSend.
   onSubmitForm?: (text: string) => void;
   onContinueRemainingTasks?: (todos: TodoItem[]) => void;
+  onRetry?: () => void;
 }
 
 /**
@@ -64,6 +65,7 @@ export function AssistantMessage({
   nextUserContent,
   onSubmitForm,
   onContinueRemainingTasks,
+  onRetry,
 }: Props) {
   const t = useT();
   const events = message.events ?? [];
@@ -80,11 +82,17 @@ export function AssistantMessage({
   const runSucceeded =
     !streaming &&
     (message.runStatus === "succeeded" || (!message.runStatus && !!message.endedAt));
+  const runFailed = !streaming && message.runStatus === "failed";
   const canContinueTodos =
     !streaming &&
     !!isLast &&
     unfinishedTodos.length > 0 &&
     !!onContinueRemainingTasks;
+  const canRetry =
+    !streaming &&
+    !!isLast &&
+    runFailed &&
+    !!onRetry;
   // Track which forms the user submitted in this session so we lock them
   // immediately on click (without waiting for the parent to re-render).
   const [locallySubmitted, setLocallySubmitted] = useState<Set<string>>(
@@ -155,6 +163,9 @@ export function AssistantMessage({
             canContinue={canContinueTodos}
             onContinue={() => onContinueRemainingTasks?.(unfinishedTodos)}
           />
+        ) : null}
+        {canRetry ? (
+          <RetryPanel onRetry={onRetry} />
         ) : null}
         <AssistantFooter
           streaming={streaming}
@@ -306,6 +317,39 @@ function UnfinishedTodosPanel({
         ))}
       </ul>
       {hiddenCount > 0 ? (
+        <div className="unfinished-todos-more">
+          {t("assistant.unfinishedMore", { n: hiddenCount })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RetryPanel({
+  onRetry,
+}: {
+  onRetry: () => void;
+}) {
+  const t = useT();
+  return (
+    <div className="unfinished-todos">
+      <div className="unfinished-todos-head">
+        <span className="unfinished-todos-title">
+          {t("assistant.runFailed")}
+        </span>
+        <button
+          type="button"
+          className="unfinished-todos-continue"
+          onClick={onRetry}
+        >
+          {t("assistant.retry")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ProducedFiles({
         <div className="unfinished-todos-more">
           {t("assistant.unfinishedMore", { n: hiddenCount })}
         </div>

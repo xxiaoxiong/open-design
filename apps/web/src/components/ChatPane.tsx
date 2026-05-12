@@ -228,6 +228,7 @@ interface Props {
   // routes that text through onSend (no attachments).
   onSubmitForm?: (text: string) => void;
   onContinueRemainingTasks?: (assistantMessage: ChatMessage, todos: TodoItem[]) => void;
+  onRetry?: (assistantMessage: ChatMessage) => void;
   // Header "+" button — kicks off ProjectView's create-conversation flow.
   onNewConversation?: () => void;
   newConversationDisabled?: boolean;
@@ -279,6 +280,7 @@ export function ChatPane({
   initialDraft,
   onSubmitForm,
   onContinueRemainingTasks,
+  onRetry,
   onNewConversation,
   newConversationDisabled = false,
   conversations,
@@ -711,6 +713,11 @@ export function ChatPane({
                         onContinueRemainingTasks={
                           m.id === lastAssistantId && onContinueRemainingTasks
                             ? (todos) => onContinueRemainingTasks(m, todos)
+                            : undefined
+                        }
+                        onRetry={
+                          m.id === lastAssistantId && onRetry
+                            ? () => onRetry(m)
                             : undefined
                         }
                       />
