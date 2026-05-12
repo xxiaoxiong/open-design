@@ -317,6 +317,10 @@ code {
 .app-chrome-traffic-space {
   width: var(--app-chrome-traffic-space);
   flex: 0 0 var(--app-chrome-traffic-space);
+  /* Add extra spacing after the traffic light controls on macOS to prevent
+     the window controls from crowding the brand logo. The gap applies between
+     traffic-space and brand, giving the controls breathing room. */
+  margin-right: 8px;
 }
 .app-chrome-brand {
   display: inline-flex;
