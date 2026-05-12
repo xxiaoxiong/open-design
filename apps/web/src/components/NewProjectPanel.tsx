@@ -69,6 +69,43 @@ function formatPickAndImportErrorDetails(details: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * Validates a file path for importing a folder project.
+ * Returns an error message if the path is invalid, or null if valid.
+ */
+function validateFilePath(path: string): string | null {
+  // Check if path is just root directory
+  if (path === '/' || path === '//') {
+    return 'Root directory "/" is not a valid project path. Please specify a project directory.';
+  }
+
+  // Check if path is just whitespace or empty after trim
+  if (path.trim().length === 0) {
+    return 'Path cannot be empty.';
+  }
+
+  // Check for obviously invalid patterns
+  if (path.includes('//')) {
+    return 'Path contains invalid double slashes.';
+  }
+
+  // On Unix-like systems, absolute paths should start with /
+  // On Windows, paths can start with drive letters (C:, D:, etc.)
+  const isUnixAbsolute = path.startsWith('/');
+  const isWindowsAbsolute = /^[a-zA-Z]:/.test(path);
+
+  if (!isUnixAbsolute && !isWindowsAbsolute) {
+    return 'Please provide an absolute path (e.g., /home/user/project or C:\\Users\\project).';
+  }
+
+  // Check for paths that are too short to be meaningful
+  if (isUnixAbsolute && path.length <= 2) {
+    return 'Path is too short. Please specify a valid project directory.';
+  }
+
+  return null;
+}
+
 // Snapshot of a curated prompt template, captured at New Project time and
 // folded into ProjectMetadata.promptTemplate. The user may have edited the
 // prompt body before clicking Create — that edited copy lives here.
@@ -533,9 +570,26 @@ export function NewProjectPanel({
     if (!onImportFolder) return;
     const trimmed = baseDir.trim();
     if (!trimmed) return;
+
+    // Validate the file path before attempting to import
+    const validationError = validateFilePath(trimmed);
+    if (validationError) {
+      setImportFolderError({
+        message: 'Invalid file path',
+        details: validationError,
+      });
+      return;
+    }
+
+    setImportFolderError(null);
     setImportingFolder(true);
     try {
       await onImportFolder(trimmed);
+    } catch (error) {
+      setImportFolderError({
+        message: 'Failed to import folder',
+        details: error instanceof Error ? error.message : 'Unknown error occurred',
+      });
     } finally {
       setImportingFolder(false);
     }
