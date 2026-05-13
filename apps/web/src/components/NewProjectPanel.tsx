@@ -100,7 +100,7 @@ interface Props {
   // input and the renderer POSTs `/api/import/folder` itself. Browser
   // builds have no `shell.openPath` surface, so the renderer naming a
   // path here cannot escalate (PR #974 trust model).
-  onImportFolder?: (baseDir: string) => Promise<void> | void;
+  onImportFolder?: (baseDir: string) => Promise<boolean> | boolean;
   // Electron flow: the desktop main process owns the picker dialog and
   // the import call atomically (`pickAndImport` IPC). The renderer
   // never sees the path or the HMAC token; it only receives the
@@ -176,7 +176,6 @@ export function NewProjectPanel({
   const [importFolderError, setImportFolderError] = useState<
     { message: string; details?: string } | null
   >(null);
-  const [importFolderSuccess, setImportFolderSuccess] = useState<string | null>(null);
   const [tab, setTab] = useState<CreateTab>('prototype');
   const tabsRef = useRef<HTMLDivElement | null>(null);
   const [tabScroll, setTabScroll] = useState({ left: false, right: false });
@@ -536,10 +535,17 @@ export function NewProjectPanel({
     if (!trimmed) return;
     setImportingFolder(true);
     setImportFolderError(null);
-    setImportFolderSuccess(null);
     try {
-      await onImportFolder(trimmed);
-      setImportFolderSuccess(`Folder opened successfully: ${trimmed}`);
+      const success = await onImportFolder(trimmed);
+      if (success) {
+        // Success: the parent will navigate away, so this component
+        // will unmount before the toast can be shown. No need to set
+        // success state here.
+      } else {
+        setImportFolderError({
+          message: `Failed to open folder: ${trimmed}`,
+        });
+      }
     } catch (err) {
       setImportFolderError({
         message: `Open folder failed: ${err instanceof Error ? err.message : 'unknown error'}`,
@@ -792,14 +798,6 @@ export function NewProjectPanel({
           details={importFolderError.details ?? null}
           ttlMs={6000}
           onDismiss={() => setImportFolderError(null)}
-        />
-      ) : null}
-      {importFolderSuccess ? (
-        <Toast
-          message={importFolderSuccess}
-          details={null}
-          ttlMs={3000}
-          onDismiss={() => setImportFolderSuccess(null)}
         />
       ) : null}
     </div>
