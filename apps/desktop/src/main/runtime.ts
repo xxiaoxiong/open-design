@@ -439,6 +439,7 @@ const MAC_WINDOW_CHROME =
 const MAC_WINDOW_CHROME_CSS = `
   .app-chrome-header {
     --app-chrome-traffic-space: 56px !important;
+    --app-chrome-traffic-margin: 8px !important;
     -webkit-app-region: drag;
   }
   .app-chrome-traffic-space {

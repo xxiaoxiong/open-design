@@ -303,6 +303,7 @@ code {
 
 .app-chrome-header {
   --app-chrome-traffic-space: 0px;
+  --app-chrome-traffic-margin: 0px; /* Set to 8px on macOS */
   display: flex;
   align-items: center;
   height: 40px;
@@ -318,9 +319,10 @@ code {
   width: var(--app-chrome-traffic-space);
   flex: 0 0 var(--app-chrome-traffic-space);
   /* Add extra spacing after the traffic light controls on macOS to prevent
-     the window controls from crowding the brand logo. The gap applies between
-     traffic-space and brand, giving the controls breathing room. */
-  margin-right: 8px;
+     the window controls from crowding the brand logo. The daemon sets both
+     --app-chrome-traffic-space (80px) and --app-chrome-traffic-margin (8px)
+     on macOS, while other platforms keep both at 0px. */
+  margin-right: var(--app-chrome-traffic-margin);
 }
 .app-chrome-brand {
   display: inline-flex;
