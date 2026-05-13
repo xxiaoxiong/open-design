@@ -3,8 +3,8 @@ import type { Writable } from 'node:stream';
 import path from 'node:path';
 
 const ACP_PROTOCOL_VERSION = 1;
-const DEFAULT_TIMEOUT_MS = 15_000;
-const DEFAULT_STAGE_TIMEOUT_MS = 180_000;
+const DEFAULT_TIMEOUT_MS = Number(process.env.OD_ACP_TIMEOUT_MS) || 15_000;
+const DEFAULT_STAGE_TIMEOUT_MS = Number(process.env.OD_ACP_STAGE_TIMEOUT_MS) || 180_000;
 
 type JsonRpcId = string | number;
 type JsonObject = Record<string, unknown>;
