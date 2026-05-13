@@ -1258,6 +1258,10 @@ export const id: Dict = {
   'settings.notifySoundBuzz': 'Buzz',
   'settings.notifySoundTwoToneDown': 'Dua nada turun',
   'settings.notifySoundThud': 'Thud',
+
+  'settings.skillsNameRequired': 'Skill name is required',
+
+  'settings.skillsBodyRequired': 'Skill body is required',
   'settings.skills': 'Keterampilan',
   'settings.skillsHint': 'Keterampilan fungsional yang dapat dipanggil agen saat tugas',
   'settings.skillsNew': 'Keterampilan baru',

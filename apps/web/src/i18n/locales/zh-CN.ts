@@ -1239,6 +1239,10 @@ export const zhCN: Dict = {
   'settings.notifySoundBuzz': '蜂鸣',
   'settings.notifySoundTwoToneDown': '下行双音',
   'settings.notifySoundThud': '低响',
+
+  'settings.skillsNameRequired': '技能名称为必填项',
+
+  'settings.skillsBodyRequired': '技能内容为必填项',
   'settings.skills': '技能',
   'settings.skillsHint': '智能体在任务中可以调用的功能技能',
   'settings.skillsNew': '新建技能',
@@ -1253,8 +1257,7 @@ export const zhCN: Dict = {
   'settings.skillsCreate': '创建',
   'settings.skillsSave': '保存',
   'settings.skillsSaving': '保存中…',
-  'settings.skillsNameRequired': '技能名称为必填项。',
-  'settings.skillsBodyRequired': '技能内容为必填项。',
+settings.skillsBodyRequired': '技能内容为必填项。',
   'settings.skillsFiles': '文件',
   'settings.skillsNoFiles': '该技能目录下暂无文件。',
   'settings.designSystems': '设计系统',

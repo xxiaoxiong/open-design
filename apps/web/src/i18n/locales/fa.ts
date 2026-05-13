@@ -1152,6 +1152,10 @@ export const fa: Dict = {
   'settings.notifySoundBuzz': 'وزوز',
   'settings.notifySoundTwoToneDown': 'دو نوای پایین‌رونده',
   'settings.notifySoundThud': 'تالاپ',
+
+  'settings.skillsNameRequired': 'Skill name is required',
+
+  'settings.skillsBodyRequired': 'Skill body is required',
   'settings.skills': 'مهارت‌ها',
   'settings.skillsHint': 'مهارت‌های کاربردی که عامل می‌تواند در حین یک وظیفه فراخوانی کند',
   'settings.skillsNew': 'مهارت جدید',

@@ -1118,6 +1118,10 @@ export const ar: Dict = {
   'settings.notifySoundBuzz': 'طنين',
   'settings.notifySoundTwoToneDown': 'نغمتان هابطتان',
   'settings.notifySoundThud': 'دمدمة',
+
+  'settings.skillsNameRequired': 'Skill name is required',
+
+  'settings.skillsBodyRequired': 'Skill body is required',
   'settings.skills': 'المهارات',
   'settings.skillsHint': 'المهارات الوظيفية التي يمكن للوكيل استدعاؤها أثناء المهمة',
   'settings.skillsNew': 'مهارة جديدة',

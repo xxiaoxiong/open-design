@@ -1119,6 +1119,10 @@ export const th: Dict = {
   'settings.notifySoundBuzz': 'เป็นจังหวะกระตุ้นอารมณ์สั่นเลย',
   'settings.notifySoundTwoToneDown': 'โทนดังลดถอย 2 จังหวะ',
   'settings.notifySoundThud': 'เสียงหนักเน้นโครมให้ระวัง',
+
+  'settings.skillsNameRequired': 'Skill name is required',
+
+  'settings.skillsBodyRequired': 'Skill body is required',
   'settings.librarySkills': 'พวก Skills',
   'settings.libraryDesignSystems': 'ตัวของระบบแบบ Design Systems',
   'settings.librarySearch': 'ต้องการหาสิ่งใด…',

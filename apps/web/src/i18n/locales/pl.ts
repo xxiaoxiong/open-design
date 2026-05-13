@@ -1118,6 +1118,10 @@ export const pl: Dict = {
   'settings.notifySoundBuzz': 'Brzęczenie',
   'settings.notifySoundTwoToneDown': 'Dwuton malejący',
   'settings.notifySoundThud': 'Łomot',
+
+  'settings.skillsNameRequired': 'Skill name is required',
+
+  'settings.skillsBodyRequired': 'Skill body is required',
   'settings.skills': 'Umiejętności',
   'settings.skillsHint': 'Umiejętności funkcyjne, które agent może wywołać w trakcie zadania',
   'settings.skillsNew': 'Nowa umiejętność',

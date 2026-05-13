@@ -1118,6 +1118,10 @@ export const ko: Dict = {
   'settings.notifySoundBuzz': '버즈',
   'settings.notifySoundTwoToneDown': '하강 2음',
   'settings.notifySoundThud': '쿵',
+
+  'settings.skillsNameRequired': 'Skill name is required',
+
+  'settings.skillsBodyRequired': 'Skill body is required',
   'settings.skills': '스킬',
   'settings.skillsHint': '에이전트가 작업 중 호출할 수 있는 기능 스킬',
   'settings.skillsNew': '새 스킬',

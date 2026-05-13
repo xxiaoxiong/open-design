@@ -1128,6 +1128,10 @@ export const hu: Dict = {
   'settings.notifySoundBuzz': 'Zümmögés',
   'settings.notifySoundTwoToneDown': 'Kétszólamú ereszkedő',
   'settings.notifySoundThud': 'Tompa puffanás',
+
+  'settings.skillsNameRequired': 'Skill name is required',
+
+  'settings.skillsBodyRequired': 'Skill body is required',
   'settings.skills': 'Készségek',
   'settings.skillsHint': 'Funkcionális készségek, amelyeket az ügynök egy feladat közben hívhat',
   'settings.skillsNew': 'Új készség',

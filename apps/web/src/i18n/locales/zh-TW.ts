@@ -1183,6 +1183,10 @@ export const zhTW: Dict = {
   'settings.notifySoundBuzz': '蜂鳴',
   'settings.notifySoundTwoToneDown': '下行雙音',
   'settings.notifySoundThud': '低響',
+
+  'settings.skillsNameRequired': '技能名稱為必填項',
+
+  'settings.skillsBodyRequired': '技能內容為必填項',
   'settings.skills': '技能',
   'settings.skillsHint': '代理可在任務中呼叫的功能技能',
   'settings.skillsNew': '新增技能',

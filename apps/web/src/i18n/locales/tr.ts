@@ -1109,6 +1109,10 @@ export const tr: Dict = {
   'settings.notifySoundBuzz': 'Vızıltı',
   'settings.notifySoundTwoToneDown': 'Alçalan iki ton',
   'settings.notifySoundThud': 'Boğuk vuruş',
+
+  'settings.skillsNameRequired': 'Skill name is required',
+
+  'settings.skillsBodyRequired': 'Skill body is required',
   'settings.skills': 'Yetenekler',
   'settings.skillsHint': 'Aracının görev sırasında çağırabileceği işlevsel yetenekler',
   'settings.skillsNew': 'Yeni yetenek',

@@ -1274,6 +1274,10 @@ export const en: Dict = {
   'settings.notifySoundBuzz': 'Buzz',
   'settings.notifySoundTwoToneDown': 'Two-tone down',
   'settings.notifySoundThud': 'Thud',
+
+  'settings.skillsNameRequired': 'Skill name is required',
+
+  'settings.skillsBodyRequired': 'Skill body is required',
   'settings.skills': 'Skills',
   'settings.skillsHint': 'Functional skills the agent can invoke mid-task',
   'settings.skillsNew': 'New skill',
@@ -1288,8 +1292,7 @@ export const en: Dict = {
   'settings.skillsCreate': 'Create',
   'settings.skillsSave': 'Save',
   'settings.skillsSaving': 'Saving…',
-  'settings.skillsNameRequired': 'Skill name is required.',
-  'settings.skillsBodyRequired': 'Skill body is required.',
+settings.skillsBodyRequired': 'Skill body is required.',
   'settings.skillsFiles': 'Files',
   'settings.skillsNoFiles': 'No files in this skill folder.',
   'settings.designSystems': 'Design Systems',

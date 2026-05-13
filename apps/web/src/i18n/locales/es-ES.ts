@@ -1007,6 +1007,10 @@ export const esES: Dict = {
   'settings.notifySoundBuzz': 'Zumbido',
   'settings.notifySoundTwoToneDown': 'Dos tonos descendente',
   'settings.notifySoundThud': 'Golpe',
+
+  'settings.skillsNameRequired': 'Skill name is required',
+
+  'settings.skillsBodyRequired': 'Skill body is required',
   'settings.skills': 'Habilidades',
   'settings.skillsHint': 'Habilidades funcionales que el agente puede invocar durante la tarea',
   'settings.skillsNew': 'Nueva habilidad',

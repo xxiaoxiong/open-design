@@ -1150,6 +1150,10 @@ export const ptBR: Dict = {
   'settings.notifySoundBuzz': 'Zumbido',
   'settings.notifySoundTwoToneDown': 'Dois tons descendente',
   'settings.notifySoundThud': 'Baque',
+
+  'settings.skillsNameRequired': 'Skill name is required',
+
+  'settings.skillsBodyRequired': 'Skill body is required',
   'settings.skills': 'Habilidades',
   'settings.skillsHint': 'Habilidades funcionais que o agente pode invocar durante a tarefa',
   'settings.skillsNew': 'Nova habilidade',

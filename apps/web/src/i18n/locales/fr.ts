@@ -1118,6 +1118,10 @@ export const fr: Dict = {
   'settings.notifySoundBuzz': 'Buzz',
   'settings.notifySoundTwoToneDown': 'Bitonale descendante',
   'settings.notifySoundThud': 'Sourd',
+
+  'settings.skillsNameRequired': 'Skill name is required',
+
+  'settings.skillsBodyRequired': 'Skill body is required',
   'settings.skills': 'Compétences',
   'settings.skillsHint': 'Compétences que l’agent peut invoquer en cours de tâche',
   'settings.skillsNew': 'Nouvelle compétence',

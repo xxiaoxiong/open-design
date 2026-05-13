@@ -1150,6 +1150,10 @@ export const ru: Dict = {
   'settings.notifySoundBuzz': 'Жужжание',
   'settings.notifySoundTwoToneDown': 'Двухтон вниз',
   'settings.notifySoundThud': 'Глухой удар',
+
+  'settings.skillsNameRequired': 'Skill name is required',
+
+  'settings.skillsBodyRequired': 'Skill body is required',
   'settings.skills': 'Навыки',
   'settings.skillsHint': 'Функциональные навыки, которые агент может вызывать во время задачи',
   'settings.skillsNew': 'Новый навык',

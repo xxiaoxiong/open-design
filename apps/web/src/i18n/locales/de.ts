@@ -1006,6 +1006,10 @@ export const de: Dict = {
   'settings.notifySoundBuzz': 'Summen',
   'settings.notifySoundTwoToneDown': 'Zweiton abwärts',
   'settings.notifySoundThud': 'Dumpfer Schlag',
+
+  'settings.skillsNameRequired': 'Skill name is required',
+
+  'settings.skillsBodyRequired': 'Skill body is required',
   'settings.skills': 'Skills',
   'settings.skillsHint': 'Funktionale Skills, die der Agent während einer Aufgabe aufrufen kann',
   'settings.skillsNew': 'Neuer Skill',

@@ -1005,6 +1005,10 @@ export const ja: Dict = {
   'settings.notifySoundBuzz': 'ブザー',
   'settings.notifySoundTwoToneDown': '下降2音',
   'settings.notifySoundThud': 'ドスン',
+
+  'settings.skillsNameRequired': 'Skill name is required',
+
+  'settings.skillsBodyRequired': 'Skill body is required',
   'settings.skills': 'スキル',
   'settings.skillsHint': 'エージェントがタスク中に呼び出せる機能スキル',
   'settings.skillsNew': '新規スキル',
