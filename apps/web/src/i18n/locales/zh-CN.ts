@@ -1457,6 +1457,8 @@ export const zhCN: Dict = {
   'settings.memoryExtractionsHint': '最近的 LLM 抽取记录。每次对话结束后，启发式正则会先跑，LLM 抽取在后台异步进行。',
   'settings.memoryExtractionsEmpty': '暂无抽取记录。下一次对话结束后会出现在这里。',
   'settings.memoryExtractionsRefresh': '刷新',
+  'settings.memoryExtractionsRefreshing': '刷新中…',
+  'settings.memoryExtractionsClear': '清空',
   'settings.memoryExtractionPhaseRunning': '抽取中…',
   'settings.memoryExtractionPhaseSuccess': '成功',
   'settings.memoryExtractionPhaseSkipped': '已跳过',

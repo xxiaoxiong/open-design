@@ -1366,6 +1366,8 @@ export const zhTW: Dict = {
   'settings.memoryExtractionsHint': '最近的 LLM 抽取記錄。每次對話結束後，啟發式正則會先跑，LLM 抽取在背景非同步進行。',
   'settings.memoryExtractionsEmpty': '暫無抽取記錄。下一次對話結束後會出現在這裡。',
   'settings.memoryExtractionsRefresh': '重新整理',
+  'settings.memoryExtractionsRefreshing': 'Refreshing…',
+  'settings.memoryExtractionsClear': 'Clear',
   'settings.memoryExtractionPhaseRunning': '抽取中…',
   'settings.memoryExtractionPhaseSuccess': '成功',
   'settings.memoryExtractionPhaseSkipped': '已跳過',
