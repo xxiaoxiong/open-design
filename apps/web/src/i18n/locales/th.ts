@@ -550,7 +550,8 @@ export const th: Dict = {
   'chat.comments.remove': 'ลบ',
   'chat.comments.placeholder': 'แสดงความคิดเห็นเกี่ยวกับส่วนนี้…',
   'chat.comments.addSend': 'เพิ่ม & ส่ง',
-  'chat.comments.updateSend': 'อัปเดต & ส่ง',
+  'chat.comments.updateSend':
+  'chat.comments.sendToChat': 'ส่งไปยังแชท', 'อัปเดต & ส่ง',
   'chat.comments.removeAttachment': 'ลบไฟล์แนบ',
   'chat.comments.removeAttachmentAria': 'ลบไฟล์แนบความคิดเห็นสำหรับ {name}',
   'chat.conversationsTitle': 'การสนทนา',

@@ -640,7 +640,8 @@ export const zhTW: Dict = {
   'chat.comments.remove': '移除',
   'chat.comments.placeholder': '評論此元素…',
   'chat.comments.addSend': '新增並傳送',
-  'chat.comments.updateSend': '更新並傳送',
+  'chat.comments.updateSend':
+  'chat.comments.sendToChat': '傳送至聊天', '更新並傳送',
   'chat.comments.removeAttachment': '移除評論附件',
   'chat.comments.removeAttachmentAria': '移除 {name} 的評論附件',
   'chat.conversationsTitle': '對話紀錄',

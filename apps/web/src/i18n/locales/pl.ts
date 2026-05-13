@@ -562,7 +562,8 @@ export const pl: Dict = {
   'chat.comments.remove': 'Usuń',
   'chat.comments.placeholder': 'Skomentuj ten element…',
   'chat.comments.addSend': 'Dodaj i wyślij',
-  'chat.comments.updateSend': 'Zaktualizuj i wyślij',
+  'chat.comments.updateSend':
+  'chat.comments.sendToChat': 'Wyślij do czatu', 'Zaktualizuj i wyślij',
   'chat.comments.removeAttachment': 'Usuń załącznik komentarza',
   'chat.comments.removeAttachmentAria': 'Usuń załącznik komentarza dla {name}',
   'chat.conversationsTitle': 'Rozmowy',

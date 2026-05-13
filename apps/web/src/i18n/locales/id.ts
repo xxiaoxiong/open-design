@@ -678,7 +678,8 @@ export const id: Dict = {
   'chat.comments.remove': 'Hapus',
   'chat.comments.placeholder': 'Komentari elemen ini...',
   'chat.comments.addSend': 'Tambah & kirim',
-  'chat.comments.updateSend': 'Perbarui & kirim',
+  'chat.comments.updateSend':
+  'chat.comments.sendToChat': 'Kirim ke obrolan', 'Perbarui & kirim',
   'chat.comments.removeAttachment': 'Hapus lampiran komentar',
   'chat.comments.removeAttachmentAria': 'Hapus lampiran komentar untuk {name}',
   'chat.conversationsTitle': 'Percakapan',

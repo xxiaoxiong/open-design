@@ -583,7 +583,8 @@ export const ru: Dict = {
   'chat.comments.remove': 'Удалить',
   'chat.comments.placeholder': 'Оставьте комментарий к этому элементу…',
   'chat.comments.addSend': 'Добавить и отправить',
-  'chat.comments.updateSend': 'Обновить и отправить',
+  'chat.comments.updateSend':
+  'chat.comments.sendToChat': 'Отправить в чат', 'Обновить и отправить',
   'chat.comments.removeAttachment': 'Открепить комментарий',
   'chat.comments.removeAttachmentAria': 'Открепить комментарий для {name}',
   'chat.conversationsTitle': 'Разговоры',

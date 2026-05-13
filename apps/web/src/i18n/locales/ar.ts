@@ -562,7 +562,8 @@ export const ar: Dict = {
   'chat.comments.remove': 'إزالة',
   'chat.comments.placeholder': 'علق على هذا العنصر...',
   'chat.comments.addSend': 'إضافة وإرسال',
-  'chat.comments.updateSend': 'تحديث وإرسال',
+  'chat.comments.updateSend':
+  'chat.comments.sendToChat': 'إرسال إلى الدردشة', 'تحديث وإرسال',
   'chat.comments.removeAttachment': 'إزالة مرفق التعليق',
   'chat.comments.removeAttachmentAria': 'إزالة مرفق التعليق لـ {name}',
   'chat.conversationsTitle': 'المحادثات',

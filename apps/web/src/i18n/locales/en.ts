@@ -657,6 +657,7 @@ export const en: Dict = {
   'chat.comments.placeholder': 'Comment on this element…',
   'chat.comments.addSend': 'Add & send',
   'chat.comments.updateSend': 'Update & send',
+  'chat.comments.sendToChat': 'Send to chat',
   'chat.comments.removeAttachment': 'Remove comment attachment',
   'chat.comments.removeAttachmentAria': 'Remove comment attachment for {name}',
   'chat.conversationsTitle': 'Conversations',

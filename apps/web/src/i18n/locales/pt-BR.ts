@@ -583,7 +583,8 @@ export const ptBR: Dict = {
   'chat.comments.remove': 'Remove',
   'chat.comments.placeholder': 'Comment on this element…',
   'chat.comments.addSend': 'Add & send',
-  'chat.comments.updateSend': 'Update & send',
+  'chat.comments.updateSend':
+  'chat.comments.sendToChat': 'Enviar para o chat', 'Update & send',
   'chat.comments.removeAttachment': 'Remove comment attachment',
   'chat.comments.removeAttachmentAria': 'Remove comment attachment for {name}',
   'chat.conversationsTitle': 'Conversas',

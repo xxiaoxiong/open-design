@@ -1872,7 +1872,7 @@ function BoardComposerPopover({
             disabled={pendingCount === 0 || sending}
             onClick={() => void onSendBatch()}
           >
-            {sending ? 'Sending…' : 'Send to Claude'}
+            {sending ? 'Sending…' : t('chat.comments.sendToChat')}
           </button>
         </div>
       </div>
@@ -1985,7 +1985,7 @@ function CommentSidePanel({
             disabled={sending}
             onClick={() => void onSendSelected()}
           >
-            {sending ? 'Sending…' : 'Send to Claude'}
+            {sending ? 'Sending…' : t('chat.comments.sendToChat')}
           </button>
         </div>
       ) : null}

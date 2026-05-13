@@ -584,7 +584,8 @@ export const uk: Dict = {
   'chat.comments.remove': 'Видалити',
   'chat.comments.placeholder': 'Коментар до цього елемента…',
   'chat.comments.addSend': 'Додати та надіслати',
-  'chat.comments.updateSend': 'Оновити та надіслати',
+  'chat.comments.updateSend':
+  'chat.comments.sendToChat': 'Надіслати в чат', 'Оновити та надіслати',
   'chat.comments.removeAttachment': 'Видалити прикріплений коментар',
   'chat.comments.removeAttachmentAria': 'Видалити прикріплений коментар для {name}',
   'chat.conversationsTitle': 'Розмови',

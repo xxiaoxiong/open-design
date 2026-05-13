@@ -562,7 +562,8 @@ export const fr: Dict = {
   'chat.comments.remove': 'Retirer',
   'chat.comments.placeholder': 'Commenter cet élément…',
   'chat.comments.addSend': 'Ajouter et envoyer',
-  'chat.comments.updateSend': 'Mettre à jour et envoyer',
+  'chat.comments.updateSend':
+  'chat.comments.sendToChat': 'Envoyer au chat', 'Mettre à jour et envoyer',
   'chat.comments.removeAttachment': 'Retirer le commentaire attaché',
   'chat.comments.removeAttachmentAria': 'Retirer le commentaire attaché pour {name}',
   'chat.conversationsTitle': 'Conversations',
