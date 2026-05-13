@@ -5035,6 +5035,7 @@ function HtmlViewer({
         </div>
         <div className="viewer-toolbar-actions">
           {mode === 'preview' ? (
+          <>
           <div className="palette-tweaks-anchor">
             <button
               type="button"
@@ -5184,6 +5185,7 @@ function HtmlViewer({
           >
             <Icon name="plus" size={14} />
           </button>
+          </>
           ) : null}
         </div>
       </div>
