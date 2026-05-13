@@ -771,6 +771,26 @@ export function LiveArtifactViewer({
     setZoom((z) => Math.max(25, Math.min(200, z + delta)));
   }
 
+  // Mouse wheel zoom support
+  useEffect(() => {
+    const previewBody = previewBodyRef.current;
+    if (!previewBody || mode !== 'preview') return;
+
+    const handleWheel = (e: WheelEvent) => {
+      // Only zoom when Ctrl/Cmd is pressed (standard zoom gesture)
+      if (!e.ctrlKey && !e.metaKey) return;
+      
+      e.preventDefault();
+      
+      // deltaY < 0 means scroll up (zoom in), deltaY > 0 means scroll down (zoom out)
+      const delta = e.deltaY < 0 ? 10 : -10;
+      bumpZoom(delta);
+    };
+
+    previewBody.addEventListener('wheel', handleWheel, { passive: false });
+    return () => previewBody.removeEventListener('wheel', handleWheel);
+  }, [mode]);
+
   async function handleRefresh() {
     if (refreshing) return;
     setRefreshing(true);
@@ -4810,6 +4830,26 @@ function HtmlViewer({
   function bumpZoom(delta: number) {
     setZoom((z) => Math.max(25, Math.min(200, z + delta)));
   }
+
+  // Mouse wheel zoom support
+  useEffect(() => {
+    const previewBody = previewBodyRef.current;
+    if (!previewBody || mode !== 'preview') return;
+
+    const handleWheel = (e: WheelEvent) => {
+      // Only zoom when Ctrl/Cmd is pressed (standard zoom gesture)
+      if (!e.ctrlKey && !e.metaKey) return;
+      
+      e.preventDefault();
+      
+      // deltaY < 0 means scroll up (zoom in), deltaY > 0 means scroll down (zoom out)
+      const delta = e.deltaY < 0 ? 10 : -10;
+      bumpZoom(delta);
+    };
+
+    previewBody.addEventListener('wheel', handleWheel, { passive: false });
+    return () => previewBody.removeEventListener('wheel', handleWheel);
+  }, [mode]);
 
   function clearBoardComposer() {
     setActiveCommentTarget(null);
