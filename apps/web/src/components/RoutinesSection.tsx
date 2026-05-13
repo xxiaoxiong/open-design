@@ -11,27 +11,11 @@ import type {
 
 import { Icon } from './Icon';
 import { navigate } from '../router';
+import { useI18n } from '../i18n';
 
 type ProjectSummary = { id: string; name: string };
 
 type ScheduleKind = RoutineSchedule['kind'];
-
-const SCHEDULE_KINDS: { kind: ScheduleKind; label: string }[] = [
-  { kind: 'hourly', label: 'Hourly' },
-  { kind: 'daily', label: 'Daily' },
-  { kind: 'weekdays', label: 'Weekdays' },
-  { kind: 'weekly', label: 'Weekly' },
-];
-
-const WEEKDAY_LABELS: { value: Weekday; short: string; long: string }[] = [
-  { value: 0, short: 'Sun', long: 'Sunday' },
-  { value: 1, short: 'Mon', long: 'Monday' },
-  { value: 2, short: 'Tue', long: 'Tuesday' },
-  { value: 3, short: 'Wed', long: 'Wednesday' },
-  { value: 4, short: 'Thu', long: 'Thursday' },
-  { value: 5, short: 'Fri', long: 'Friday' },
-  { value: 6, short: 'Sat', long: 'Saturday' },
-];
 
 // Fallback list used only when the runtime doesn't expose
 // `Intl.supportedValuesOf('timeZone')`. The backend validator accepts any
@@ -125,7 +109,8 @@ function formatTime12h(time: string): string {
 
 function describeSchedule(
   schedule: RoutineSchedule,
-  nextRunAt?: number | null,
+  nextRunAt: number | null | undefined,
+  t: (key: string) => string,
 ): string {
   if (schedule.kind === 'hourly') {
     const mm = String(schedule.minute).padStart(2, '0');
@@ -145,8 +130,16 @@ function describeSchedule(
   if (schedule.kind === 'weekdays') {
     return `Runs Mon–Fri at ${formatTime12h(schedule.time)} ${tz}`;
   }
-  const day =
-    WEEKDAY_LABELS.find((w) => w.value === schedule.weekday)?.long ?? 'Sunday';
+  const weekdayLabels = [
+    t('routines.sunday'),
+    t('routines.monday'),
+    t('routines.tuesday'),
+    t('routines.wednesday'),
+    t('routines.thursday'),
+    t('routines.friday'),
+    t('routines.saturday'),
+  ];
+  const day = weekdayLabels[schedule.weekday] ?? t('routines.sunday');
   return `Runs every ${day} at ${formatTime12h(schedule.time)} ${tz}`;
 }
 
@@ -208,22 +201,47 @@ function buildSchedule(form: FormState): RoutineSchedule {
   };
 }
 
-function StatusPill({ status }: { status: RoutineRun['status'] }) {
-  return <span className={`routines-status routines-status-${status}`}>{status}</span>;
+function StatusPill({ status, t }: { status: RoutineRun['status']; t: (key: string) => string }) {
+  const statusMap: Record<RoutineRun['status'], string> = {
+    succeeded: t('routines.succeeded'),
+    failed: t('routines.failed'),
+    running: t('routines.running'),
+    cancelled: t('routines.cancelled'),
+  };
+  return <span className={`routines-status routines-status-${status}`}>{statusMap[status]}</span>;
 }
 
 function ScheduleEditor({
   form,
   setForm,
   timezones,
+  t,
 }: {
   form: FormState;
   setForm: (next: FormState) => void;
   timezones: string[];
+  t: (key: string) => string;
 }) {
+  const SCHEDULE_KINDS: { kind: ScheduleKind; label: string }[] = [
+    { kind: 'hourly', label: t('routines.hourly') },
+    { kind: 'daily', label: t('routines.daily') },
+    { kind: 'weekdays', label: t('routines.weekdays') },
+    { kind: 'weekly', label: t('routines.weekly') },
+  ];
+
+  const WEEKDAY_LABELS: { value: Weekday; short: string; long: string }[] = [
+    { value: 0, short: t('routines.sun'), long: t('routines.sunday') },
+    { value: 1, short: t('routines.mon'), long: t('routines.monday') },
+    { value: 2, short: t('routines.tue'), long: t('routines.tuesday') },
+    { value: 3, short: t('routines.wed'), long: t('routines.wednesday') },
+    { value: 4, short: t('routines.thu'), long: t('routines.thursday') },
+    { value: 5, short: t('routines.fri'), long: t('routines.friday') },
+    { value: 6, short: t('routines.sat'), long: t('routines.saturday') },
+  ];
+
   return (
     <div className="routines-schedule-editor">
-      <div className="routines-field-label">Schedule</div>
+      <div className="routines-field-label">{t('routines.schedule')}</div>
       <div className="subtab-pill routines-kind-pills" role="tablist">
         {SCHEDULE_KINDS.map((k) => (
           <button
@@ -242,7 +260,7 @@ function ScheduleEditor({
       {form.kind === 'hourly' ? (
         <div className="routines-fieldrow">
           <label className="routines-field">
-            <span>Minute of every hour</span>
+            <span>{t('routines.minuteOfHour')}</span>
             <input
               type="number"
               min={0}
@@ -279,7 +297,7 @@ function ScheduleEditor({
       {form.kind !== 'hourly' ? (
         <div className="routines-fieldrow routines-fieldrow-2col">
           <label className="routines-field">
-            <span>Time</span>
+            <span>{t('routines.time')}</span>
             <input
               type="time"
               value={form.time}
@@ -287,7 +305,7 @@ function ScheduleEditor({
             />
           </label>
           <label className="routines-field">
-            <span>Timezone</span>
+            <span>{t('routines.timezone')}</span>
             <select
               value={form.timezone}
               onChange={(e) => setForm({ ...form, timezone: e.target.value })}
@@ -303,13 +321,13 @@ function ScheduleEditor({
       ) : null}
 
       <p className="routines-schedule-hint">
-        {describeSchedule(buildSchedule(form))}
+        {describeSchedule(buildSchedule(form), undefined, t)}
       </p>
     </div>
   );
 }
 
-function RunHistory({ routineId, refreshKey }: { routineId: string; refreshKey: number }) {
+function RunHistory({ routineId, refreshKey, t }: { routineId: string; refreshKey: number; t: (key: string) => string }) {
   const [runs, setRuns] = useState<RoutineRun[] | null>(null);
 
   useEffect(() => {
@@ -329,18 +347,18 @@ function RunHistory({ routineId, refreshKey }: { routineId: string; refreshKey: 
     };
   }, [routineId, refreshKey]);
 
-  if (runs === null) return <div className="routines-history-empty">Loading runs…</div>;
+  if (runs === null) return <div className="routines-history-empty">{t('routines.loadingRuns')}</div>;
   if (runs.length === 0)
-    return <div className="routines-history-empty">No runs yet.</div>;
+    return <div className="routines-history-empty">{t('routines.noRuns')}</div>;
 
   return (
     <ul className="routines-history">
       {runs.map((r) => (
         <li key={r.id} className="routines-history-row">
-          <StatusPill status={r.status} />
+          <StatusPill status={r.status} t={t} />
           <span className="routines-history-time">{formatRunTimestamp(r.startedAt)}</span>
           <span className="routines-history-trigger">
-            {r.trigger === 'manual' ? 'manual' : 'scheduled'}
+            {r.trigger === 'manual' ? t('routines.manual') : t('routines.scheduled')}
           </span>
           <button
             type="button"
@@ -350,7 +368,7 @@ function RunHistory({ routineId, refreshKey }: { routineId: string; refreshKey: 
             }
             title="Open the project this run wrote to"
           >
-            Open project
+            {t('routines.openProject')}
             <Icon name="chevron-right" size={12} />
           </button>
         </li>
@@ -360,6 +378,7 @@ function RunHistory({ routineId, refreshKey }: { routineId: string; refreshKey: 
 }
 
 export function RoutinesSection() {
+  const { t } = useI18n();
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -493,7 +512,7 @@ export function RoutinesSection() {
   };
 
   const remove = async (id: string) => {
-    if (!window.confirm('Delete this routine? Past runs and their projects are kept.'))
+    if (!window.confirm(t('routines.deleteConfirm')))
       return;
     setBusyId(id);
     try {
@@ -515,11 +534,9 @@ export function RoutinesSection() {
     <section className="settings-section routines-section">
       <div className="section-head">
         <div>
-          <h3>Routines</h3>
+          <h3>{t('routines.title')}</h3>
           <p className="hint">
-            Scheduled, unattended agent sessions. Each run starts a new
-            conversation — either inside an existing project, or in a fresh
-            project minted on the spot.
+            {t('routines.description')}
           </p>
         </div>
         {!showForm ? (
@@ -532,7 +549,7 @@ export function RoutinesSection() {
             }}
           >
             <Icon name="plus" size={14} />
-            <span>New routine</span>
+            <span>{t('routines.newRoutine')}</span>
           </button>
         ) : null}
       </div>
@@ -546,17 +563,17 @@ export function RoutinesSection() {
       {showForm ? (
         <form onSubmit={submit} className="routines-card routines-form">
           <label className="routines-field">
-            <span>Name</span>
+            <span>{t('routines.name')}</span>
             <input
               required
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Morning briefing"
+              placeholder={t('routines.placeholderName')}
               autoFocus
             />
           </label>
           <label className="routines-field">
-            <span>Prompt</span>
+            <span>{t('routines.prompt')}</span>
             <textarea
               required
               rows={4}
@@ -566,10 +583,10 @@ export function RoutinesSection() {
             />
           </label>
 
-          <ScheduleEditor form={form} setForm={setForm} timezones={timezones} />
+          <ScheduleEditor form={form} setForm={setForm} timezones={timezones} t={t} />
 
           <fieldset className="routines-fieldset">
-            <legend>Project</legend>
+            <legend>{t('routines.project')}</legend>
             <label className="routines-radio">
               <input
                 type="radio"
@@ -577,7 +594,7 @@ export function RoutinesSection() {
                 onChange={() => setForm({ ...form, mode: 'create_each_run' })}
               />
               <span>
-                <strong>Create a new project each run</strong>
+                <strong>{t('routines.newProject')}</strong>
                 <small>A fresh, isolated workspace per fire.</small>
               </span>
             </label>
@@ -588,7 +605,7 @@ export function RoutinesSection() {
                 onChange={() => setForm({ ...form, mode: 'reuse' })}
               />
               <span>
-                <strong>Reuse an existing project</strong>
+                <strong>{t('routines.existingProject')}</strong>
                 <small>Each run lives as a new conversation inside the project.</small>
               </span>
             </label>
@@ -618,21 +635,21 @@ export function RoutinesSection() {
                 setForm(emptyForm());
               }}
             >
-              Cancel
+              {t('routines.cancel')}
             </button>
             <button type="submit" className="btn btn-primary" disabled={submitting}>
-              {submitting ? 'Creating…' : 'Create'}
+              {submitting ? t('routines.creating') : t('routines.save')}
             </button>
           </div>
         </form>
       ) : null}
 
       {loading ? (
-        <div className="routines-empty">Loading…</div>
+        <div className="routines-empty">{t('routines.loading')}</div>
       ) : routines.length === 0 ? (
         <div className="routines-empty">
-          <strong>No routines yet.</strong>
-          <p>Click <em>New routine</em> to schedule an unattended agent run.</p>
+          <strong>{t('routines.noRoutinesYet')}</strong>
+          <p>{t('routines.noRoutinesHint')}</p>
         </div>
       ) : (
         <ul className="routines-list">
@@ -653,7 +670,7 @@ export function RoutinesSection() {
                         <span className="routines-tag">paused</span>
                       ) : null}
                     </div>
-                    <div className="routines-item-line">{describeSchedule(r.schedule, r.nextRunAt)}</div>
+                    <div className="routines-item-line">{describeSchedule(r.schedule, r.nextRunAt, t)}</div>
                     <div className="routines-item-meta">
                       <span>{targetLabel}</span>
                       <span aria-hidden>·</span>
@@ -662,7 +679,7 @@ export function RoutinesSection() {
                         <>
                           <span aria-hidden>·</span>
                           <span>
-                            last: <StatusPill status={r.lastRun.status} />{' '}
+                            {t('routines.last')} <StatusPill status={r.lastRun.status} t={t} />{' '}
                             {formatRelative(r.lastRun.startedAt)}
                           </span>
                         </>
@@ -676,7 +693,7 @@ export function RoutinesSection() {
                       onClick={() => runNow(r.id)}
                       disabled={isBusy}
                     >
-                      Run now
+                      {t('routines.runNow')}
                     </button>
                     <button
                       type="button"
@@ -684,7 +701,7 @@ export function RoutinesSection() {
                       onClick={() => toggleEnabled(r)}
                       disabled={isBusy}
                     >
-                      {r.enabled ? 'Pause' : 'Resume'}
+                      {r.enabled ? t('routines.pause') : t('routines.resume')}
                     </button>
                     <button
                       type="button"
@@ -692,22 +709,22 @@ export function RoutinesSection() {
                       onClick={() => setExpandedId(isExpanded ? null : r.id)}
                       aria-expanded={isExpanded}
                     >
-                      {isExpanded ? 'Hide history' : 'History'}
+                      {isExpanded ? t('routines.hideHistory') : t('routines.history')}
                     </button>
                     <button
                       type="button"
                       className="btn btn-ghost btn-danger"
                       onClick={() => remove(r.id)}
                       disabled={isBusy}
-                      title="Delete this routine"
+                      title={t('routines.deleteTitle')}
                     >
-                      Delete
+                      {t('routines.delete')}
                     </button>
                   </div>
                 </div>
                 {isExpanded ? (
                   <div className="routines-item-history">
-                    <RunHistory routineId={r.id} refreshKey={historyTick} />
+                    <RunHistory routineId={r.id} refreshKey={historyTick} t={t} />
                   </div>
                 ) : null}
               </li>
