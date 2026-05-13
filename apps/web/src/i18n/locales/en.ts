@@ -1288,6 +1288,8 @@ export const en: Dict = {
   'settings.skillsCreate': 'Create',
   'settings.skillsSave': 'Save',
   'settings.skillsSaving': 'Saving…',
+  'settings.skillsNameRequired': 'Skill name is required.',
+  'settings.skillsBodyRequired': 'Skill body is required.',
   'settings.skillsFiles': 'Files',
   'settings.skillsNoFiles': 'No files in this skill folder.',
   'settings.designSystems': 'Design Systems',
