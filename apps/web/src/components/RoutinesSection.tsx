@@ -309,7 +309,7 @@ function ScheduleEditor({
   );
 }
 
-function RunHistory({ routineId, refreshKey }: { routineId: string; refreshKey: number }) {
+function RunHistory({ routineId, refreshKey, onClose }: { routineId: string; refreshKey: number; onClose?: () => void }) {
   const [runs, setRuns] = useState<RoutineRun[] | null>(null);
 
   useEffect(() => {
@@ -708,7 +708,7 @@ export function RoutinesSection({ onClose }: { onClose?: () => void }) {
                 </div>
                 {isExpanded ? (
                   <div className="routines-item-history">
-                    <RunHistory routineId={r.id} refreshKey={historyTick} />
+                    <RunHistory routineId={r.id} refreshKey={historyTick} onClose={onClose} />
                   </div>
                 ) : null}
               </li>
