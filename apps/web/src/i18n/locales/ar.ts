@@ -1399,4 +1399,6 @@ export const ar: Dict = {
   'liveArtifact.viewer.code.loading': 'جارٍ تحميل الكود…',
   'liveArtifact.viewer.code.unavailable': 'الكود غير متاح بعد.',
   'liveArtifact.viewer.code.empty': 'ملف الكود هذا فارغ.',
+  'skills.nameRequired': 'اسم المهارة مطلوب.',
+  'skills.bodyRequired': 'محتوى المهارة مطلوب.',
 };

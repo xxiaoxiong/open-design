@@ -1386,4 +1386,6 @@ export const tr: Dict = {
   'liveArtifact.viewer.code.loading': 'Kod yükleniyor…',
   'liveArtifact.viewer.code.unavailable': 'Kod henüz kullanılamıyor.',
   'liveArtifact.viewer.code.empty': 'Bu kod dosyası boş.',
+  'skills.nameRequired': 'Beceri adı gereklidir.',
+  'skills.bodyRequired': 'Beceri içeriği gereklidir.',
 };

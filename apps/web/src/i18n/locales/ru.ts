@@ -1440,4 +1440,6 @@ export const ru: Dict = {
   'liveArtifact.viewer.code.loading': 'Загрузка кода…',
   'liveArtifact.viewer.code.unavailable': 'Код пока недоступен.',
   'liveArtifact.viewer.code.empty': 'Этот файл кода пуст.',
+  'skills.nameRequired': 'Имя навыка обязательно.',
+  'skills.bodyRequired': 'Содержимое навыка обязательно.',
 };

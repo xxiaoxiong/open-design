@@ -1399,4 +1399,6 @@ export const pl: Dict = {
   'liveArtifact.viewer.code.loading': 'Ładowanie kodu…',
   'liveArtifact.viewer.code.unavailable': 'Kod nie jest jeszcze dostępny.',
   'liveArtifact.viewer.code.empty': 'Ten plik kodu jest pusty.',
+  'skills.nameRequired': 'Nazwa umiejętności jest wymagana.',
+  'skills.bodyRequired': 'Treść umiejętności jest wymagana.',
 };

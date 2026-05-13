@@ -1600,4 +1600,6 @@ export const en: Dict = {
   'settings.memoryModelInlineHintByok': 'Optional. Reuses your chat API key on the same provider — picking a different (usually cheaper) model only changes the request body.',
   'settings.memoryModelInlineFlashSaved': 'Saved',
   'settings.memoryModelInlineFlashCleared': 'Cleared',
+  'skills.nameRequired': 'Skill name is required.',
+  'skills.bodyRequired': 'Skill body is required.',
 };

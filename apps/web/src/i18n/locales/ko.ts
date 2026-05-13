@@ -1440,4 +1440,6 @@ export const ko: Dict = {
   'liveArtifact.viewer.code.loading': '코드 로드 중…',
   'liveArtifact.viewer.code.unavailable': '아직 코드를 사용할 수 없습니다.',
   'liveArtifact.viewer.code.empty': '이 코드 파일은 비어 있습니다.',
+  'skills.nameRequired': '스킬 이름은 필수입니다.',
+  'skills.bodyRequired': '스킬 내용은 필수입니다.',
 };

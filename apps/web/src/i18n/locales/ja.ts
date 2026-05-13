@@ -1327,4 +1327,6 @@ export const ja: Dict = {
   'liveArtifact.viewer.code.loading': 'コードを読み込み中…',
   'liveArtifact.viewer.code.unavailable': 'コードはまだ利用できません。',
   'liveArtifact.viewer.code.empty': 'このコードファイルは空です。',
+  'skills.nameRequired': 'スキル名は必須です。',
+  'skills.bodyRequired': 'スキルの内容は必須です。',
 };

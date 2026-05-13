@@ -1579,4 +1579,6 @@ export const zhCN: Dict = {
   'liveArtifact.viewer.code.loading': '正在加载代码…',
   'liveArtifact.viewer.code.unavailable': '代码尚不可用。',
   'liveArtifact.viewer.code.empty': '此代码文件为空。',
+  'skills.nameRequired': '技能名称为必填项。',
+  'skills.bodyRequired': '技能内容为必填项。',
 };

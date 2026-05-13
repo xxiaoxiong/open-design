@@ -1529,4 +1529,6 @@ export const zhTW: Dict = {
   'liveArtifact.viewer.code.loading': '正在載入程式碼…',
   'liveArtifact.viewer.code.unavailable': '程式碼尚不可用。',
   'liveArtifact.viewer.code.empty': '此程式碼檔案是空的。',
+  'skills.nameRequired': '技能名稱為必填項。',
+  'skills.bodyRequired': '技能內容為必填項。',
 };

@@ -1440,4 +1440,6 @@ export const ptBR: Dict = {
   'liveArtifact.viewer.code.loading': 'Carregando código…',
   'liveArtifact.viewer.code.unavailable': 'O código ainda não está disponível.',
   'liveArtifact.viewer.code.empty': 'Este arquivo de código está vazio.',
+  'skills.nameRequired': 'O nome da habilidade é obrigatório.',
+  'skills.bodyRequired': 'O conteúdo da habilidade é obrigatório.',
 };

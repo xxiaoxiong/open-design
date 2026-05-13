@@ -1328,4 +1328,6 @@ export const de: Dict = {
   'liveArtifact.viewer.code.loading': 'Code wird geladen…',
   'liveArtifact.viewer.code.unavailable': 'Code ist noch nicht verfügbar.',
   'liveArtifact.viewer.code.empty': 'Diese Codedatei ist leer.',
+  'skills.nameRequired': 'Skill-Name ist erforderlich.',
+  'skills.bodyRequired': 'Skill-Inhalt ist erforderlich.',
 };

@@ -1409,4 +1409,6 @@ export const hu: Dict = {
   'liveArtifact.viewer.code.loading': 'Kód betöltése…',
   'liveArtifact.viewer.code.unavailable': 'A kód még nem érhető el.',
   'liveArtifact.viewer.code.empty': 'Ez a kódfájl üres.',
+  'skills.nameRequired': 'A készség neve kötelező.',
+  'skills.bodyRequired': 'A készség tartalma kötelező.',
 };

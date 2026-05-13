@@ -1442,4 +1442,6 @@ export const fa: Dict = {
   'liveArtifact.viewer.code.loading': 'در حال بارگذاری کد…',
   'liveArtifact.viewer.code.unavailable': 'کد هنوز در دسترس نیست.',
   'liveArtifact.viewer.code.empty': 'این فایل کد خالی است.',
+  'skills.nameRequired': 'نام مهارت الزامی است.',
+  'skills.bodyRequired': 'محتوای مهارت الزامی است.',
 };

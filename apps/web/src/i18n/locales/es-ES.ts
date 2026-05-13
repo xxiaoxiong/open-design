@@ -1288,4 +1288,6 @@ export const esES: Dict = {
   'liveArtifact.viewer.code.loading': 'Cargando código…',
   'liveArtifact.viewer.code.unavailable': 'El código aún no está disponible.',
   'liveArtifact.viewer.code.empty': 'Este archivo de código está vacío.',
+  'skills.nameRequired': 'El nombre de la habilidad es obligatorio.',
+  'skills.bodyRequired': 'El contenido de la habilidad es obligatorio.',
 };

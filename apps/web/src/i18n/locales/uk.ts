@@ -1441,4 +1441,6 @@ export const uk: Dict = {
   'liveArtifact.viewer.code.loading': 'Завантаження коду…',
   'liveArtifact.viewer.code.unavailable': 'Код ще недоступний.',
   'liveArtifact.viewer.code.empty': 'Цей файл коду порожній.',
+  'skills.nameRequired': 'Ім'я навички обов'язкове.',
+  'skills.bodyRequired': 'Вміст навички обов'язковий.',
 };
