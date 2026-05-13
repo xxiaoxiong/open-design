@@ -793,6 +793,8 @@ export const en: Dict = {
   'designFiles.showMore': 'Show +{n} more',
   'designFiles.kindHtml': 'HTML page',
   'designFiles.kindImage': 'Image',
+  'designFiles.kindVideo': 'Video',
+  'designFiles.kindAudio': 'Audio',
   'designFiles.kindSketch': 'Sketch',
   'designFiles.kindText': 'Text',
   'designFiles.kindCode': 'Script',

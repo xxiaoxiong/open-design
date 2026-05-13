@@ -697,7 +697,9 @@ export const ar: Dict = {
   'designFiles.modifiedOlder': 'أقدم',
   'designFiles.showMore': 'عرض +{n} أخرى',
   'designFiles.kindHtml': 'صفحة HTML',
-  'designFiles.kindImage': 'صورة',
+  'designFiles.kindImage':
+  'designFiles.kindVideo': 'فيديو',
+  'designFiles.kindAudio': 'صوت', 'صورة',
   'designFiles.kindSketch': 'رسم',
   'designFiles.kindText': 'نص',
   'designFiles.kindCode': 'سكربت',

@@ -772,7 +772,9 @@ export const zhTW: Dict = {
   'designFiles.modifiedOlder': '更早',
   'designFiles.showMore': '再顯示 {n} 個',
   'designFiles.kindHtml': 'HTML 頁面',
-  'designFiles.kindImage': '圖片',
+  'designFiles.kindImage':
+  'designFiles.kindVideo': '影片',
+  'designFiles.kindAudio': '音訊', '圖片',
   'designFiles.kindSketch': '草圖',
   'designFiles.kindText': '文字',
   'designFiles.kindCode': '腳本',

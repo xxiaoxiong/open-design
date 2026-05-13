@@ -810,7 +810,9 @@ export const id: Dict = {
   'designFiles.modifiedOlder': 'Lebih lama',
   'designFiles.showMore': 'Tampilkan +{n} lagi',
   'designFiles.kindHtml': 'Halaman HTML',
-  'designFiles.kindImage': 'Gambar',
+  'designFiles.kindImage':
+  'designFiles.kindVideo': 'Video',
+  'designFiles.kindAudio': 'Audio', 'Gambar',
   'designFiles.kindSketch': 'Sketsa',
   'designFiles.kindText': 'Teks',
   'designFiles.kindCode': 'Skrip',

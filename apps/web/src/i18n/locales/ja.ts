@@ -584,7 +584,9 @@ export const ja: Dict = {
   'designFiles.modifiedOlder': 'それ以前',
   'designFiles.showMore': 'さらに {n} 件表示',
   'designFiles.kindHtml': 'HTML ページ',
-  'designFiles.kindImage': '画像',
+  'designFiles.kindImage':
+  'designFiles.kindVideo': '動画',
+  'designFiles.kindAudio': '音声', '画像',
   'designFiles.kindSketch': 'スケッチ',
   'designFiles.kindText': 'テキスト',
   'designFiles.kindCode': 'スクリプト',

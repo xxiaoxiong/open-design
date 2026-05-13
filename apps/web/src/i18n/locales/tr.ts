@@ -684,7 +684,9 @@ export const tr: Dict = {
   'designFiles.modifiedOlder': 'Daha eski',
   'designFiles.showMore': '+{n} tane daha göster',
   'designFiles.kindHtml': 'HTML sayfası',
-  'designFiles.kindImage': 'Görsel',
+  'designFiles.kindImage':
+  'designFiles.kindVideo': 'Video',
+  'designFiles.kindAudio': 'Ses', 'Görsel',
   'designFiles.kindSketch': 'Taslak',
   'designFiles.kindText': 'Metin',
   'designFiles.kindCode': 'Betil',

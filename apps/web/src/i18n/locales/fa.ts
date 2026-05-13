@@ -720,7 +720,9 @@ export const fa: Dict = {
   'designFiles.modifiedOlder': 'قدیمی‌تر',
   'designFiles.showMore': '+{n} بیشتر',
   'designFiles.kindHtml': 'صفحه HTML',
-  'designFiles.kindImage': 'تصویر',
+  'designFiles.kindImage':
+  'designFiles.kindVideo': 'ویدیو',
+  'designFiles.kindAudio': 'صدا', 'تصویر',
   'designFiles.kindSketch': 'طرح',
   'designFiles.kindText': 'متن',
   'designFiles.kindCode': 'اسکریپت',

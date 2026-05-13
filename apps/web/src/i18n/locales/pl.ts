@@ -697,7 +697,9 @@ export const pl: Dict = {
   'designFiles.modifiedOlder': 'Starsze',
   'designFiles.showMore': 'Pokaż +{n} więcej',
   'designFiles.kindHtml': 'Strona HTML',
-  'designFiles.kindImage': 'Obraz',
+  'designFiles.kindImage':
+  'designFiles.kindVideo': 'Wideo',
+  'designFiles.kindAudio': 'Audio', 'Obraz',
   'designFiles.kindSketch': 'Szkic',
   'designFiles.kindText': 'Tekst',
   'designFiles.kindCode': 'Skrypt',

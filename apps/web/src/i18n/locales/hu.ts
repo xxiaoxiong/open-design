@@ -697,7 +697,9 @@ export const hu: Dict = {
   'designFiles.modifiedOlder': 'Régebbi',
   'designFiles.showMore': '+{n} további megjelenítése',
   'designFiles.kindHtml': 'HTML oldal',
-  'designFiles.kindImage': 'Kép',
+  'designFiles.kindImage':
+  'designFiles.kindVideo': 'Videó',
+  'designFiles.kindAudio': 'Hang', 'Kép',
   'designFiles.kindSketch': 'Vázlat',
   'designFiles.kindText': 'Szöveg',
   'designFiles.kindCode': 'Szkript',

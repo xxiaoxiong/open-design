@@ -586,7 +586,9 @@ export const esES: Dict = {
   'designFiles.modifiedOlder': 'Anterior',
   'designFiles.showMore': 'Mostrar +{n} más',
   'designFiles.kindHtml': 'Página HTML',
-  'designFiles.kindImage': 'Imagen',
+  'designFiles.kindImage':
+  'designFiles.kindVideo': 'Vídeo',
+  'designFiles.kindAudio': 'Audio', 'Imagen',
   'designFiles.kindSketch': 'Boceto',
   'designFiles.kindText': 'Texto',
   'designFiles.kindCode': 'Script',

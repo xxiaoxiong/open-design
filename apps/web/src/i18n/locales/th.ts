@@ -666,7 +666,9 @@ export const th: Dict = {
   'designFiles.sectionOther': 'อื่นๆ',
   'designFiles.showMore': 'เปิดดูอีก +{n}',
   'designFiles.kindHtml': 'ไฟล์ HTML',
-  'designFiles.kindImage': 'รูปภาพ',
+  'designFiles.kindImage':
+  'designFiles.kindVideo': 'วิดีโอ',
+  'designFiles.kindAudio': 'เสียง', 'รูปภาพ',
   'designFiles.kindSketch': 'ภาพวาดร่าง',
   'designFiles.kindText': 'ข้อความ',
   'designFiles.kindCode': 'สคริปต์โค้ด',

@@ -585,7 +585,9 @@ export const de: Dict = {
   'designFiles.modifiedOlder': 'Älter',
   'designFiles.showMore': '+{n} weitere anzeigen',
   'designFiles.kindHtml': 'HTML-Seite',
-  'designFiles.kindImage': 'Bild',
+  'designFiles.kindImage':
+  'designFiles.kindVideo': 'Video',
+  'designFiles.kindAudio': 'Audio', 'Bild',
   'designFiles.kindSketch': 'Sketch',
   'designFiles.kindText': 'Text',
   'designFiles.kindCode': 'Skript',
