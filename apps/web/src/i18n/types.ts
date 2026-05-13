@@ -1074,6 +1074,12 @@ export interface Dict {
   'fileViewer.comment': string;
   'fileViewer.edit': string;
   'fileViewer.draw': string;
+  'fileViewer.exportPdfSuccess': string;
+  'fileViewer.exportPdfError': string;
+  'fileViewer.exportZipSuccess': string;
+  'fileViewer.exportZipError': string;
+  'fileViewer.exportHtmlSuccess': string;
+  'fileViewer.exportMdSuccess': string;
   'manualEdit.layers': string;
   'manualEdit.editableCount': string;
   'manualEdit.title': string;
