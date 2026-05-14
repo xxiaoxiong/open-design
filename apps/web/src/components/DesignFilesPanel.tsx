@@ -47,6 +47,35 @@ const MODIFIED_SECTION_LABEL_KEY: Record<ModifiedSection, keyof Dict> = {
   older: 'designFiles.modifiedOlder',
 };
 
+const KIND_ORDER: ProjectFileKind[] = [
+  'html',
+  'text',
+  'code',
+  'sketch',
+  'image',
+  'document',
+  'pdf',
+  'presentation',
+  'spreadsheet',
+  'video',
+  'audio',
+  'binary',
+];
+const KIND_LABEL_KEY: Record<ProjectFileKind, keyof Dict> = {
+  html: 'designFiles.kindHtml',
+  image: 'designFiles.kindImage',
+  video: 'designFiles.kindVideo',
+  audio: 'designFiles.kindAudio',
+  sketch: 'designFiles.kindSketch',
+  text: 'designFiles.kindText',
+  code: 'designFiles.kindCode',
+  pdf: 'designFiles.kindPdf',
+  document: 'designFiles.kindDocument',
+  presentation: 'designFiles.kindPresentation',
+  spreadsheet: 'designFiles.kindSpreadsheet',
+  binary: 'designFiles.kindBinary',
+};
+
 /**
  * Full-panel browser for a project's `.od/projects/<id>/` folder. Mirrors
  * Claude Design's "Design Files" surface: grouped sections, hover-revealed
@@ -87,6 +116,9 @@ export function DesignFilesPanel({
   const [groupMode, setGroupMode] = useState<DesignFilesGroupMode>('kind');
   const [collapsedModifiedSections, setCollapsedModifiedSections] = useState<
     Set<ModifiedSection>
+  >(new Set());
+  const [collapsedKindSections, setCollapsedKindSections] = useState<
+    Set<ProjectFileKind>
   >(new Set());
   const [renaming, setRenaming] = useState<{ name: string; draft: string; saving: boolean } | null>(null);
   const [dayBoundary, setDayBoundary] = useState(() => Date.now());
@@ -131,6 +163,29 @@ export function DesignFilesPanel({
   }, [dayBoundary, pageFiles]);
   const visibleModifiedSections = MODIFIED_SECTION_ORDER.filter(
     (section) => modifiedGroups[section].length > 0,
+  );
+  const kindGroups = useMemo(() => {
+    const groups: Record<ProjectFileKind, ProjectFile[]> = {
+      html: [],
+      text: [],
+      code: [],
+      sketch: [],
+      image: [],
+      document: [],
+      pdf: [],
+      presentation: [],
+      spreadsheet: [],
+      video: [],
+      audio: [],
+      binary: [],
+    };
+    for (const f of pageFiles) {
+      groups[f.kind].push(f);
+    }
+    return groups;
+  }, [pageFiles]);
+  const visibleKindSections = KIND_ORDER.filter(
+    (kind) => kindGroups[kind].length > 0,
   );
   const rangeStart = safePage * effectivePageSize + 1;
   const rangeEnd = Math.min((safePage + 1) * effectivePageSize, sortedFiles.length);
@@ -331,6 +386,18 @@ export function DesignFilesPanel({
     });
   }
 
+  function toggleKindSection(kind: ProjectFileKind) {
+    setCollapsedKindSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(kind)) {
+        next.delete(kind);
+      } else {
+        next.add(kind);
+      }
+      return next;
+    });
+  }
+
   function renderFileRow(f: ProjectFile) {
     const active = preview === f.name;
     const isHovered = hover === f.name;
@@ -489,6 +556,32 @@ export function DesignFilesPanel({
               aria-expanded={!collapsed}
               aria-label={`${collapsed ? t('designFiles.expandGroup') : t('designFiles.collapseGroup')} ${label}`}
               onClick={() => toggleModifiedSection(section)}
+            >
+              <Icon name={collapsed ? 'chevron-right' : 'chevron-down'} size={13} />
+              <span>{label}</span>
+              <span className="df-section-count">{sectionFiles.length}</span>
+            </button>
+          </td>
+        </tr>,
+        ...(collapsed ? [] : sectionFiles.map(renderFileRow)),
+      ];
+    });
+  }
+
+  function renderKindSections() {
+    return visibleKindSections.flatMap((kind) => {
+      const sectionFiles = kindGroups[kind];
+      const collapsed = collapsedKindSections.has(kind);
+      const label = t(KIND_LABEL_KEY[kind]);
+      return [
+        <tr className="df-section-row" key={`${kind}-label`}>
+          <td colSpan={6}>
+            <button
+              type="button"
+              className="df-section-toggle"
+              aria-expanded={!collapsed}
+              aria-label={`${collapsed ? t('designFiles.expandGroup') : t('designFiles.collapseGroup')} ${label}`}
+              onClick={() => toggleKindSection(kind)}
             >
               <Icon name={collapsed ? 'chevron-right' : 'chevron-down'} size={13} />
               <span>{label}</span>
@@ -807,7 +900,9 @@ export function DesignFilesPanel({
                     <tbody>
                       {groupMode === 'modified'
                         ? renderModifiedSections()
-                        : pageFiles.map(renderFileRow)}
+                        : groupMode === 'kind'
+                          ? renderKindSections()
+                          : pageFiles.map(renderFileRow)}
                     </tbody>
                   </table>
                   <div className="df-pagination df-pagination-center">
