@@ -18432,6 +18432,11 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
 
 .routines-section .section-head { align-items: flex-start; }
 
+/* Prevent "New routine" button from wrapping awkwardly */
+.routines-section .section-head button {
+  white-space: nowrap;
+}
+
 .routines-card {
   background: var(--bg-panel);
   border: 1px solid var(--border);
@@ -18455,6 +18460,30 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
 .routines-empty strong { color: var(--text); display: block; margin-bottom: 4px; font-size: 14px; }
 .routines-empty p { margin: 0; font-size: 13px; }
 .routines-empty em { color: var(--text); font-style: normal; font-weight: 600; }
+
+/* Clickable "New routine" CTA in empty state */
+.routines-empty-cta {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 2px;
+  transition: color 0.15s ease, text-decoration-color 0.15s ease;
+}
+.routines-empty-cta:hover {
+  color: var(--accent);
+  text-decoration-color: var(--accent);
+}
+.routines-empty-cta:active {
+  opacity: 0.7;
+}
 
 .routines-field { display: flex; flex-direction: column; gap: 6px; }
 .routines-field > span {

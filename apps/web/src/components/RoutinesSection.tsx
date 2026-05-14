@@ -633,7 +633,20 @@ export function RoutinesSection({ onClose }: { onClose?: () => void }) {
       ) : routines.length === 0 ? (
         <div className="routines-empty">
           <strong>No routines yet.</strong>
-          <p>Click <em>New routine</em> to schedule an unattended agent run.</p>
+          <p>
+            Click{' '}
+            <button
+              type="button"
+              className="routines-empty-cta"
+              onClick={() => {
+                setForm(emptyForm());
+                setShowForm(true);
+              }}
+            >
+              New routine
+            </button>{' '}
+            to schedule an unattended agent run.
+          </p>
         </div>
       ) : (
         <ul className="routines-list">
