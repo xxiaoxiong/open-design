@@ -2345,17 +2345,17 @@ export function ProjectView({
     const launched = await terminalLauncher.open(project.id);
     if (launched.kind === 'electron' && launched.ok) {
       setProjectActionsToast({
-        message: 'Folder opened. Run `claude` in your terminal here and paste the prompt.',
+        message: 'Prompt copied. Folder opened. Run `claude` in your terminal here and paste.',
         details: null,
       });
     } else if (launched.kind === 'electron' && !launched.ok) {
       setProjectActionsToast({
-        message: `Couldn't open the folder. Open your terminal at ${projectDir}, run \`claude\`, and paste the prompt.`,
+        message: `Prompt copied. Couldn't open the folder. Open your terminal at ${projectDir}, run \`claude\`, and paste.`,
         details: null,
       });
     } else {
       setProjectActionsToast({
-        message: `Open your terminal at ${projectDir}, run \`claude\`, and paste the prompt.`,
+        message: `Prompt copied. Open your terminal at ${projectDir}, run \`claude\`, and paste.`,
         details: null,
       });
     }
