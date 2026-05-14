@@ -697,9 +697,9 @@ export const ko: Dict = {
   'designFiles.modifiedOlder': '이전',
   'designFiles.showMore': '+{n}개 더 보기',
   'designFiles.kindHtml': 'HTML 페이지',
-  'designFiles.kindImage':
+  'designFiles.kindImage': '이미지',
   'designFiles.kindVideo': '동영상',
-  'designFiles.kindAudio': '오디오', '이미지',
+  'designFiles.kindAudio': '오디오',
   'designFiles.kindSketch': '스케치',
   'designFiles.kindText': '텍스트',
   'designFiles.kindCode': '스크립트',

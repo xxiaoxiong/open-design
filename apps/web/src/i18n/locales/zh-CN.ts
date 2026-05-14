@@ -781,9 +781,9 @@ export const zhCN: Dict = {
   'designFiles.modifiedOlder': '更早',
   'designFiles.showMore': '再显示 {n} 个',
   'designFiles.kindHtml': 'HTML 页面',
-  'designFiles.kindImage':
+  'designFiles.kindImage': '图片',
   'designFiles.kindVideo': '视频',
-  'designFiles.kindAudio': '音频', '图片',
+  'designFiles.kindAudio': '音频',
   'designFiles.kindSketch': '草图',
   'designFiles.kindText': '文本',
   'designFiles.kindCode': '脚本',

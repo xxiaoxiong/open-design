@@ -719,9 +719,9 @@ export const ru: Dict = {
   'designFiles.modifiedOlder': 'Старше',
   'designFiles.showMore': 'Показать ещё +{n}',
   'designFiles.kindHtml': 'HTML страница',
-  'designFiles.kindImage':
+  'designFiles.kindImage': 'Изображение',
   'designFiles.kindVideo': 'Видео',
-  'designFiles.kindAudio': 'Аудио', 'Изображение',
+  'designFiles.kindAudio': 'Аудио',
   'designFiles.kindSketch': 'Эскиз',
   'designFiles.kindText': 'Текст',
   'designFiles.kindCode': 'Скрипт',

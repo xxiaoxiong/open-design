@@ -719,9 +719,9 @@ export const ptBR: Dict = {
   'designFiles.modifiedOlder': 'Mais antigos',
   'designFiles.showMore': 'Mostrar +{n} mais',
   'designFiles.kindHtml': 'Página HTML',
-  'designFiles.kindImage':
+  'designFiles.kindImage': 'Imagem',
   'designFiles.kindVideo': 'Vídeo',
-  'designFiles.kindAudio': 'Áudio', 'Imagem',
+  'designFiles.kindAudio': 'Áudio',
   'designFiles.kindSketch': 'Esboço',
   'designFiles.kindText': 'Texto',
   'designFiles.kindCode': 'Script',

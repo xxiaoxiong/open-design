@@ -1051,6 +1051,8 @@ export interface Dict {
   'designFiles.showMore': string;
   'designFiles.kindHtml': string;
   'designFiles.kindImage': string;
+  'designFiles.kindVideo': string;
+  'designFiles.kindAudio': string;
   'designFiles.kindSketch': string;
   'designFiles.kindText': string;
   'designFiles.kindCode': string;

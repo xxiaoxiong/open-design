@@ -721,9 +721,9 @@ export const uk: Dict = {
   'designFiles.showMore': 'Показати ще +{n}',
   'designFiles.kindHtml': 'Веб-сторінка',
   'designFiles.kindLiveArtifact': 'Live-артефакт',
-  'designFiles.kindImage':
+  'designFiles.kindImage': 'Зображення',
   'designFiles.kindVideo': 'Відео',
-  'designFiles.kindAudio': 'Аудіо', 'Зображення',
+  'designFiles.kindAudio': 'Аудіо',
   'designFiles.kindSketch': 'Ескіз',
   'designFiles.kindText': 'Текст',
   'designFiles.kindCode': 'Скрипт',
