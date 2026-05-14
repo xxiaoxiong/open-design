@@ -18518,7 +18518,15 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
 
 /* ---------------- Routines (Settings → Routines) ---------------- */
 
-.routines-section .section-head { align-items: flex-start; }
+.routines-section .section-head {
+  align-items: flex-start;
+}
+
+/* Align "New routine" button with the section title */
+.routines-section .section-head button {
+  margin-top: -2px; /* Optical alignment with h3 baseline */
+  flex-shrink: 0;
+}
 
 .routines-card {
   background: var(--bg-panel);
