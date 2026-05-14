@@ -33,6 +33,7 @@ export interface Dict {
   'common.cancel': string;
   'common.save': string;
   'common.close': string;
+  'common.clear': string;
   'common.delete': string;
   'common.rename': string;
   'common.preview': string;

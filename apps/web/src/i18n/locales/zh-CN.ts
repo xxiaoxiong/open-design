@@ -3,7 +3,8 @@ import type { Dict } from '../types';
 export const zhCN: Dict = {
   'common.cancel': '取消',
   'common.save': '保存',
-  'common.close': '关闭',
+     6|  'common.close': '关闭',
+  'common.clear': '清除',
   'common.delete': '删除',
   'common.rename': '重命名',
   'common.preview': '预览',

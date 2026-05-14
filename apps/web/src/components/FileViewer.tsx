@@ -1969,15 +1969,15 @@ function BoardComposerPopover({
   );
 }
 
-function formatCommentTime(ts: number): string {
+function formatCommentTime(ts: number, t: (key: string) => string): string {
   const diff = Date.now() - ts;
-  if (diff < 60_000) return 'just now';
+  if (diff < 60_000) return t('common.justNow');
   const mins = Math.floor(diff / 60_000);
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 60) return t('common.minutesAgo').replace('{minutes}', String(mins));
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return t('common.hoursAgo').replace('{hours}', String(hours));
   const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
+  if (days < 7) return t('common.daysAgo').replace('{days}', String(days));
   const weeks = Math.floor(days / 7);
   if (weeks < 5) return `${weeks}w ago`;
   return new Date(ts).toLocaleDateString();
@@ -2074,7 +2074,7 @@ export function CommentSidePanel({
                   </span>
                   <strong>{commentDisplayLabel(comment)}</strong>
                 </span>
-                <span className="comment-side-time">{formatCommentTime(comment.createdAt)}</span>
+                <span className="comment-side-time">{formatCommentTime(comment.createdAt, t)}</span>
                 <button
                   type="button"
                   className={`comment-side-check${selected ? ' checked' : ''}`}
@@ -2092,7 +2092,7 @@ export function CommentSidePanel({
                 data-testid="comment-side-edit"
                 onClick={() => onReply(comment)}
               >
-                Edit
+                {t('fileViewer.edit')}
               </button>
             </div>
           );
@@ -2100,9 +2100,9 @@ export function CommentSidePanel({
       </div>
       {selectedCount > 0 ? (
         <div className="comment-side-selectbar" data-testid="comment-side-selectbar">
-          <span className="comment-side-selectcount">{selectedCount} selected</span>
+          <span className="comment-side-selectcount">{selectedCount} {t('common.selected')}</span>
           <button type="button" className="ghost" onClick={onClearSelection}>
-            Clear
+            {t('common.clear')}
           </button>
           <button
             type="button"

@@ -3,7 +3,8 @@ import type { Dict } from '../types';
 export const en: Dict = {
   'common.cancel': 'Cancel',
   'common.save': 'Save',
-  'common.close': 'Close',
+     6|  'common.close': 'Close',
+  'common.clear': 'Clear',
   'common.delete': 'Delete',
   'common.rename': 'Rename',
   'common.preview': 'Preview',
