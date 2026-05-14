@@ -1113,7 +1113,7 @@ export const de: Dict = {
   'settings.skillsSave': 'Speichern',
   'settings.skillsSaving': 'Speichern…',
   'settings.skillsFiles': 'Dateien',
-  1116|  'settings.skillsNoFiles': 'Keine Dateien in diesem Skill-Ordner.',
+    'settings.skillsNoFiles': 'Keine Dateien in diesem Skill-Ordner.',
   'settings.skillsNameRequired': 'Skill-Name ist erforderlich.',
   'settings.skillsBodyRequired': 'Skill-Inhalt ist erforderlich.',
   'settings.designSystems': 'Design-Systeme',

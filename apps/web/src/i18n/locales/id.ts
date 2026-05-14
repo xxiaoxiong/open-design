@@ -1334,7 +1334,7 @@ export const id: Dict = {
   'settings.skillsSave': 'Simpan',
   'settings.skillsSaving': 'Menyimpan…',
   'settings.skillsFiles': 'Berkas',
-  1337|  'settings.skillsNoFiles': 'Tidak ada berkas dalam folder keterampilan ini.',
+    'settings.skillsNoFiles': 'Tidak ada berkas dalam folder keterampilan ini.',
   'settings.skillsNameRequired': 'Nama keterampilan wajib diisi.',
   'settings.skillsBodyRequired': 'Isi keterampilan wajib diisi.',
   'settings.designSystems': 'Sistem desain',

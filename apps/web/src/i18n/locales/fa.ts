@@ -1227,7 +1227,7 @@ export const fa: Dict = {
   'settings.skillsSave': 'ذخیره',
   'settings.skillsSaving': 'در حال ذخیره…',
   'settings.skillsFiles': 'فایل‌ها',
-  1230|  'settings.skillsNoFiles': 'هیچ فایلی در این پوشه مهارت نیست.',
+    'settings.skillsNoFiles': 'هیچ فایلی در این پوشه مهارت نیست.',
   'settings.skillsNameRequired': 'نام مهارت الزامی است.',
   'settings.skillsBodyRequired': 'محتوای مهارت الزامی است.',
   'settings.designSystems': 'سیستم‌های طراحی',

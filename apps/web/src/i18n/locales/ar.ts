@@ -1184,7 +1184,7 @@ export const ar: Dict = {
   'settings.skillsSave': 'حفظ',
   'settings.skillsSaving': 'جاري الحفظ…',
   'settings.skillsFiles': 'الملفات',
-  1187|  'settings.skillsNoFiles': 'لا توجد ملفات في مجلد هذه المهارة.',
+    'settings.skillsNoFiles': 'لا توجد ملفات في مجلد هذه المهارة.',
   'settings.skillsNameRequired': 'اسم المهارة مطلوب.',
   'settings.skillsBodyRequired': 'محتوى المهارة مطلوب.',
   'settings.designSystems': 'أنظمة التصميم',

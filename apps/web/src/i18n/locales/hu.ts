@@ -1194,7 +1194,7 @@ export const hu: Dict = {
   'settings.skillsSave': 'Mentés',
   'settings.skillsSaving': 'Mentés…',
   'settings.skillsFiles': 'Fájlok',
-  1197|  'settings.skillsNoFiles': 'Nincs fájl ebben a készségmappában.',
+    'settings.skillsNoFiles': 'Nincs fájl ebben a készségmappában.',
   'settings.skillsNameRequired': 'A készség neve kötelező.',
   'settings.skillsBodyRequired': 'A készség tartalma kötelező.',
   'settings.designSystems': 'Designrendszerek',

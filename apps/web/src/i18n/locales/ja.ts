@@ -1112,7 +1112,7 @@ export const ja: Dict = {
   'settings.skillsSave': '保存',
   'settings.skillsSaving': '保存中…',
   'settings.skillsFiles': 'ファイル',
-  1115|  'settings.skillsNoFiles': 'このスキルフォルダーにファイルはありません。',
+    'settings.skillsNoFiles': 'このスキルフォルダーにファイルはありません。',
   'settings.skillsNameRequired': 'スキル名は必須です。',
   'settings.skillsBodyRequired': 'スキルの内容は必須です。',
   'settings.designSystems': 'デザインシステム',

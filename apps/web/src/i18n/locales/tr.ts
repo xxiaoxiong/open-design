@@ -1171,7 +1171,7 @@ export const tr: Dict = {
   'settings.skillsSave': 'Kaydet',
   'settings.skillsSaving': 'Kaydediliyor…',
   'settings.skillsFiles': 'Dosyalar',
-  1174|  'settings.skillsNoFiles': 'Bu yetenek klasöründe dosya yok.',
+    'settings.skillsNoFiles': 'Bu yetenek klasöründe dosya yok.',
   'settings.skillsNameRequired': 'Beceri adı gereklidir.',
   'settings.skillsBodyRequired': 'Beceri içeriği gereklidir.',
   'settings.designSystems': 'Tasarım sistemleri',

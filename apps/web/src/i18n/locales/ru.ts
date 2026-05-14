@@ -1225,7 +1225,7 @@ export const ru: Dict = {
   'settings.skillsSave': 'Сохранить',
   'settings.skillsSaving': 'Сохранение…',
   'settings.skillsFiles': 'Файлы',
-  1228|  'settings.skillsNoFiles': 'В папке этого навыка нет файлов.',
+    'settings.skillsNoFiles': 'В папке этого навыка нет файлов.',
   'settings.skillsNameRequired': 'Имя навыка обязательно.',
   'settings.skillsBodyRequired': 'Содержимое навыка обязательно.',
   'settings.designSystems': 'Дизайн-системы',

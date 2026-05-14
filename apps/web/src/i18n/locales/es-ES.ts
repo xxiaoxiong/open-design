@@ -1073,7 +1073,7 @@ export const esES: Dict = {
   'settings.skillsSave': 'Guardar',
   'settings.skillsSaving': 'Guardando…',
   'settings.skillsFiles': 'Archivos',
-  1076|  'settings.skillsNoFiles': 'No hay archivos en esta carpeta de habilidad.',
+    'settings.skillsNoFiles': 'No hay archivos en esta carpeta de habilidad.',
   'settings.skillsNameRequired': 'El nombre de la habilidad es obligatorio.',
   'settings.skillsBodyRequired': 'El contenido de la habilidad es obligatorio.',
   'settings.designSystems': 'Sistemas de diseño',
