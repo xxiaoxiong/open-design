@@ -146,7 +146,7 @@ export function SkillsSection({ cfg, setCfg }: Props) {
     const q = search.toLowerCase().trim();
     return skills.filter((s) => {
       if (modeFilter !== 'all' && s.mode !== modeFilter) return false;
-      if (sourceFilter !== 'all' && s.source !== sourceFilter) return false;
+      if (sourceFilter !== 'all' && (s.source ?? 'built-in') !== sourceFilter) return false;
       if (categoryFilter !== 'all' && s.category !== categoryFilter)
         return false;
       if (!q) return true;
@@ -364,7 +364,7 @@ export function SkillsSection({ cfg, setCfg }: Props) {
             const count =
               s === 'all'
                 ? skills.length
-                : skills.filter((skill) => skill.source === s).length;
+                : skills.filter((skill) => (skill.source ?? 'built-in') === s).length;
             return (
               <button
                 key={s}
