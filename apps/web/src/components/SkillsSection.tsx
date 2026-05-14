@@ -146,6 +146,14 @@ export function SkillsSection({ cfg, setCfg }: Props) {
     return Array.from(counts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [skills, modeFilter, sourceFilter]);
 
+  // Reset category filter to 'all' when the selected category is no longer
+  // available for the current mode/source filters
+  useEffect(() => {
+    if (categoryFilter === 'all') return;
+    const stillValid = categoryOptions.some(([cat]) => cat === categoryFilter);
+    if (!stillValid) setCategoryFilter('all');
+  }, [categoryFilter, categoryOptions]);
+
   const filteredSkills = useMemo(() => {
     const q = search.toLowerCase().trim();
     return skills.filter((s) => {
