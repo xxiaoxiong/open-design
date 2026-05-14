@@ -18484,7 +18484,8 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
 /* Restore custom dropdown chevron for select elements in routines form.
    The appearance:none above removes the native chevron, so we paint our own
    via background-image (matching the global select styling). */
-.routines-field select {
+.routines-field select,
+.routines-project-select {
   padding-right: 32px;
   background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%2374716b' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='3 5 6 8 9 5'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
@@ -18492,12 +18493,14 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   background-size: 12px 12px;
 }
 
-[data-theme='dark'] .routines-field select {
+[data-theme='dark'] .routines-field select,
+[data-theme='dark'] .routines-project-select {
   background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%239a9690' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='3 5 6 8 9 5'/%3E%3C/svg%3E");
 }
 
 @media (prefers-color-scheme: dark) {
-  html:not([data-theme]) .routines-field select {
+  html:not([data-theme]) .routines-field select,
+  html:not([data-theme]) .routines-project-select {
     background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%239a9690' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='3 5 6 8 9 5'/%3E%3C/svg%3E");
   }
 }
