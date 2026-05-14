@@ -2,6 +2,11 @@ import { createHmac, randomBytes } from "node:crypto";
 import { mkdir, writeFile, realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { release } from "node:os";
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
+
+const execAsync = promisify(exec);
 
 import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type { DesktopExportPdfInput, DesktopExportPdfResult } from "@open-design/sidecar-proto";
@@ -831,6 +836,23 @@ export async function createDesktopRuntime(options: DesktopRuntimeOptions): Prom
     const validated = await validateExistingDirectory(resolved.context.resolvedDir);
     if (!validated.ok) return `open-path: ${validated.reason}`;
     try {
+      // WSL detection: check if running on WSL (kernel release contains 'microsoft')
+      const isWSL = release().toLowerCase().includes('microsoft');
+      
+      if (isWSL) {
+        // On WSL, use explorer.exe with wslpath to convert POSIX path to Windows path
+        try {
+          const { stdout } = await execAsync(`wslpath -w "${validated.resolved}"`);
+          const windowsPath = stdout.trim();
+          await execAsync(`explorer.exe "${windowsPath}"`);
+          return ""; // Success - empty string indicates no error
+        } catch (wslErr) {
+          // Fall back to shell.openPath if wslpath/explorer.exe fails
+          return await shell.openPath(validated.resolved);
+        }
+      }
+      
+      // Non-WSL: use standard Electron shell.openPath
       return await shell.openPath(validated.resolved);
     } catch (err) {
       return err instanceof Error ? err.message : String(err);
