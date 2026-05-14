@@ -18683,7 +18683,7 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   gap: 4px;
   font-weight: 500;
 }
-.routines-history-link:hover { background: var(--text); color: var(--bg); border-color: var(--text); }
+.routines-history-link:hover { background: var(--text); color: var(--bg-canvas); border-color: var(--text); }
 
 .routines-status {
   display: inline-block;
