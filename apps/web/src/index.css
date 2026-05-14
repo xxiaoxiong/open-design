@@ -8331,7 +8331,7 @@ button.connector-action.is-loading {
   padding: 2px 6px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: var(--bg);
+  background-color: var(--bg);
   color: var(--text);
   cursor: pointer;
 }
