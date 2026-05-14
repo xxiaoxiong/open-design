@@ -7046,6 +7046,7 @@ button.connector-action.is-loading {
 .design-card-meta {
   font-size: 11.5px;
   color: var(--text-muted);
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
