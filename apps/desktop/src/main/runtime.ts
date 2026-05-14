@@ -3,10 +3,10 @@ import { mkdir, writeFile, realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { release } from "node:os";
-import { exec } from "node:child_process";
+import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type { DesktopExportPdfInput, DesktopExportPdfResult } from "@open-design/sidecar-proto";
@@ -841,10 +841,11 @@ export async function createDesktopRuntime(options: DesktopRuntimeOptions): Prom
       
       if (isWSL) {
         // On WSL, use explorer.exe with wslpath to convert POSIX path to Windows path
+        // Use execFile with argument arrays to avoid shell injection
         try {
-          const { stdout } = await execAsync(`wslpath -w "${validated.resolved}"`);
+          const { stdout } = await execFileAsync("wslpath", ["-w", validated.resolved]);
           const windowsPath = stdout.trim();
-          await execAsync(`explorer.exe "${windowsPath}"`);
+          await execFileAsync("explorer.exe", [windowsPath]);
           return ""; // Success - empty string indicates no error
         } catch (wslErr) {
           // Fall back to shell.openPath if wslpath/explorer.exe fails
