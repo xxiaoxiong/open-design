@@ -3108,6 +3108,7 @@ export async function startServer({
     agentId,
     projectId,
     skillId,
+    skillIds,
     designSystemId,
     streamFormat,
     connectedExternalMcp,
@@ -3150,6 +3151,34 @@ export async function startServer({
         skillCritiquePolicy = skill.critiquePolicy;
         if (Array.isArray(skill.craftRequires))
           skillCraftRequires = skill.craftRequires;
+      }
+    }
+
+    // Ad-hoc @-mention skill composition. When the user selects skills via
+    // the @ popover, the frontend sends skillIds[] and we concatenate their
+    // bodies into the system prompt. This runs after the project-level skill
+    // so @-mention skills augment (not replace) the project's base workflow.
+    if (Array.isArray(skillIds) && skillIds.length > 0) {
+      const allSkills = await listAllSkillLikeEntries();
+      const mentionedSkills = skillIds
+        .map((id) => findSkillById(allSkills, id))
+        .filter(Boolean);
+      if (mentionedSkills.length > 0) {
+        const mentionedBodies = mentionedSkills.map((s) => s.body).join('\n\n');
+        if (skillBody) {
+          // Project has a skill + user @-mentioned additional skills.
+          // Concatenate so both are active.
+          skillBody = `${skillBody}\n\n${mentionedBodies}`;
+        } else {
+          // No project skill, only @-mentioned skills.
+          skillBody = mentionedBodies;
+        }
+        // Merge craftRequires from all @-mentioned skills.
+        for (const s of mentionedSkills) {
+          if (Array.isArray(s.craftRequires)) {
+            skillCraftRequires.push(...s.craftRequires);
+          }
+        }
       }
     }
 
@@ -3383,6 +3412,7 @@ export async function startServer({
       assistantMessageId,
       clientRequestId,
       skillId,
+      skillIds,
       designSystemId,
       attachments = [],
       commentAttachments = [],
@@ -3616,6 +3646,7 @@ export async function startServer({
         agentId,
         projectId,
         skillId,
+        skillIds,
         designSystemId,
         streamFormat: def?.streamFormat ?? 'plain',
         connectedExternalMcp,
