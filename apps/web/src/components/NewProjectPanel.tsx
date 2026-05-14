@@ -620,9 +620,17 @@ export function NewProjectPanel({
     if (!onImportFolder) return;
     const trimmed = baseDir.trim();
     if (!trimmed) return;
+    setImportFolderError(null);
     setImportingFolder(true);
     try {
       await onImportFolder(trimmed);
+      // Success: the parent handler (Home.tsx) navigates to the project,
+      // which provides implicit success feedback by changing the view.
+      // No explicit toast needed here since the navigation is the feedback.
+    } catch (err) {
+      setImportFolderError({
+        message: `Open folder failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+      });
     } finally {
       setImportingFolder(false);
     }
