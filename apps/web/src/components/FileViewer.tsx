@@ -3669,6 +3669,7 @@ function HtmlViewer({
   const [queuedBoardNotes, setQueuedBoardNotes] = useState<string[]>([]);
   const [sendingBoardBatch, setSendingBoardBatch] = useState(false);
   const [commentSavedToast, setCommentSavedToast] = useState<string | null>(null);
+  const [exportSuccessToast, setExportSuccessToast] = useState<string | null>(null);
   const [selectedSideCommentIds, setSelectedSideCommentIds] = useState<Set<string>>(() => new Set());
   const [strokePoints, setStrokePoints] = useState<StrokePoint[]>([]);
   const previewStateKey = `${projectId}:${file.name}`;
@@ -5399,13 +5400,16 @@ function HtmlViewer({
                     role="menuitem"
                     onClick={() => {
                       setShareMenuOpen(false);
-                      fireShareExport('pdf', () => exportProjectAsPdf({
-                        deck: effectiveDeck,
-                        fallbackPdf: () => exportAsPdf(source ?? '', exportTitle, { deck: effectiveDeck }),
-                        filePath: file.name,
-                        projectId,
-                        title: exportTitle,
-                      }));
+                      fireShareExport('pdf', async () => {
+                        await exportProjectAsPdf({
+                          deck: effectiveDeck,
+                          fallbackPdf: () => exportAsPdf(source ?? '', exportTitle, { deck: effectiveDeck }),
+                          filePath: file.name,
+                          projectId,
+                          title: exportTitle,
+                        });
+                        setExportSuccessToast(t('fileViewer.exportPdfSuccess'));
+                      });
                     }}
                   >
                     <span className="share-menu-icon"><Icon name="file" size={14} /></span>
@@ -5444,12 +5448,15 @@ function HtmlViewer({
                     role="menuitem"
                     onClick={() => {
                       setShareMenuOpen(false);
-                      fireShareExport('zip', () => exportProjectAsZip({
-                        projectId,
-                        filePath: file.name,
-                        fallbackHtml: source ?? '',
-                        fallbackTitle: exportTitle,
-                      }));
+                      fireShareExport('zip', async () => {
+                        await exportProjectAsZip({
+                          projectId,
+                          filePath: file.name,
+                          fallbackHtml: source ?? '',
+                          fallbackTitle: exportTitle,
+                        });
+                        setExportSuccessToast(t('fileViewer.exportZipSuccess'));
+                      });
                     }}
                   >
                     <span className="share-menu-icon"><Icon name="download" size={14} /></span>
@@ -5461,7 +5468,10 @@ function HtmlViewer({
                     role="menuitem"
                     onClick={() => {
                       setShareMenuOpen(false);
-                      fireShareExport('html', () => exportAsHtml(source ?? '', exportTitle));
+                      fireShareExport('html', () => {
+                        exportAsHtml(source ?? '', exportTitle);
+                        setExportSuccessToast(t('fileViewer.exportHtmlSuccess'));
+                      });
                     }}
                   >
                     <span className="share-menu-icon"><Icon name="file-code" size={14} /></span>
@@ -5479,7 +5489,10 @@ function HtmlViewer({
                     role="menuitem"
                     onClick={() => {
                       setShareMenuOpen(false);
-                      fireShareExport('markdown', () => exportAsMd(source ?? '', exportTitle));
+                      fireShareExport('markdown', () => {
+                        exportAsMd(source ?? '', exportTitle);
+                        setExportSuccessToast(t('fileViewer.exportMdSuccess'));
+                      });
                     }}
                   >
                     <span className="share-menu-icon"><Icon name="file" size={14} /></span>
@@ -5662,6 +5675,15 @@ function HtmlViewer({
                   message={commentSavedToast}
                   ttlMs={2200}
                   onDismiss={() => setCommentSavedToast(null)}
+                />
+              </div>
+            ) : null}
+            {exportSuccessToast ? (
+              <div className="comment-toast-anchor">
+                <Toast
+                  message={exportSuccessToast}
+                  ttlMs={2200}
+                  onDismiss={() => setExportSuccessToast(null)}
                 />
               </div>
             ) : null}
