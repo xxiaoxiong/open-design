@@ -132,15 +132,19 @@ export function SkillsSection({ cfg, setCfg }: Props) {
   // SKILL.md frontmatter). The pill row only renders when at least one
   // skill in the listing carries one, so a project that ships only the
   // baseline functional skills doesn't see an empty filter row.
+  // Counts are computed based on the current mode and source filters.
   const categoryOptions = useMemo(() => {
     const counts = new Map<string, number>();
     for (const s of skills) {
+      // Apply current mode and source filters before counting categories
+      if (modeFilter !== 'all' && s.mode !== modeFilter) continue;
+      if (sourceFilter !== 'all' && (s.source ?? 'built-in') !== sourceFilter) continue;
       const cat = s.category;
       if (typeof cat !== 'string' || !cat) continue;
       counts.set(cat, (counts.get(cat) ?? 0) + 1);
     }
     return Array.from(counts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [skills]);
+  }, [skills, modeFilter, sourceFilter]);
 
   const filteredSkills = useMemo(() => {
     const q = search.toLowerCase().trim();
