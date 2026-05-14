@@ -4789,8 +4789,8 @@ function AppearanceSection({
         ))}
       </div>
       <div className="field">
-        <span className="field-label">Accent color</span>
-        <div className="pet-swatches" role="radiogroup" aria-label="Accent color">
+        <span className="field-label">{t('pet.fieldAccent')}</span>
+        <div className="pet-swatches" role="radiogroup" aria-label={t('pet.fieldAccent')}>
           {ACCENT_SWATCHES.map((color) => {
             const active = currentAccent === color;
             return (
