@@ -305,6 +305,7 @@ beforeEach(() => {
 describe('SettingsDialog execution settings BYOK interactions', () => {
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
   });
 
   it('renders BYOK protocol tabs and toggles API key visibility', () => {
@@ -410,6 +411,41 @@ describe('SettingsDialog execution settings BYOK interactions', () => {
     );
   });
 
+  it('surfaces autosave progress, success, and failure states in the modal chrome', async () => {
+    const first = renderSettingsDialog();
+
+    fireEvent.change(screen.getByLabelText('API key'), {
+      target: { value: 'sk-saved' },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Saving…')).toBeTruthy();
+    });
+    await waitFor(() => {
+      expect(screen.getByText('All changes saved')).toBeTruthy();
+    });
+    expect(first.onPersist).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKey: 'sk-saved' }),
+      expect.any(Object),
+    );
+
+    cleanup();
+
+    const second = renderSettingsDialog();
+    second.onPersist.mockRejectedValueOnce(new Error('daemon offline'));
+
+    fireEvent.change(screen.getByLabelText('API key'), {
+      target: { value: 'sk-error' },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Saving…')).toBeTruthy();
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/Couldn’t save changes/i)).toBeTruthy();
+    });
+  });
+
   it('closes BYOK via the close button or backdrop', () => {
     const first = renderSettingsDialog();
 
@@ -469,37 +505,13 @@ describe('SettingsDialog execution settings BYOK interactions', () => {
     );
   });
 
-  it('supports custom model entry in BYOK mode', async () => {
-    const { onPersist } = renderSettingsDialog({ apiProtocol: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o', apiProviderBaseUrl: 'https://api.openai.com/v1' });
-
-    fireEvent.click(screen.getByRole('tab', { name: 'OpenAI' }));
-    fireEvent.change(screen.getByLabelText('API key'), {
-      target: { value: 'sk-openai' },
-    });
-    fireEvent.change(screen.getByLabelText('Model'), {
-      target: { value: '__custom__' },
-    });
-
-    const customModelInput = screen.getByLabelText('Custom model id') as HTMLInputElement;
-    expect(customModelInput).toBeTruthy();
-    fireEvent.change(customModelInput, {
-      target: { value: 'gpt-4.1-custom' },
-    });
-
-    await waitForPersist(
-      onPersist,
-      expect.objectContaining({
-        apiProtocol: 'openai',
-        apiKey: 'sk-openai',
-        model: 'gpt-4.1-custom',
-        baseUrl: 'https://api.openai.com/v1',
-      }),
-      {},
-    );
-  });
-
   it('enables model fetching only for supported BYOK provider drafts', () => {
-    renderSettingsDialog({ apiProtocol: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o', apiProviderBaseUrl: 'https://api.openai.com/v1' });
+    renderSettingsDialog({
+      apiProtocol: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o',
+      apiProviderBaseUrl: 'https://api.openai.com/v1',
+    });
 
     fireEvent.click(screen.getByRole('tab', { name: 'OpenAI' }));
     const fetchButton = screen.getByRole('button', { name: 'Fetch models' }) as HTMLButtonElement;
@@ -555,13 +567,11 @@ describe('SettingsDialog execution settings BYOK interactions', () => {
       expect.any(AbortSignal),
     );
     const select = screen.getByLabelText('Model') as HTMLSelectElement;
-    expect(Array.from(select.options).map((o) => o.value)).toEqual(
+    expect(Array.from(select.options).map((option) => option.value)).toEqual(
       expect.arrayContaining(['remote-alpha', 'gpt-4o', '__custom__']),
     );
     expect(
-      Array.from(select.options).some((o) =>
-        o.textContent === 'Remote Alpha (remote-alpha)',
-      ),
+      Array.from(select.options).some((option) => option.textContent === 'Remote Alpha (remote-alpha)'),
     ).toBe(true);
     expect((screen.getByLabelText('Custom model id') as HTMLInputElement).value).toBe('custom-still-here');
 
@@ -618,11 +628,94 @@ describe('SettingsDialog execution settings BYOK interactions', () => {
 
     expect(await screen.findByText('Authentication failed. Check your API key.')).toBeTruthy();
   });
+
+  it('supports custom model entry in BYOK mode', async () => {
+    const { onPersist } = renderSettingsDialog({ apiProtocol: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o', apiProviderBaseUrl: 'https://api.openai.com/v1' });
+
+    fireEvent.click(screen.getByRole('tab', { name: 'OpenAI' }));
+    fireEvent.change(screen.getByLabelText('API key'), {
+      target: { value: 'sk-openai' },
+    });
+    fireEvent.change(screen.getByLabelText('Model'), {
+      target: { value: '__custom__' },
+    });
+
+    const customModelInput = screen.getByLabelText('Custom model id') as HTMLInputElement;
+    expect(customModelInput).toBeTruthy();
+    fireEvent.change(customModelInput, {
+      target: { value: 'gpt-4.1-custom' },
+    });
+
+    await waitForPersist(
+      onPersist,
+      expect.objectContaining({
+        apiProtocol: 'openai',
+        apiKey: 'sk-openai',
+        model: 'gpt-4.1-custom',
+        baseUrl: 'https://api.openai.com/v1',
+      }),
+      {},
+    );
+  });
+
+  it('runs the BYOK connection test only after required fields are present', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      // MemoryModelInline mounts inside the BYOK section and reads the
+      // current extraction override from /api/memory on mount. Swallow
+      // it here so the assertion below only counts the test-connection
+      // POST the user actually triggered.
+      if (url === '/api/memory') {
+        return new Response(
+          JSON.stringify({ enabled: true, memories: [], extraction: null }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      expect(url).toBe('/api/test/connection');
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        mode: 'provider',
+        protocol: 'anthropic',
+        apiKey: 'sk-test-provider',
+        baseUrl: 'https://api.anthropic.com',
+        model: 'claude-sonnet-4-5',
+      });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          kind: 'ok',
+          latencyMs: 42,
+          model: 'claude-sonnet-4-5',
+          sample: 'pong',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderSettingsDialog({ apiKey: 'sk-test-provider' });
+
+    const testButton = screen.getByRole('button', { name: 'Test' }) as HTMLButtonElement;
+    expect(testButton.disabled).toBe(false);
+
+    fireEvent.click(testButton);
+
+    await waitFor(() => {
+      expect(screen.getByText('Testing connection…')).toBeTruthy();
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/Connected\. Replied in 42 ms/)).toBeTruthy();
+    });
+    const testConnectionCalls = fetchMock.mock.calls.filter(
+      ([input]) => input.toString() === '/api/test/connection',
+    );
+    expect(testConnectionCalls).toHaveLength(1);
+  });
 });
 
 describe('SettingsDialog execution settings Local CLI interactions', () => {
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
   });
 
   it('lets users switch to Local CLI, select an installed agent, and autosave', async () => {
@@ -748,11 +841,6 @@ describe('SettingsDialog execution settings Local CLI interactions', () => {
       { agents: availableAgents },
     );
 
-    fireEvent.click(screen.getByRole('tab', { name: /Local CLI.*1 installed/i }));
-
-    fireEvent.change(screen.getByLabelText('Claude Code config directory'), {
-      target: { value: '  ~/.claude-qa  ' },
-    });
     fireEvent.change(screen.getByLabelText('Codex home'), {
       target: { value: ' ~/.codex-team ' },
     });
@@ -763,7 +851,6 @@ describe('SettingsDialog execution settings Local CLI interactions', () => {
         mode: 'daemon',
         agentId: 'codex',
         agentCliEnv: {
-          claude: { CLAUDE_CONFIG_DIR: '~/.claude-qa' },
           codex: { CODEX_HOME: '~/.codex-team' },
         },
       }),
@@ -781,6 +868,59 @@ describe('SettingsDialog execution settings Local CLI interactions', () => {
     expect(localCliTab.disabled).toBe(true);
     expect(localCliTab.getAttribute('title')).toBe('Daemon is not running');
     expect(screen.getByRole('tab', { name: /BYOK.*API provider/i }).getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('runs the Local CLI connection test for the selected installed agent', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      // MemoryModelInline mounts inside the Local CLI section and reads
+      // the current extraction override from /api/memory on mount.
+      // Swallow it here so the assertion below only counts the
+      // test-connection POST the user actually triggered.
+      if (url === '/api/memory') {
+        return new Response(
+          JSON.stringify({ enabled: true, memories: [], extraction: null }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      expect(url).toBe('/api/test/connection');
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        mode: 'agent',
+        agentId: 'codex',
+        agentCliEnv: {},
+      });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          kind: 'ok',
+          latencyMs: 31,
+          agentName: 'Codex CLI',
+          model: 'default',
+          sample: 'ready',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderSettingsDialog(
+      { mode: 'daemon', agentId: 'codex' },
+      { agents: availableAgents },
+    );
+
+    fireEvent.click(screen.getByRole('tab', { name: /Local CLI.*1 installed/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Test' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Testing connection…')).toBeTruthy();
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/Codex CLI replied in 31 ms/)).toBeTruthy();
+    });
+    const testConnectionCalls = fetchMock.mock.calls.filter(
+      ([input]) => input.toString() === '/api/test/connection',
+    );
+    expect(testConnectionCalls).toHaveLength(1);
   });
 });
 
@@ -806,20 +946,31 @@ describe('SettingsDialog media providers interactions', () => {
       node.textContent?.trim(),
     );
     expect(names.slice(0, 2)).toEqual(['MiniMax', 'OpenAI']);
-    expect(screen.getAllByText('Configured').length).toBeGreaterThanOrEqual(2);
   });
 
-  it('renders unsupported providers as disabled rows', () => {
+  it('renders non-integrated providers in the coming-soon section without input fields', () => {
     renderSettingsDialog(
       { mode: 'daemon', agentId: 'codex' },
       { initialSection: 'media' },
     );
 
-    expect(screen.getAllByText('Unsupported').length).toBeGreaterThan(0);
-    const bflApiKey = screen.getByLabelText('Black Forest Labs API key') as HTMLInputElement;
-    const bflBaseUrl = screen.getByLabelText('Black Forest Labs Base URL') as HTMLInputElement;
-    expect(bflApiKey.disabled).toBe(true);
-    expect(bflBaseUrl.disabled).toBe(true);
+    // Non-integrated providers (e.g. Fal.ai, Black Forest Labs) are shown in
+    // a separate "Coming soon" disclosure without editable inputs.
+    expect(screen.queryByLabelText('Black Forest Labs API key')).toBeNull();
+    expect(screen.queryByLabelText('Black Forest Labs Base URL')).toBeNull();
+    expect(document.querySelector('.media-provider-coming-soon')).toBeTruthy();
+  });
+
+  it('renders ElevenLabs as an integrated media provider with enabled inputs', () => {
+    renderSettingsDialog(
+      { mode: 'daemon', agentId: 'codex' },
+      { initialSection: 'media' },
+    );
+
+    const apiKeyInput = screen.getByLabelText('ElevenLabs API key') as HTMLInputElement;
+    const baseUrlInput = screen.getByLabelText('ElevenLabs Base URL') as HTMLInputElement;
+    expect(apiKeyInput.disabled).toBe(false);
+    expect(baseUrlInput.disabled).toBe(false);
   });
 
   it('clears an existing provider config and removes it from the persisted payload', async () => {
@@ -1130,7 +1281,7 @@ describe('SettingsDialog connectors interactions', () => {
         apiKeyTail: '',
       });
     });
-    expect(screen.getByText(/keys are stored locally in the daemon/i)).toBeTruthy();
+    expect(screen.getByText(/keys are stored locally and never shared/i)).toBeTruthy();
   });
 
   it('closes Composio settings via the close button or backdrop', () => {
@@ -1232,10 +1383,6 @@ describe('SettingsDialog MCP server interactions', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith('/api/mcp/install-info');
     });
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 3, name: 'MCP server' })).toBeTruthy();
-    });
-
     expect(screen.getByText(/Run this in your terminal/i)).toBeTruthy();
     await waitFor(() => {
       expect(screen.getByText(/claude mcp add-json --scope user open-design/i)).toBeTruthy();
@@ -1316,42 +1463,30 @@ describe('SettingsDialog language interactions', () => {
     document.documentElement.removeAttribute('dir');
   });
 
-  it('opens the language menu and marks the current locale as selected', async () => {
+  it('shows every locale as a tile and marks the current locale as selected', async () => {
     renderLanguageSettingsDialog('en');
 
-    const trigger = screen.getByRole('button', { name: /English/i });
-    fireEvent.click(trigger);
-
-    const options = await screen.findAllByRole('menuitemradio');
-    expect(options).toHaveLength(LOCALES.length);
-    expect(screen.getByRole('menuitemradio', { name: /English/i }).getAttribute('aria-checked')).toBe('true');
-    expect(screen.getByRole('menuitemradio', { name: /简体中文/i }).getAttribute('aria-checked')).toBe('false');
+    const tiles = await screen.findAllByRole('radio');
+    expect(tiles).toHaveLength(LOCALES.length);
+    expect(screen.getByRole('radio', { name: /English/i }).getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByRole('radio', { name: /简体中文/i }).getAttribute('aria-checked')).toBe('false');
   });
 
-  it('switches locale immediately, updates localStorage, and closes the menu', async () => {
+  it('switches locale immediately and updates localStorage', async () => {
     renderLanguageSettingsDialog('en');
 
-    fireEvent.click(screen.getByRole('button', { name: /English/i }));
-    fireEvent.click(await screen.findByRole('menuitemradio', { name: /简体中文/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /简体中文/i }));
 
-    expect(screen.queryByRole('menu')).toBeNull();
-    expect(screen.getByRole('button', { name: /简体中文/i })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: /简体中文/i }).getAttribute('aria-checked')).toBe('true');
     expect(window.localStorage.getItem('open-design:locale')).toBe('zh-CN');
     expect(document.documentElement.getAttribute('lang')).toBe('zh-CN');
     expect(document.documentElement.getAttribute('dir')).toBe('ltr');
   });
 
-  it('sets rtl direction for rtl locales and closes the menu on escape', async () => {
+  it('sets rtl direction for rtl locales', async () => {
     renderLanguageSettingsDialog('en');
 
-    fireEvent.click(screen.getByRole('button', { name: /English/i }));
-    fireEvent.keyDown(document, { key: 'Escape' });
-    await waitFor(() => {
-      expect(screen.queryByRole('menu')).toBeNull();
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: /English/i }));
-    fireEvent.click(await screen.findByRole('menuitemradio', { name: /فارسی/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /فارسی/i }));
 
     expect(window.localStorage.getItem('open-design:locale')).toBe('fa');
     expect(document.documentElement.getAttribute('lang')).toBe('fa');
@@ -1361,8 +1496,7 @@ describe('SettingsDialog language interactions', () => {
   it('does not route language changes through autosave and closing does not revert an applied locale', async () => {
     const { onPersist, onClose } = renderLanguageSettingsDialog('en');
 
-    fireEvent.click(screen.getByRole('button', { name: /English/i }));
-    fireEvent.click(await screen.findByRole('menuitemradio', { name: /Deutsch/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /Deutsch/i }));
 
     expect(window.localStorage.getItem('open-design:locale')).toBe('de');
     expect(document.documentElement.getAttribute('lang')).toBe('de');
@@ -1523,6 +1657,16 @@ describe('SettingsDialog appearance interactions', () => {
     expect(screen.getByRole('button', { name: 'Dark' }).getAttribute('aria-pressed')).toBe('false');
   });
 
+  it('applies the first accent color as the default appearance color', () => {
+    renderSettingsDialog(
+      { theme: 'system' },
+      { initialSection: 'appearance' },
+    );
+
+    expect(screen.getByRole('radio', { name: 'Default accent color' }).getAttribute('aria-checked')).toBe('true');
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#c96442');
+  });
+
   it('live previews explicit themes and removes the explicit document theme when switching back to System', () => {
     renderSettingsDialog(
       { theme: 'dark' },
@@ -1573,6 +1717,102 @@ describe('SettingsDialog appearance interactions', () => {
       }),
       {},
     );
+  });
+
+  it('switches back to the default accent color and persists it explicitly', async () => {
+    const { onPersist } = renderSettingsDialog(
+      { mode: 'daemon', agentId: 'codex', theme: 'light', accentColor: '#2563eb' },
+      { initialSection: 'appearance' },
+    );
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Default accent color' }));
+
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#c96442');
+
+    await waitForPersist(
+      onPersist,
+      expect.objectContaining({
+        accentColor: '#c96442',
+      }),
+      {},
+    );
+  });
+
+  it('keeps an autosaved accent color applied after the dialog closes', async () => {
+    const view = renderSettingsDialog(
+      { mode: 'daemon', agentId: 'codex', theme: 'light', accentColor: '#2563eb' },
+      { initialSection: 'appearance' },
+    );
+
+    fireEvent.click(screen.getByRole('radio', { name: '#059669' }));
+
+    await waitForPersist(
+      view.onPersist,
+      expect.objectContaining({
+        accentColor: '#059669',
+      }),
+      {},
+    );
+
+    fireEvent.click(view.container.querySelector('.settings-close') as HTMLElement);
+    expect(view.onClose).toHaveBeenCalledTimes(1);
+
+    view.unmount();
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#059669');
+  });
+
+  it('live previews and autosaves preset and custom accent colors', async () => {
+    const { onPersist } = renderSettingsDialog(
+      { mode: 'daemon', agentId: 'codex', theme: 'light' },
+      { initialSection: 'appearance' },
+    );
+
+    fireEvent.click(screen.getByRole('radio', { name: '#059669' }));
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#059669');
+
+    await waitForPersist(
+      onPersist,
+      expect.objectContaining({
+        accentColor: '#059669',
+      }),
+      {},
+    );
+
+    fireEvent.change(screen.getByLabelText('Custom color'), {
+      target: { value: '#123456' },
+    });
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#123456');
+
+    await waitForPersist(
+      onPersist,
+      expect.objectContaining({
+        accentColor: '#123456',
+      }),
+      {},
+    );
+  });
+
+  it('localizes the accent color controls in Chinese', () => {
+    render(
+      <I18nProvider initial="zh-CN">
+        <SettingsDialog
+          initial={{ ...baseConfig, theme: 'light' }}
+          agents={availableAgents}
+          daemonLive={true}
+          appVersionInfo={null}
+          initialSection="appearance"
+          onPersist={vi.fn()}
+          onPersistComposioKey={vi.fn()}
+          onClose={vi.fn()}
+          onRefreshAgents={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+
+    expect(screen.getByText('主题色')).toBeTruthy();
+    expect(screen.getByRole('radiogroup', { name: '主题色' })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: '默认主题色' })).toBeTruthy();
+    expect(screen.getByLabelText('自定义颜色')).toBeTruthy();
   });
 });
 
@@ -1762,24 +2002,25 @@ describe('SettingsDialog pets interactions', () => {
   });
 });
 
-describe('SettingsDialog skills and design systems interactions', () => {
+describe('SettingsDialog skills section', () => {
   afterEach(() => {
     cleanup();
   });
 
-  it('renders the skills library by default and filters by mode and search', async () => {
+  it('lists functional skills and filters them by mode + search', async () => {
     renderSettingsDialog(
       { mode: 'daemon', agentId: 'codex' },
-      { initialSection: 'library' },
+      { initialSection: 'skills' },
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /Skills3/i })).toBeTruthy();
       expect(screen.getByText('blog-post')).toBeTruthy();
       expect(screen.getByText('sales-deck')).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /deck1/i }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Type' }), {
+      target: { value: 'deck' },
+    });
     expect(screen.queryByText('blog-post')).toBeNull();
     expect(screen.getByText('sales-deck')).toBeTruthy();
 
@@ -1790,17 +2031,17 @@ describe('SettingsDialog skills and design systems interactions', () => {
     expect(screen.queryByText('dashboard')).toBeNull();
   });
 
-  it('opens a skill preview and persists disabled skills from toggle switches', async () => {
+  it('opens a skill detail panel and persists disabled skills from toggle switches', async () => {
     const { onPersist } = renderSettingsDialog(
       { mode: 'daemon', agentId: 'codex' },
-      { initialSection: 'library' },
+      { initialSection: 'skills' },
     );
 
     await waitFor(() => {
       expect(screen.getByText('blog-post')).toBeTruthy();
     });
 
-    fireEvent.click(screen.getAllByTitle('Preview')[0] as HTMLElement);
+    fireEvent.click(screen.getByText('blog-post'));
     await waitFor(() => {
       expect(fetchSkillMock).toHaveBeenCalledWith('blog-post');
       expect(screen.getByText('skill body for blog-post')).toBeTruthy();
@@ -1818,17 +2059,34 @@ describe('SettingsDialog skills and design systems interactions', () => {
     );
   });
 
-  it('switches to design systems, previews details, and persists disabled design systems', async () => {
-    const { onPersist } = renderSettingsDialog(
+  it('shows an empty state when search matches nothing', async () => {
+    renderSettingsDialog(
       { mode: 'daemon', agentId: 'codex' },
-      { initialSection: 'library' },
+      { initialSection: 'skills' },
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /Design Systems2/i })).toBeTruthy();
+      expect(screen.getByText('blog-post')).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByRole('tab', { name: /Design Systems2/i }));
+    fireEvent.change(screen.getByPlaceholderText('Search...'), {
+      target: { value: 'zzz-no-match' },
+    });
+    expect(screen.getByText('No items match your search.')).toBeTruthy();
+  });
+});
+
+describe('SettingsDialog design systems section', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('lists design systems and persists disabled selections from toggle switches', async () => {
+    const { onPersist } = renderSettingsDialog(
+      { mode: 'daemon', agentId: 'codex' },
+      { initialSection: 'designSystems' },
+    );
+
     await waitFor(() => {
       expect(screen.getByText('Neutral Modern')).toBeTruthy();
       expect(screen.getByText('Signal Green')).toBeTruthy();
@@ -1854,22 +2112,6 @@ describe('SettingsDialog skills and design systems interactions', () => {
       {},
     );
   });
-
-  it('shows an empty state when library search returns no results', async () => {
-    renderSettingsDialog(
-      { mode: 'daemon', agentId: 'codex' },
-      { initialSection: 'library' },
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText('blog-post')).toBeTruthy();
-    });
-
-    fireEvent.change(screen.getByPlaceholderText('Search...'), {
-      target: { value: 'zzz-no-match' },
-    });
-    expect(screen.getByText('No items match your search.')).toBeTruthy();
-  });
 });
 
 describe('SettingsDialog about interactions', () => {
@@ -1892,7 +2134,6 @@ describe('SettingsDialog about interactions', () => {
       },
     );
 
-    expect(screen.getByRole('heading', { level: 3, name: 'About' })).toBeTruthy();
     expect(screen.getByText('Version')).toBeTruthy();
     expect(screen.getByText('0.4.1')).toBeTruthy();
     expect(screen.getByText('Channel')).toBeTruthy();

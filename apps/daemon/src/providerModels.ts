@@ -76,7 +76,7 @@ function uniqueModels(models: ProviderModelOption[]): ProviderModelOption[] {
     seen.add(id);
     out.push({ id, label: model.label.trim() || id });
   }
-  return out;
+  return out.sort((a, b) => a.id.localeCompare(b.id));
 }
 
 function extractOpenAiModels(data: unknown): ProviderModelOption[] {

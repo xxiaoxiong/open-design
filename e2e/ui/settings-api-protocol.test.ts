@@ -19,7 +19,7 @@ async function openExecutionSettings(
   });
 
   await page.goto('/');
-  await page.getByTitle('Configure execution mode').click();
+  await page.getByTitle('Execution mode').click();
   await expect(page.getByRole('dialog')).toBeVisible();
 }
 
@@ -57,7 +57,7 @@ async function openExecutionSettingsWithAgents(
   });
 
   await page.goto('/');
-  await page.getByTitle('Configure execution mode').click();
+  await page.getByTitle('Execution mode').click();
   await expect(page.getByRole('dialog')).toBeVisible();
 }
 
@@ -80,7 +80,9 @@ test('legacy known OpenAI provider switches to the matching Anthropic preset', a
   const openAiTab = protocolTabs.getByRole('tab', { name: 'OpenAI', exact: true });
   const anthropicTab = protocolTabs.getByRole('tab', { name: 'Anthropic', exact: true });
   const baseUrlInput = dialog.getByLabel('Base URL');
-  const modelSelect = dialog.getByLabel('Model');
+  // Use getByRole + exact so we only match the chat "Model" picker and
+  // not the inline "Memory model" picker that sits next to it.
+  const modelSelect = dialog.getByRole('combobox', { name: 'Model', exact: true });
 
   await expect(openAiTab).toHaveAttribute('aria-selected', 'true');
   await expect(dialog.getByRole('heading', { name: 'OpenAI API' })).toBeVisible();
@@ -151,7 +153,7 @@ test('BYOK quick fill provider updates fields and saved settings persist after c
 
   await dialog.getByRole('tab', { name: 'OpenAI', exact: true }).click();
   await dialog.getByLabel('Quick fill provider').selectOption('1');
-  await expect(dialog.getByLabel('Model')).toHaveValue('deepseek-chat');
+  await expect(dialog.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue('deepseek-chat');
   await expect(dialog.getByLabel('Base URL')).toHaveValue('https://api.deepseek.com');
 
   await dialog.getByRole('button', { name: 'Show' }).click();
@@ -183,12 +185,12 @@ test('BYOK quick fill provider updates fields and saved settings persist after c
     apiProviderBaseUrl: 'https://api.deepseek.com',
   });
 
-  await page.getByTitle('Configure execution mode').click();
+  await page.getByTitle('Execution mode').click();
   await expect(page.getByRole('dialog')).toBeVisible();
   const reopenedDialog = page.getByRole('dialog');
   await expect(reopenedDialog.getByRole('tab', { name: 'OpenAI', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(reopenedDialog.getByLabel('Quick fill provider')).toHaveValue('1');
-  await expect(reopenedDialog.getByLabel('Model')).toHaveValue('deepseek-chat');
+  await expect(reopenedDialog.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue('deepseek-chat');
   await expect(reopenedDialog.getByLabel('Base URL')).toHaveValue('https://api.deepseek.com');
   await expect(reopenedDialog.getByLabel('API key')).toHaveValue('sk-openai-test');
 });
@@ -226,6 +228,77 @@ test('BYOK save stays disabled until required fields are valid', async ({ page }
     apiKey: 'sk-ant-test',
     baseUrl: 'http://localhost:11434/v1',
   });
+});
+
+test('BYOK fetch models hydrates model options and reuses cached results', async ({ page }) => {
+  const providerModelRequests: Array<Record<string, unknown>> = [];
+  await page.route('**/api/provider/models', async (route) => {
+    const payload = route.request().postDataJSON() as Record<string, unknown>;
+    providerModelRequests.push(payload);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        kind: 'success',
+        latencyMs: 15,
+        models: [
+          { id: 'aa-nightly-model', label: 'AA Nightly Model' },
+          { id: 'mm-nightly-model', label: 'MM Nightly Model' },
+          { id: 'zz-nightly-model', label: 'ZZ Nightly Model' },
+        ],
+      }),
+    });
+  });
+
+  await openExecutionSettings(page, {
+    mode: 'api',
+    apiKey: 'sk-openai-test',
+    apiProtocol: 'openai',
+    apiVersion: '',
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'gpt-4o',
+    apiProviderBaseUrl: 'https://api.openai.com/v1',
+    agentId: null,
+    skillId: null,
+    designSystemId: null,
+    onboardingCompleted: true,
+    mediaProviders: {},
+    agentModels: {},
+    agentCliEnv: {},
+  });
+
+  const dialog = page.getByRole('dialog');
+  const fetchModelsButton = dialog.getByRole('button', { name: 'Fetch models' });
+  const modelSelect = dialog.getByLabel('Model');
+
+  await expect(fetchModelsButton).toBeEnabled();
+  await expect(modelSelect.getByRole('option', { name: 'AA Nightly Model (aa-nightly-model)' })).toHaveCount(0);
+
+  await fetchModelsButton.click();
+  await expect(dialog.getByText('Fetched 3 models.')).toBeVisible();
+  await expect.poll(() => providerModelRequests.length).toBe(1);
+  expect(providerModelRequests[0]).toMatchObject({
+    protocol: 'openai',
+    baseUrl: 'https://api.openai.com/v1',
+    apiKey: 'sk-openai-test',
+  });
+
+  await expect(modelSelect.getByRole('option', { name: 'AA Nightly Model (aa-nightly-model)' })).toHaveCount(1);
+  await expect(modelSelect.getByRole('option', { name: 'MM Nightly Model (mm-nightly-model)' })).toHaveCount(1);
+  await expect(modelSelect.getByRole('option', { name: 'ZZ Nightly Model (zz-nightly-model)' })).toHaveCount(1);
+
+  const fetchedValues = await modelSelect.locator('option').evaluateAll((options) =>
+    options.slice(0, 3).map((option) => (option as HTMLOptionElement).value),
+  );
+  expect(fetchedValues).toEqual([
+    'aa-nightly-model',
+    'mm-nightly-model',
+    'zz-nightly-model',
+  ]);
+
+  await fetchModelsButton.click();
+  await expect.poll(() => providerModelRequests.length).toBe(1);
 });
 
 test('saving Local CLI updates the entry status pill with the selected agent', async ({ page }) => {
@@ -269,7 +342,7 @@ test('saving Local CLI updates the entry status pill with the selected agent', a
 
   const dialog = page.getByRole('dialog');
 
-  await dialog.getByRole('tab', { name: /Local CLI.*1 installed/i }).click();
+  await dialog.getByRole('tab', { name: /Local CLI|本机 CLI/i }).click();
   await dialog.getByRole('button', { name: /Codex CLI/i }).click();
   await expect.poll(async () => readSavedConfig(page)).toMatchObject({
     mode: 'daemon',
@@ -278,7 +351,7 @@ test('saving Local CLI updates the entry status pill with the selected agent', a
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
 
-  const executionPill = page.getByTitle('Configure execution mode');
+  const executionPill = page.getByTitle('Execution mode');
   await expect(executionPill).toContainText('Local CLI');
   await expect(executionPill).toContainText('Codex CLI');
   await expect(executionPill).toContainText('0.80.0');

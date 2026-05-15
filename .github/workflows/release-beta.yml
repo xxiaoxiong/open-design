@@ -32,9 +32,20 @@ concurrency:
   group: open-design-release-beta
   cancel-in-progress: false
 
+env:
+  OPEN_DESIGN_TELEMETRY_RELAY_URL: ${{ vars.OPEN_DESIGN_TELEMETRY_RELAY_URL }}
+  # PostHog product-analytics ingest. Both vars must be defined as
+  # repository/organization secrets/vars for official builds to ship with
+  # analytics enabled. PR builds and forks run without these — the daemon's
+  # /api/analytics/config short-circuits to enabled=false in that case and
+  # no events leave the user's machine.
+  POSTHOG_KEY: ${{ secrets.POSTHOG_KEY }}
+  POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
+
 jobs:
   metadata:
     name: Prepare beta metadata
+    if: github.repository == 'nexu-io/open-design'
     runs-on: ubuntu-latest
     env:
       OPEN_DESIGN_BETA_METADATA_URL: ${{ vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN }}/beta/latest/metadata.json
@@ -125,9 +136,6 @@ jobs:
             fi
           done
 
-      - name: Apply beta package version
-        run: npm pkg set "version=${{ needs.metadata.outputs.beta_version }}" --prefix apps/packaged
-
       - name: Prepare Apple signing certificate
         env:
           APPLE_SIGNING_CERTIFICATE_BASE64: ${{ secrets.APPLE_SIGNING_CERTIFICATE_BASE64 }}
@@ -160,7 +168,8 @@ jobs:
             --dir "$tools_pack_dir"
             --namespace release-beta
             --portable
-            --mac-compression maximum
+            --app-version "${{ needs.metadata.outputs.beta_version }}"
+            --mac-compression normal
             --to dmg
             --json
             --signed
@@ -251,28 +260,15 @@ jobs:
       - name: Smoke beta mac packaged runtime
         working-directory: e2e
         env:
+          OD_PACKAGED_E2E_BUILD_JSON_PATH: ${{ runner.temp }}/mac-tools-pack-build.json
+          OD_PACKAGED_E2E_BUILD_LOG_PATH: ${{ runner.temp }}/mac-tools-pack-build.log
           OD_PACKAGED_E2E_MAC: "1"
           OD_PACKAGED_E2E_NAMESPACE: release-beta
-          OD_PACKAGED_E2E_SCREENSHOT_PATH: ${{ runner.temp }}/release-report/mac/screenshots/open-design-mac-smoke.png
+          OD_PACKAGED_E2E_REPORT_DIR: ${{ runner.temp }}/release-report/mac
           OD_PACKAGED_E2E_TOOLS_PACK_DIR: ${{ runner.temp }}/tools-pack
         run: |
           set -euo pipefail
-          report_dir="$RUNNER_TEMP/release-report/mac"
-          mkdir -p "$report_dir/screenshots"
-          cat > "$report_dir/manifest.json" <<EOF
-          {
-            "platform": "mac",
-            "spec": "specs/mac.spec.ts",
-            "namespace": "release-beta",
-            "screenshot": "screenshots/open-design-mac-smoke.png",
-            "githubRunId": "$GITHUB_RUN_ID",
-            "githubRunAttempt": "$GITHUB_RUN_ATTEMPT",
-            "commit": "$GITHUB_SHA"
-          }
-          EOF
-          cp "$RUNNER_TEMP/mac-tools-pack-build.json" "$report_dir/tools-pack.json"
-          cp "$RUNNER_TEMP/mac-tools-pack-build.log" "$report_dir/tools-pack.log"
-          pnpm test specs/mac.spec.ts 2>&1 | tee "$report_dir/vitest.log"
+          pnpm exec tsx scripts/release-smoke.ts mac specs/mac.spec.ts
 
       - name: Upload mac e2e spec report
         if: ${{ always() }}
@@ -304,7 +300,7 @@ jobs:
     name: Build beta mac x64
     needs: metadata
     if: ${{ inputs.enable_mac_intel }}
-    runs-on: macos-13
+    runs-on: macos-15-intel
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
@@ -379,9 +375,16 @@ jobs:
       - name: Compute Windows tools-pack cache key
         id: win_tools_pack_cache_key
         shell: pwsh
+        env:
+          WIN_TOOLS_PACK_ORIGIN_KEY: ${{ hashFiles('package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'apps/daemon/**', 'apps/web/**', 'apps/desktop/**', 'apps/packaged/**', 'packages/contracts/**', 'packages/sidecar-proto/**', 'packages/sidecar/**', 'packages/platform/**', 'tools/pack/bin/**', 'tools/pack/package.json', 'tools/pack/resources/**', 'tools/pack/src/**', 'tools/pack/tsconfig.json', 'assets/community-pets/**', 'assets/frames/**', 'craft/**', 'design-systems/**', 'prompt-templates/**', 'skills/**', '.github/workflows/release-beta.yml', '.github/scripts/release/cache/win.ps1') }}
         run: |
-          $epoch = (Get-Date).ToUniversalTime().ToString("yyyy-MM")
-          "epoch=$epoch" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          if ([string]::IsNullOrWhiteSpace($env:WIN_TOOLS_PACK_ORIGIN_KEY)) {
+            throw "Windows tools-pack cache origin key is empty"
+          }
+          $prefix = "tools-pack-win-v7-beta-$env:RUNNER_OS-"
+          "origin=$env:WIN_TOOLS_PACK_ORIGIN_KEY" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "prefix=$prefix" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "key=$prefix$env:WIN_TOOLS_PACK_ORIGIN_KEY" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Restore Windows tools-pack cache
         id: win_tools_pack_cache_restore
@@ -389,9 +392,9 @@ jobs:
         continue-on-error: true
         with:
           path: ${{ runner.temp }}/tools-pack-cache
-          key: tools-pack-win-v6-${{ runner.os }}-${{ steps.win_tools_pack_cache_key.outputs.epoch }}-${{ github.sha }}
+          key: ${{ steps.win_tools_pack_cache_key.outputs.key }}
           restore-keys: |
-            tools-pack-win-v6-${{ runner.os }}-${{ steps.win_tools_pack_cache_key.outputs.epoch }}-
+            ${{ steps.win_tools_pack_cache_key.outputs.prefix }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -404,10 +407,8 @@ jobs:
           }
           choco install nsis -y --no-progress
 
-      - name: Apply beta package version
-        run: npm pkg set "version=${{ needs.metadata.outputs.beta_version }}" --prefix apps/packaged
-
       - name: Build beta windows artifacts
+        id: win_tools_pack_build
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -420,9 +421,11 @@ jobs:
             "--cache-dir", $cacheDir,
             "--namespace", "release-beta-win",
             "--portable",
+            "--app-version", "${{ needs.metadata.outputs.beta_version }}",
             "--to", "nsis",
             "--json"
           )
+          "cache_failed=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           try {
             $buildOutput = pnpm @buildArgs
             if ($LASTEXITCODE -ne 0) {
@@ -430,11 +433,13 @@ jobs:
             }
           } catch {
             Write-Warning "Windows tools-pack cached build failed; removing restored cache and retrying without cache."
+            "cache_failed=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
             Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $cacheDir
             $buildOutput = pnpm exec tools-pack win build `
               --dir $toolsPackDir `
               --namespace release-beta-win `
               --portable `
+              --app-version "${{ needs.metadata.outputs.beta_version }}" `
               --to nsis `
               --json
             if ($LASTEXITCODE -ne 0) {
@@ -444,32 +449,33 @@ jobs:
           $buildOutput | Set-Content -Path $buildJsonPath
           $buildOutput
 
+      - name: Delete failed Windows tools-pack cache
+        if: ${{ steps.win_tools_pack_build.outputs.cache_failed == 'true' && steps.win_tools_pack_cache_restore.outputs.cache-matched-key != '' }}
+        shell: pwsh
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $matchedKey = "${{ steps.win_tools_pack_cache_restore.outputs.cache-matched-key }}"
+          $caches = @(gh cache list --key $matchedKey --limit 100 --json id,key,ref | ConvertFrom-Json | Where-Object { $_.key -eq $matchedKey })
+          foreach ($cache in $caches) {
+            gh cache delete $cache.id
+          }
+          "deletedFailedCacheKey=$matchedKey count=$($caches.Count)"
+
       - name: Smoke beta windows packaged runtime
         working-directory: e2e
         env:
+          OD_PACKAGED_E2E_BUILD_JSON_PATH: ${{ runner.temp }}/windows-tools-pack-build.json
           OD_PACKAGED_E2E_WIN: "1"
           OD_PACKAGED_E2E_NAMESPACE: release-beta-win
+          OD_PACKAGED_E2E_REPORT_DIR: ${{ runner.temp }}/release-report/win
           OD_PACKAGED_E2E_TOOLS_PACK_DIR: ${{ runner.temp }}/tools-pack
         run: |
           $ErrorActionPreference = "Stop"
-          $reportDir = Join-Path $env:RUNNER_TEMP "release-report/win"
-          $screenshotDir = Join-Path $reportDir "screenshots"
-          New-Item -ItemType Directory -Force -Path $screenshotDir | Out-Null
-          $env:OD_PACKAGED_E2E_SCREENSHOT_PATH = Join-Path $screenshotDir "open-design-win-smoke.png"
-          @{
-            platform = "win"
-            spec = "specs/win.spec.ts"
-            namespace = "release-beta-win"
-            screenshot = "screenshots/open-design-win-smoke.png"
-            githubRunId = $env:GITHUB_RUN_ID
-            githubRunAttempt = $env:GITHUB_RUN_ATTEMPT
-            commit = $env:GITHUB_SHA
-          } | ConvertTo-Json | Set-Content -Path (Join-Path $reportDir "manifest.json")
-          Copy-Item -Force -Path (Join-Path $env:RUNNER_TEMP "windows-tools-pack-build.json") -Destination (Join-Path $reportDir "tools-pack.json")
-          pnpm test specs/win.spec.ts 2>&1 | Tee-Object -FilePath (Join-Path $reportDir "vitest.log")
-          $testExitCode = $LASTEXITCODE
-          if ($testExitCode -ne 0) {
-            exit $testExitCode
+          pnpm exec tsx scripts/release-smoke.ts win specs/win.spec.ts
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
           }
 
       - name: Upload windows e2e spec report
@@ -486,12 +492,28 @@ jobs:
         run: ./.github/scripts/release/cache/win.ps1
 
       - name: Save Windows tools-pack cache
-        if: ${{ success() && steps.win_tools_pack_cache_restore.outputs.cache-hit != 'true' }}
+        if: ${{ success() && (steps.win_tools_pack_cache_restore.outputs.cache-hit != 'true' || steps.win_tools_pack_build.outputs.cache_failed == 'true') }}
         uses: actions/cache/save@v5
         continue-on-error: true
         with:
           path: ${{ runner.temp }}/tools-pack-cache
-          key: tools-pack-win-v6-${{ runner.os }}-${{ steps.win_tools_pack_cache_key.outputs.epoch }}-${{ github.sha }}
+          key: ${{ steps.win_tools_pack_cache_key.outputs.key }}
+
+      - name: Retain recent Windows tools-pack caches
+        if: ${{ success() }}
+        shell: pwsh
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $prefix = "${{ steps.win_tools_pack_cache_key.outputs.prefix }}"
+          $keep = 3
+          $caches = @(gh cache list --key $prefix --sort created_at --order desc --limit 100 --json id,key,createdAt | ConvertFrom-Json)
+          $stale = @($caches | Select-Object -Skip $keep)
+          foreach ($cache in $stale) {
+            gh cache delete $cache.id
+          }
+          "actionsCachePrefix=$prefix kept=$([Math]::Min($caches.Count, $keep)) deleted=$($stale.Count)"
 
       - name: Prepare windows beta assets
         shell: pwsh
@@ -535,11 +557,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Apply beta package version
-        env:
-          BETA_VERSION: ${{ needs.metadata.outputs.beta_version }}
-        run: npm pkg set "version=$BETA_VERSION" --prefix apps/packaged
-
       # `--containerized` builds the AppImage inside the electronuserland/builder
       # Docker image (glibc 2.27 baseline) so the resulting binary runs on older
       # distros than ubuntu-latest's glibc 2.39. Docker is preinstalled on the
@@ -547,13 +564,65 @@ jobs:
       - name: Build beta linux artifacts
         run: |
           set -euo pipefail
-          pnpm exec tools-pack linux build \
-            --dir "$RUNNER_TEMP/tools-pack" \
-            --namespace release-beta-linux \
-            --portable \
-            --to appimage \
-            --containerized \
+          tools_pack_dir="$RUNNER_TEMP/tools-pack"
+          report_dir="$RUNNER_TEMP/release-report/linux"
+          build_json_path="$report_dir/tools-pack.json"
+          build_log_path="$report_dir/tools-pack.log"
+          rm -rf "$tools_pack_dir"
+          mkdir -p "$report_dir"
+          : > "$build_log_path"
+          build_args=(
+            exec tools-pack linux build
+            --dir "$tools_pack_dir"
+            --namespace release-beta-linux
+            --portable
+            --app-version "${{ needs.metadata.outputs.beta_version }}"
+            --to appimage
+            --containerized
             --json
+          )
+          if build_output="$(pnpm "${build_args[@]}" 2> >(tee -a "$build_log_path" >&2))"; then
+            printf '%s\n' "$build_output" | tee "$build_json_path"
+            node -e 'const fs = require("node:fs"); JSON.parse(fs.readFileSync(process.argv[1], "utf8"));' "$build_json_path"
+          else
+            build_status=$?
+            printf '%s\n' "$build_output" | tee "$build_json_path"
+            exit "$build_status"
+          fi
+
+      - name: Smoke beta linux AppImage runtime
+        working-directory: e2e
+        env:
+          OD_PACKAGED_E2E_LINUX_APPIMAGE: "1"
+          OD_PACKAGED_E2E_NAMESPACE: release-beta-linux
+          OD_PACKAGED_E2E_SCREENSHOT_PATH: ${{ runner.temp }}/release-report/linux/screenshots/open-design-linux-smoke.png
+          OD_PACKAGED_E2E_TOOLS_PACK_DIR: ${{ runner.temp }}/tools-pack
+        run: |
+          set -euo pipefail
+          report_dir="$RUNNER_TEMP/release-report/linux"
+          mkdir -p "$report_dir/screenshots"
+          cat > "$report_dir/manifest.json" <<EOF
+          {
+            "platform": "linux",
+            "spec": "specs/linux.spec.ts",
+            "namespace": "release-beta-linux",
+            "screenshot": "screenshots/open-design-linux-smoke.png",
+            "githubRunId": "$GITHUB_RUN_ID",
+            "githubRunAttempt": "$GITHUB_RUN_ATTEMPT",
+            "commit": "$GITHUB_SHA"
+          }
+          EOF
+          sudo apt-get update 2>&1 | tee "$report_dir/apt-get-update.log"
+          sudo apt-get install -y xvfb 2>&1 | tee "$report_dir/apt-get-install-xvfb.log"
+          xvfb-run -a pnpm test specs/linux.spec.ts 2>&1 | tee "$report_dir/vitest.log"
+
+      - name: Upload linux e2e spec report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: open-design-beta-linux-e2e-report
+          path: ${{ runner.temp }}/release-report/linux
+          if-no-files-found: warn
 
       - name: Prepare linux beta assets
         env:
@@ -648,6 +717,13 @@ jobs:
         with:
           name: open-design-beta-linux-release-assets
           path: ${{ runner.temp }}/release-assets/linux
+
+      - name: Download linux e2e spec report
+        if: ${{ inputs.enable_linux }}
+        uses: actions/download-artifact@v8
+        with:
+          name: open-design-beta-linux-e2e-report
+          path: ${{ runner.temp }}/release-report/linux
 
       - name: Download mac e2e spec report
         if: ${{ inputs.enable_mac }}
