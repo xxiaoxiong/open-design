@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SVG to PNG Converter</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        #canvas {
+            border: 1px solid #ccc;
+            margin: 20px 0;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .info {
+            background: #f0f0f0;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>SVG to PNG Converter</h1>
+    <div class="info">
+        <p><strong>Instructions:</strong></p>
+        <ol>
+            <li>Open this file in a browser</li>
+            <li>Click "Convert SVG to PNG"</li>
+            <li>The PNG will download automatically</li>
+            <li>Save it as <code>tools/pack/resources/mac/icon.png</code></li>
+        </ol>
+    </div>
+
+    <button onclick="convertSvgToPng()">Convert SVG to PNG</button>
+
+    <div>
+        <canvas id="canvas" width="1024" height="1024"></canvas>
+    </div>
+
+    <div id="status"></div>
+
+    <script>
+        async function convertSvgToPng() {
+            const status = document.getElementById('status');
+            status.textContent = 'Converting...';
+
+            try {
+                // Load the SVG file
+                const response = await fetch('../apps/web/public/app-icon.svg');
+                const svgText = await response.text();
+
+                // Create an image from the SVG
+                const img = new Image();
+                const svgBlob = new Blob([svgText], { type: 'image/svg+xml' });
+                const url = URL.createObjectURL(svgBlob);
+
+                img.onload = function() {
+                    // Draw to canvas
+                    const canvas = document.getElementById('canvas');
+                    const ctx = canvas.getContext('2d');
+                    ctx.clearRect(0, 0, 1024, 1024);
+                    ctx.drawImage(img, 0, 0, 1024, 1024);
+
+                    // Convert to PNG and download
+                    canvas.toBlob(function(blob) {
+                        const link = document.createElement('a');
+                        link.download = 'icon.png';
+                        link.href = URL.createObjectURL(blob);
+                        link.click();
+
+                        status.textContent = '✓ PNG downloaded! Save it to tools/pack/resources/mac/icon.png';
+                        status.style.color = 'green';
+
+                        URL.revokeObjectURL(url);
+                    }, 'image/png');
+                };
+
+                img.onerror = function() {
+                    status.textContent = '✗ Failed to load SVG';
+                    status.style.color = 'red';
+                };
+
+                img.src = url;
+
+            } catch (error) {
+                status.textContent = '✗ Error: ' + error.message;
+                status.style.color = 'red';
+            }
+        }
+    </script>
+</body>
+</html>
