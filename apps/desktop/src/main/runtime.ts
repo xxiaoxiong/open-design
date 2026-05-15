@@ -6,10 +6,10 @@ import { release } from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-const execFileAsync = promisify(execFile);
-
 import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type { DesktopExportPdfInput, DesktopExportPdfResult } from "@open-design/sidecar-proto";
+
+const execFileAsync = promisify(execFile);
 
 import { exportPdfFromHtml, waitForPrintReadyHandshake } from "./pdf-export.js";
 
