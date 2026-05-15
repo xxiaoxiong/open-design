@@ -1,9 +1,10 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import type { Dict } from '../i18n/types';
+import { copyToClipboard } from '../lib/copy-to-clipboard';
 import { projectRawUrl } from '../providers/registry';
 import type { TodoItem } from '../runtime/todos';
-import type { AppConfig, ChatAttachment, ChatCommentAttachment, ChatMessage, Conversation, PreviewComment, ProjectFile, ProjectMetadata } from '../types';
+import type { AppConfig, ChatAttachment, ChatCommentAttachment, ChatMessage, ChatMessageFeedbackChange, Conversation, PreviewComment, ProjectFile, ProjectMetadata, SkillSummary } from '../types';
 import { dayKey, dayLabel, exactDateTime, messageTime, relativeTimeLong } from '../utils/chatTime';
 import { commentsToAttachments, simplePositionLabel } from '../comments';
 import { AssistantMessage } from './AssistantMessage';
@@ -21,7 +22,24 @@ type TranslateFn = (key: keyof Dict, vars?: Record<string, string | number>) => 
 // Each prompt is intentionally dense — it should showcase ambitious
 // layout, typographic, and information-design moves rather than a
 // generic landing page.
-const EXAMPLE_PROMPT_KEYS: Array<{
+//
+// Starter sets are picked per project kind (and per video model) so a
+// fresh seedance video, a hyperframes html-in-canvas video, an image
+// project and an audio project each see relevant prompts instead of the
+// generic prototype trio. The default (prototype/deck/template/other/
+// live-artifact) set stays i18n-translated via existing chat.example*
+// keys so the user-facing copy keeps its localizations. The new media
+// sets are inline English literals — they are technical agent prompts
+// that work well across locales without translation, and going through
+// i18n for each of them would balloon every Dict entry by 12+ keys.
+type StarterPrompt = {
+  icon: string;
+  title: string;
+  tag: string;
+  prompt: string;
+};
+
+const DEFAULT_STARTER_KEYS: Array<{
   icon: string;
   titleKey: keyof Dict;
   tagKey: keyof Dict;
@@ -47,12 +65,142 @@ const EXAMPLE_PROMPT_KEYS: Array<{
   },
 ];
 
+const IMAGE_STARTERS: StarterPrompt[] = [
+  {
+    icon: '◯',
+    title: 'Editorial portrait',
+    tag: 'Portrait',
+    prompt:
+      'A close-up editorial portrait of a young creative director in their late 20s, soft natural light through tall studio windows, warm neutral palette (cream, taupe, soft black), shot at 85mm f/1.8 with shallow depth of field, sharp gaze straight to camera, subtle film grain, no makeup look.',
+  },
+  {
+    icon: '▭',
+    title: 'Product hero',
+    tag: 'E-commerce',
+    prompt:
+      'A premium product hero shot of a single matte ceramic coffee mug on a warm cream paper backdrop. Hard rim light from the upper-left, gentle elongated shadow stretching to the lower-right, faint steam rising from the cup. Square crop, centered composition, room above for headline copy, no props or hands in frame.',
+  },
+  {
+    icon: '◐',
+    title: 'Flat illustration',
+    tag: 'Illustration',
+    prompt:
+      'A flat vector illustration of a cozy reading nook by a rainy window — geometric shapes, restrained 5-color palette (cream, terracotta, deep teal, burnt sienna, soft black), thin 1.5px line accents, no gradients, no textures, soft drop shadows only on the foreground armchair.',
+  },
+];
+
+// Pure-video / cinematic-shot starters for seedance, sora, kling, veo,
+// grok-imagine and similar text-to-video models. Each prompt is one
+// shot, restrained motion, and a clear visual concept the model can
+// nail in 5-10 seconds.
+const VIDEO_SEEDANCE_STARTERS: StarterPrompt[] = [
+  {
+    icon: '◉',
+    title: 'Product reveal',
+    tag: 'Cinematic',
+    prompt:
+      'A 5-second product reveal: a minimal high-end skincare bottle on a clean cream stone surface, soft side light from camera-left, slow camera push-in, subtle depth-of-field shift from the cap to the label, restrained motion, no text overlays, no people in frame.',
+  },
+  {
+    icon: '▣',
+    title: 'Lantern close-up',
+    tag: 'Mood',
+    prompt:
+      'A 6-second cinematic close-up of a young woman holding a glowing paper lantern in a misty pine forest at golden hour. Shallow depth of field on her eyes, gentle dolly-in, ambient particles drifting through the warm shaft of light, no dialogue, ambient forest sound only.',
+  },
+  {
+    icon: '⌘',
+    title: 'Neon street drift',
+    tag: 'Action',
+    prompt:
+      'A 5-second street-racing tracking shot at night in a neon-lit cyberpunk Hong Kong alley. Low-angle camera following a matte-black sports car drifting around a tight corner, motion blur on the wheels, lens flares from oncoming neon signs, rain-slick asphalt reflecting the lights, no on-screen text.',
+  },
+];
+
+// HyperFrames HTML-in-canvas starters — these target the
+// hyperframes-html video model where the renderer captures live DOM
+// into a WebGL texture and runs shader effects on top. References:
+// https://www.remotion.dev/docs/html-in-canvas (concept), the seven
+// vfx-* catalog blocks shipped via `npx hyperframes add vfx-*`, and
+// skills/hyperframes/references/html-in-canvas.md.
+const VIDEO_HYPERFRAMES_STARTERS: StarterPrompt[] = [
+  {
+    icon: '◉',
+    title: 'Magnifying glass reveal',
+    tag: 'HTML-in-canvas',
+    prompt:
+      'Make a 5-second composition with a single line of bold display text on a clean canvas. Animate a round magnifying glass that travels left to right across the line, with subtle glass refraction warping the letters underneath as it passes. Use HyperFrames html-in-canvas — capture the text DOM and run the lens shader on top via a vfx-liquid-glass-style pass. Pure CSS for the text; the glass is a WebGL layer.',
+  },
+  {
+    icon: '▦',
+    title: 'CRT terminal scene',
+    tag: 'Vintage VFX',
+    prompt:
+      "Make a CRT-screen composition: dark canvas, monospace terminal text typing `npx hyperframes init my-video`, then `claude` invoked with the prompt 'Add a CRT effect using HTML-in-canvas'. Apply a subtle convex-curvature shader, scanlines, slight chromatic aberration, and a soft phosphor glow on top of the live DOM via html-in-canvas. The terminal text stays as real CSS so it's pixel-sharp before the shader pass.",
+  },
+  {
+    icon: '◈',
+    title: 'Glitch breakdown',
+    tag: 'Glitch',
+    prompt:
+      'Build a 6-second composition that displays a hero headline and a one-line subhead on a dark canvas, then breaks into a hard digital glitch — RGB channel split, horizontal displacement bands, brief frame-stutter, and a final clean reset. Capture the live DOM via html-in-canvas and run the glitch pass on top, so the type is real CSS underneath the shader.',
+  },
+];
+
+// Speech-focused audio starters — the New Project audio panel only
+// surfaces the `speech` kind today (see MediaProjectOptions), so we
+// match that. If/when the music + sfx tabs come back, broaden this set.
+const AUDIO_STARTERS: StarterPrompt[] = [
+  {
+    icon: '♪',
+    title: 'Brand voiceover',
+    tag: 'Speech',
+    prompt:
+      "A 30-second warm-toned narrative voiceover for a product launch video — confident but conversational, mid-tempo, with a beat of pause after the brand name. Script: 'Three years in the making. One simple promise. Meet [product name] — the way work was supposed to feel.' English, neutral North American accent.",
+  },
+  {
+    icon: '♫',
+    title: 'Onboarding narration',
+    tag: 'Speech',
+    prompt:
+      "A 20-second friendly onboarding narration for a mobile app's first-launch screen. Reassuring, smiling tone, slow enough to feel attentive without sounding scripted. Script: 'Welcome to Loop. Let's set up your space — three quick questions and you're in. You can change any of this later.'",
+  },
+  {
+    icon: '♬',
+    title: 'Story passage read',
+    tag: 'Speech',
+    prompt:
+      "A 45-second cinematic read of an opening passage. Low, measured delivery with breath between sentences, slightly intimate close-mic'd quality. Script: 'The city sleeps in pieces. A neon sign flickers above the ramen counter. Across the avenue, a window glows — the only one still on this side of midnight.'",
+  },
+];
+
+function pickStarters(
+  metadata: ProjectMetadata | undefined,
+  t: TranslateFn,
+): StarterPrompt[] {
+  const kind = metadata?.kind;
+  if (kind === 'image') return IMAGE_STARTERS;
+  if (kind === 'video') {
+    return metadata?.videoModel === 'hyperframes-html'
+      ? VIDEO_HYPERFRAMES_STARTERS
+      : VIDEO_SEEDANCE_STARTERS;
+  }
+  if (kind === 'audio') return AUDIO_STARTERS;
+  return DEFAULT_STARTER_KEYS.map((entry) => ({
+    icon: entry.icon,
+    title: t(entry.titleKey),
+    tag: t(entry.tagKey),
+    prompt: t(entry.promptKey),
+  }));
+}
+
 interface Props {
   messages: ChatMessage[];
   streaming: boolean;
   error: string | null;
   projectId: string | null;
   projectFiles: ProjectFile[];
+  sendDisabled?: boolean;
   // Names that exist in the project folder. Tool cards and chips use this
   // set to decide whether a path can be opened as a tab.
   projectFileNames?: Set<string>;
@@ -62,8 +210,16 @@ interface Props {
   onAttachComment?: (comment: PreviewComment) => void;
   onDetachComment?: (commentId: string) => void;
   onDeleteComment?: (commentId: string) => void;
-  onSend: (prompt: string, attachments: ChatAttachment[], commentAttachments: ChatCommentAttachment[], meta?: ChatSendMeta) => void;
+  onSend: (
+    prompt: string,
+    attachments: ChatAttachment[],
+    commentAttachments: ChatCommentAttachment[],
+    meta?: ChatSendMeta,
+  ) => void;
   onStop: () => void;
+  // Skills available for @-mention assembly. ProjectView filters out the
+  // user's disabled set before passing them in here.
+  skills?: SkillSummary[];
   // Click-to-open chain: passes a basename up to ProjectView, which sets
   // FileWorkspace's openRequest. Tool cards, attachment chips, and
   // produced-file chips all call this.
@@ -73,8 +229,10 @@ interface Props {
   // routes that text through onSend (no attachments).
   onSubmitForm?: (text: string) => void;
   onContinueRemainingTasks?: (assistantMessage: ChatMessage, todos: TodoItem[]) => void;
+  onAssistantFeedback?: (assistantMessage: ChatMessage, change: ChatMessageFeedbackChange) => void;
   // Header "+" button — kicks off ProjectView's create-conversation flow.
   onNewConversation?: () => void;
+  newConversationDisabled?: boolean;
   // Conversation list that used to live in the topbar. The chat tab now
   // owns the list so users can browse + switch conversations without
   // leaving the pane.
@@ -106,6 +264,7 @@ type Tab = 'chat' | 'comments';
 export function ChatPane({
   messages,
   streaming,
+  sendDisabled = false,
   error,
   projectId,
   projectFiles,
@@ -122,7 +281,9 @@ export function ChatPane({
   initialDraft,
   onSubmitForm,
   onContinueRemainingTasks,
+  onAssistantFeedback,
   onNewConversation,
+  newConversationDisabled = false,
   conversations,
   activeConversationId,
   onSelectConversation,
@@ -136,6 +297,7 @@ export function ChatPane({
   onOpenPetSettings,
   projectMetadata,
   onProjectMetadataChange,
+  skills = [],
   researchAvailable,
   onCollapse,
 }: Props) {
@@ -328,6 +490,65 @@ export function ChatPane({
     };
   }, [tab]);
 
+  useEffect(() => {
+    if (tab !== 'chat') return;
+    const el = logRef.current;
+    if (!el) return;
+
+    let followFrame: number | null = null;
+    const followLatestIfPinned = () => {
+      if (!pinnedToBottomRef.current || followFrame !== null) return;
+      followFrame = requestAnimationFrame(() => {
+        followFrame = null;
+        const target = logRef.current;
+        if (!target || !pinnedToBottomRef.current) return;
+        target.scrollTop = target.scrollHeight;
+        setScrolledFromBottom(false);
+      });
+    };
+
+    const resizeObserver =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(followLatestIfPinned)
+        : null;
+    const observedChildren = new Set<Element>();
+    const syncObservedChildren = () => {
+      if (!resizeObserver) return;
+      const currentChildren = new Set(Array.from(el.children));
+      for (const child of currentChildren) {
+        if (observedChildren.has(child)) continue;
+        resizeObserver.observe(child);
+        observedChildren.add(child);
+      }
+      for (const child of observedChildren) {
+        if (currentChildren.has(child)) continue;
+        resizeObserver.unobserve(child);
+        observedChildren.delete(child);
+      }
+    };
+
+    syncObservedChildren();
+
+    const mutationObserver =
+      typeof MutationObserver !== 'undefined'
+        ? new MutationObserver(() => {
+            syncObservedChildren();
+            followLatestIfPinned();
+          })
+        : null;
+    mutationObserver?.observe(el, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+
+    return () => {
+      if (followFrame !== null) cancelAnimationFrame(followFrame);
+      mutationObserver?.disconnect();
+      resizeObserver?.disconnect();
+    };
+  }, [tab]);
+
   // Close the conversation history dropdown on outside click / Escape.
   useEffect(() => {
     if (!showConvList) return;
@@ -359,26 +580,6 @@ export function ChatPane({
   return (
     <div className="pane">
       <div className="chat-header">
-        <div className="chat-header-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'chat'}
-            className={`chat-header-tab${tab === 'chat' ? ' active' : ''}`}
-            onClick={() => setTab('chat')}
-          >
-            {t('chat.tabChat')}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'comments'}
-            className={`chat-header-tab${tab === 'comments' ? ' active' : ''}`}
-            onClick={() => setTab('comments')}
-          >
-            {t('chat.tabComments')}
-          </button>
-        </div>
         <div className="chat-header-actions">
           <div
             className={`chat-history-wrap${showConvList ? ' open' : ''}`}
@@ -399,9 +600,6 @@ export function ChatPane({
               onClick={() => setShowConvList((v) => !v)}
             >
               <Icon name="history" size={15} />
-              {conversations.length > 1 ? (
-                <span className="chat-history-badge">{conversations.length}</span>
-              ) : null}
             </button>
             {showConvList ? (
               <div className="chat-history-menu" role="menu" data-testid="conversation-history-menu">
@@ -414,7 +612,9 @@ export function ChatPane({
                       type="button"
                       className="chat-history-new"
                       data-testid="conversation-history-new"
+                      disabled={newConversationDisabled}
                       onClick={() => {
+                        if (newConversationDisabled) return;
                         onNewConversation();
                         setShowConvList(false);
                       }}
@@ -456,7 +656,7 @@ export function ChatPane({
             title={t('chat.newConversationsTitle')}
             aria-label={t('chat.newConversation')}
             onClick={onNewConversation}
-            disabled={!onNewConversation}
+            disabled={!onNewConversation || newConversationDisabled}
           >
             <Icon name="plus" size={16} />
           </button>
@@ -489,44 +689,41 @@ export function ChatPane({
                     </span>
                   </div>
                   <div className="chat-examples" role="list">
-                    {EXAMPLE_PROMPT_KEYS.map((ex, i) => {
-                      const title = t(ex.titleKey);
-                      const tag = t(ex.tagKey);
-                      const prompt = t(ex.promptKey);
-                      return (
-                        <button
-                          key={ex.titleKey}
-                          type="button"
-                          role="listitem"
-                          className="chat-example"
-                          style={{ animationDelay: `${i * 70}ms` }}
-                          onClick={() => composerRef.current?.setDraft(prompt)}
-                          title={t('chat.fillInputTitle')}
-                        >
-                          <span className="chat-example-icon" aria-hidden>
-                            {ex.icon}
+                    {pickStarters(projectMetadata, t).map((ex, i) => (
+                      <button
+                        key={`${ex.title}-${i}`}
+                        type="button"
+                        role="listitem"
+                        className="chat-example"
+                        style={{ animationDelay: `${i * 70}ms` }}
+                        onClick={() => composerRef.current?.setDraft(ex.prompt)}
+                        title={t('chat.fillInputTitle')}
+                      >
+                        <span className="chat-example-icon" aria-hidden>
+                          {ex.icon}
+                        </span>
+                        <span className="chat-example-body">
+                          <span className="chat-example-head">
+                            <span className="chat-example-title">{ex.title}</span>
+                            <span className="chat-example-tag">{ex.tag}</span>
                           </span>
-                          <span className="chat-example-body">
-                            <span className="chat-example-head">
-                              <span className="chat-example-title">{title}</span>
-                              <span className="chat-example-tag">{tag}</span>
-                            </span>
-                            <span className="chat-example-prompt">{prompt}</span>
-                          </span>
-                          <span className="chat-example-cta" aria-hidden>
-                            ↵
-                          </span>
-                        </button>
-                      );
-                    })}
+                          <span className="chat-example-prompt">{ex.prompt}</span>
+                        </span>
+                        <span className="chat-example-cta" aria-hidden>
+                          ↵
+                        </span>
+                      </button>
+                    ))}
                   </div>
                 </div>
               ) : null}
               {messages.map((m, i) => {
                 const showDaySeparator = shouldShowDaySeparator(messages[i - 1], m);
-                const messageStreaming =
-                  m.role === 'assistant' &&
-                  ((streaming && m.id === lastAssistantId) || isActiveRunStatus(m.runStatus));
+                const messageStreaming = isAssistantMessageStreaming(
+                  m,
+                  streaming,
+                  lastAssistantId,
+                );
                 return (
                   <Fragment key={m.id}>
                     {showDaySeparator ? <DaySeparator ts={messageTime(m)} /> : null}
@@ -557,6 +754,11 @@ export function ChatPane({
                             ? (todos) => onContinueRemainingTasks(m, todos)
                             : undefined
                         }
+                        onFeedback={
+                          onAssistantFeedback
+                            ? (rating) => onAssistantFeedback(m, rating)
+                            : undefined
+                        }
                       />
                     )}
                   </Fragment>
@@ -580,7 +782,9 @@ export function ChatPane({
             ref={composerRef}
             projectId={projectId}
             projectFiles={projectFiles}
-            streaming={streaming || hasActiveRunMessage}
+            skills={skills}
+            streaming={streaming}
+            sendDisabled={sendDisabled}
             initialDraft={initialDraft}
             onEnsureProject={onEnsureProject}
             commentAttachments={commentsToAttachments(attachedComments)}
@@ -602,16 +806,6 @@ export function ChatPane({
             onProjectMetadataChange={onProjectMetadataChange}
           />
         </>
-      ) : null}
-      {tab === 'comments' ? (
-        <CommentsPanel
-          comments={previewComments}
-          attachedComments={attachedComments}
-          onAttach={onAttachComment}
-          onDetach={onDetachComment}
-          onDelete={onDeleteComment}
-          t={t}
-        />
       ) : null}
     </div>
   );
@@ -734,6 +928,24 @@ function isActiveRunStatus(status: ChatMessage['runStatus']): boolean {
   return status === 'queued' || status === 'running';
 }
 
+function isTerminalRunStatus(status: ChatMessage['runStatus']): boolean {
+  return status === 'succeeded' || status === 'failed' || status === 'canceled';
+}
+
+export function isAssistantMessageStreaming(
+  message: ChatMessage,
+  paneStreaming: boolean,
+  lastAssistantId: string | null | undefined,
+): boolean {
+  if (message.role !== 'assistant') return false;
+  if (isActiveRunStatus(message.runStatus)) return true;
+  if (message.id !== lastAssistantId) return false;
+  if (!paneStreaming) return false;
+  if (message.endedAt !== undefined) return false;
+  if (isTerminalRunStatus(message.runStatus)) return false;
+  return true;
+}
+
 function ConversationRow({
   conversation,
   active,
@@ -794,7 +1006,7 @@ function ConversationRow({
           {displayTitle}
         </button>
       )}
-      <span className="chat-conv-item-meta">{relTime(conversation.updatedAt, t)}</span>
+      <span className="chat-conv-item-meta">{conversationMetaLabel(conversation, t)}</span>
       <button
         type="button"
         className="chat-conv-item-del"
@@ -830,6 +1042,27 @@ function UserMessage({
 }) {
   const attachments = message.attachments ?? [];
   const commentAttachments = message.commentAttachments ?? [];
+  const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
+
+  async function handleCopy() {
+    if (!message.content) return;
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    const ok = await copyToClipboard(message.content);
+    if (!ok) return;
+    setCopied(true);
+    copyTimerRef.current = setTimeout(() => {
+      setCopied(false);
+      copyTimerRef.current = undefined;
+    }, 2000);
+  }
+
   return (
     <div className="msg user">
       <div className="role">
@@ -866,19 +1099,32 @@ function UserMessage({
           })}
         </div>
       ) : null}
-      {commentAttachments.length > 0 ? (
+      {commentAttachments.some((attachment) => attachment.selectionKind !== 'visual') ? (
         <div className="user-attachments comment-history-attachments">
-          {commentAttachments.map((a) => (
+          {commentAttachments.filter((attachment) => attachment.selectionKind !== 'visual').map((a) => (
             <span key={a.id} className="user-attachment staged-comment">
-              <span className="staged-name">
-                <strong>{a.elementId}</strong>
+              <span className="staged-name" title={`${a.elementId}: ${a.comment}`}>
+                <strong>{a.selectionKind === 'visual' ? 'Visual mark' : a.elementId}</strong>
                 <span>{a.comment}</span>
               </span>
             </span>
           ))}
         </div>
       ) : null}
-      {message.content ? <div className="user-text">{message.content}</div> : null}
+      {message.content ? (
+        <div className="user-text-wrap">
+          <div className="user-text user-bubble">{message.content}</div>
+          <button
+            type="button"
+            className="ghost user-copy-btn"
+            onClick={handleCopy}
+            aria-label={copied ? t('chat.copyDone') : t('chat.copyPrompt')}
+            title={copied ? t('chat.copyDone') : t('chat.copyPrompt')}
+          >
+            <Icon name={copied ? 'check' : 'copy'} size={12} />
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -920,4 +1166,30 @@ function relTime(ts: number, t: TranslateFn): string {
   if (diff < day) return t('common.hoursShort', { n: Math.floor(diff / hr) });
   if (diff < 7 * day) return t('common.daysShort', { n: Math.floor(diff / day) });
   return new Date(ts).toLocaleDateString();
+}
+
+export function conversationMetaLabel(
+  conversation: Conversation,
+  t: TranslateFn,
+): string {
+  const latestRun = conversation.latestRun;
+  if (
+    latestRun &&
+    (latestRun.status === 'succeeded' ||
+      latestRun.status === 'failed' ||
+      latestRun.status === 'canceled') &&
+    typeof latestRun.durationMs === 'number' &&
+    Number.isFinite(latestRun.durationMs)
+  ) {
+    return formatDurationShort(latestRun.durationMs);
+  }
+  return relTime(conversation.updatedAt, t);
+}
+
+function formatDurationShort(ms: number): string {
+  const s = Math.max(0, ms) / 1000;
+  if (s < 60) return `${s.toFixed(s < 10 ? 1 : 0)}s`;
+  const m = Math.floor(s / 60);
+  const rem = Math.floor(s - m * 60);
+  return `${m}m ${rem.toString().padStart(2, '0')}s`;
 }

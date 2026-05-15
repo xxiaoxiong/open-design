@@ -1,6 +1,21 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, Dispatch, SetStateAction } from 'react';
 import { validateBaseUrl } from '@open-design/contracts/api/connectionTest';
+import {
+  agentIdToTracking,
+  executionModeToTracking,
+  settingsSectionToTracking,
+} from '@open-design/contracts/analytics';
+import { useAnalytics } from '../analytics/provider';
+import {
+  trackSettingsByokTestResult,
+  trackSettingsCliTestResult,
+  trackSettingsClickByokField,
+  trackSettingsClickByokProviderOption,
+  trackSettingsClickCliProviderCard,
+  trackSettingsClickExecutionModeTab,
+  trackSettingsView,
+} from '../analytics/events';
 import { LOCALE_LABEL, LOCALES, useI18n } from '../i18n';
 import type { Locale } from '../i18n';
 import type { Dict } from '../i18n/types';
@@ -23,7 +38,13 @@ import {
   syncMediaProvidersToDaemon,
 } from '../state/config';
 import type { KnownProvider } from '../state/config';
-import { navigate as navigateRoute } from '../router';
+import { navigate as navigateRoute, useRoute } from '../router';
+import {
+  API_KEY_PLACEHOLDERS,
+  API_PROTOCOL_LABELS,
+  API_PROTOCOL_TABS,
+  SUGGESTED_MODELS_BY_PROTOCOL,
+} from '../state/apiProtocols';
 import {
   MAX_MAX_TOKENS,
   MIN_MAX_TOKENS,
@@ -46,19 +67,31 @@ import type {
 } from '../types';
 import { testAgent, testApiProvider } from '../providers/connection-test';
 import { fetchProviderModels } from '../providers/provider-models';
-import { fetchConnectors, fetchSkills } from '../providers/registry';
+import { fetchConnectors, fetchDesignTemplates } from '../providers/registry';
 import { MEDIA_PROVIDERS } from '../media/models';
 import type { MediaProvider } from '../media/models';
+import { Toast } from './Toast';
 import { PetSettings } from './pet/PetSettings';
 import { McpClientSection } from './McpClientSection';
-import { LibrarySection } from './LibrarySection';
+import { SkillsSection } from './SkillsSection';
+import { DesignSystemsSection } from './DesignSystemsSection';
 import { PrivacySection } from './PrivacySection';
 import { RoutinesSection } from './RoutinesSection';
 import { ConnectorsBrowser } from './ConnectorsBrowser';
+import { MemoryModelInline } from './MemoryModelInline';
+import { MemorySection } from './MemorySection';
 import {
+  setCritiqueTheaterEnabled,
+  useCritiqueTheaterEnabled,
+} from './Theater';
+import {
+  ACCENT_SWATCHES,
+  DEFAULT_ACCENT_COLOR,
   applyAppearanceToDocument,
   normalizeAccentColor,
+  resolveAccentColor,
 } from '../state/appearance';
+import { isAutosaveDraftOnlyChange } from '../App';
 import {
   FAILURE_SOUNDS,
   SUCCESS_SOUNDS,
@@ -78,9 +111,12 @@ export type SettingsSection =
   | 'mcpClient'
   | 'language'
   | 'appearance'
+  | 'critiqueTheater'
   | 'notifications'
   | 'pet'
-  | 'library'
+  | 'skills'
+  | 'designSystems'
+  | 'memory'
   | 'privacy'
   | 'about';
 
@@ -131,113 +167,43 @@ export interface AgentRefreshOptions {
   agentCliEnv?: AppConfig['agentCliEnv'];
 }
 
-const SUGGESTED_MODELS_BY_PROTOCOL = {
-  anthropic: [
-    'claude-opus-4-5',
-    'claude-sonnet-4-5',
-    'claude-haiku-4-5',
-    'deepseek-chat',
-    'deepseek-reasoner',
-    'deepseek-v4-flash',
-    'deepseek-v4-pro',
-    'MiniMax-M2.7-highspeed',
-    'MiniMax-M2.7',
-    'MiniMax-M2.5-highspeed',
-    'MiniMax-M2.5',
-    'MiniMax-M2.1-highspeed',
-    'MiniMax-M2.1',
-    'MiniMax-M2',
-    'mimo-v2.5-pro',
-  ],
-  openai: [
-    'gpt-4o',
-    'gpt-4o-mini',
-    'o3',
-    'o4-mini',
-    'deepseek-chat',
-    'deepseek-reasoner',
-    'deepseek-v4-flash',
-    'deepseek-v4-pro',
-    'MiniMax-M2.7-highspeed',
-    'MiniMax-M2.7',
-    'MiniMax-M2.5-highspeed',
-    'MiniMax-M2.5',
-    'MiniMax-M2.1-highspeed',
-    'MiniMax-M2.1',
-    'MiniMax-M2',
-    'mimo-v2.5-pro',
-  ],
-  ollama: [
-    'cogito-2.1:671b',
-    'deepseek-v3.1:671b',
-    'deepseek-v3.2',
-    'deepseek-v4-flash',
-    'deepseek-v4-pro',
-    'devstral-2:123b',
-    'devstral-small-2:24b',
-    'gemini-3-flash-preview',
-    'gemma3:4b',
-    'gemma3:12b',
-    'gemma3:27b',
-    'gemma4:31b',
-    'glm-4.6',
-    'glm-4.7',
-    'glm-5',
-    'glm-5.1',
-    'gpt-oss:20b',
-    'gpt-oss:120b',
-    'kimi-k2:1t',
-    'kimi-k2-thinking',
-    'kimi-k2.5',
-    'kimi-k2.6',
-    'minimax-m2',
-    'minimax-m2.1',
-    'minimax-m2.5',
-    'minimax-m2.7',
-    'ministral-3:3b',
-    'ministral-3:8b',
-    'ministral-3:14b',
-    'mistral-large-3:675b',
-    'nemotron-3-nano:30b',
-    'nemotron-3-super',
-    'qwen3-coder:480b',
-    'qwen3-coder-next',
-    'qwen3-next:80b',
-    'qwen3-vl:235b',
-    'qwen3-vl:235b-instruct',
-    'qwen3.5:397b',
-    'rnj-1:8b',
-  ],
-  azure: [
-    'gpt-4o',
-    'gpt-4o-mini',
-  ],
-  google: [
-    'gemini-2.0-flash',
-    'gemini-2.0-flash-lite',
-    'gemini-1.5-pro',
-    'gemini-1.5-flash',
-  ],
-} as const;
-
-const API_PROTOCOL_TABS: Array<{
-  id: ApiProtocol;
-  title: string;
-}> = [
-  { id: 'anthropic', title: 'Anthropic' },
-  { id: 'openai', title: 'OpenAI' },
-  { id: 'azure', title: 'Azure OpenAI' },
-  { id: 'google', title: 'Google Gemini' },
-  { id: 'ollama', title: 'Ollama Cloud' },
-];
-
-const API_PROTOCOL_LABELS: Record<ApiProtocol, string> = {
-  anthropic: 'Anthropic API',
-  openai: 'OpenAI API',
-  azure: 'Azure OpenAI',
-  google: 'Google Gemini',
-  ollama: 'Ollama Cloud API',
-};
+function codexPathStrings(locale: Locale) {
+  if (locale === 'zh-CN') {
+    return {
+      repairHint: '当前保存的 Codex 路径不适合继续使用。',
+      useDetected: '使用检测到的 Codex',
+      clearCustom: '清空自定义路径',
+      configuredSuccess: (path: string) => `本次测试使用的是已配置的 Codex 路径：${path}。`,
+      invalidFallback: (configuredPath: string, detectedPath: string) =>
+        `已配置的 Codex 路径无效或不可执行：${configuredPath}。本次测试改用 PATH 中的 Codex CLI：${detectedPath}。建议更新 CODEX_BIN 或清空自定义路径。`,
+      failedFallback: (configuredPath: string, detectedPath: string) =>
+        `已配置的 Codex 路径启动失败：${configuredPath}。本次测试改用 PATH 中的 Codex CLI：${detectedPath}。建议更新 CODEX_BIN 或清空自定义路径。`,
+    };
+  }
+  if (locale === 'zh-TW') {
+    return {
+      repairHint: '目前儲存的 Codex 路徑不適合繼續使用。',
+      useDetected: '使用偵測到的 Codex',
+      clearCustom: '清除自訂路徑',
+      configuredSuccess: (path: string) => `本次測試使用的是已設定的 Codex 路徑：${path}。`,
+      invalidFallback: (configuredPath: string, detectedPath: string) =>
+        `已設定的 Codex 路徑無效或不可執行：${configuredPath}。本次測試改用 PATH 中的 Codex CLI：${detectedPath}。建議更新 CODEX_BIN 或清除自訂路徑。`,
+      failedFallback: (configuredPath: string, detectedPath: string) =>
+        `已設定的 Codex 路徑啟動失敗：${configuredPath}。本次測試改用 PATH 中的 Codex CLI：${detectedPath}。建議更新 CODEX_BIN 或清除自訂路徑。`,
+    };
+  }
+  return {
+    repairHint: 'The saved Codex path is not the binary this test should keep using.',
+    useDetected: 'Use detected Codex',
+    clearCustom: 'Clear custom path',
+    configuredSuccess: (path: string) =>
+      `This test used the configured Codex path: ${path}.`,
+    invalidFallback: (configuredPath: string, detectedPath: string) =>
+      `Configured Codex path is invalid or not executable: ${configuredPath}. This test used the PATH Codex CLI at ${detectedPath}. Update CODEX_BIN or clear the custom path to use the detected binary.`,
+    failedFallback: (configuredPath: string, detectedPath: string) =>
+      `Configured Codex path failed: ${configuredPath}. This test succeeded with the PATH Codex CLI at ${detectedPath}. Update CODEX_BIN or clear the custom path to use the detected binary.`,
+  };
+}
 
 function sanitizeHttpsUrl(url: string | undefined): string | undefined {
   if (!url) return undefined;
@@ -248,14 +214,6 @@ function sanitizeHttpsUrl(url: string | undefined): string | undefined {
     return undefined;
   }
 }
-
-const API_KEY_PLACEHOLDERS: Record<ApiProtocol, string> = {
-  anthropic: 'sk-ant-...',
-  openai: 'sk-...',
-  azure: 'azure key',
-  google: 'AIza...',
-  ollama: 'Ollama API key',
-};
 
 type RescanNotice =
   | { kind: 'success'; count: number }
@@ -355,6 +313,19 @@ const AGENT_CLI_ENV_FIELDS = [
     placeholder: '~/.claude-2',
   },
   {
+    agentId: 'claude',
+    envKey: 'ANTHROPIC_BASE_URL',
+    labelKey: 'settings.cliEnvClaudeBaseUrl',
+    placeholder: 'https://your-proxy.example.com',
+  },
+  {
+    agentId: 'claude',
+    envKey: 'ANTHROPIC_API_KEY',
+    labelKey: 'settings.cliEnvClaudeApiKey',
+    placeholder: 'Paste proxy API key',
+    secret: true,
+  },
+  {
     agentId: 'codex',
     envKey: 'CODEX_HOME',
     labelKey: 'settings.cliEnvCodexHome',
@@ -365,6 +336,19 @@ const AGENT_CLI_ENV_FIELDS = [
     envKey: 'CODEX_BIN',
     labelKey: 'settings.cliEnvCodexBin',
     placeholder: '/absolute/path/to/codex',
+  },
+  {
+    agentId: 'codex',
+    envKey: 'OPENAI_BASE_URL',
+    labelKey: 'settings.cliEnvCodexBaseUrl',
+    placeholder: 'https://your-proxy.example.com/v1',
+  },
+  {
+    agentId: 'codex',
+    envKey: 'OPENAI_API_KEY',
+    labelKey: 'settings.cliEnvCodexApiKey',
+    placeholder: 'Paste proxy API key',
+    secret: true,
   },
 ] as const;
 
@@ -539,6 +523,24 @@ function apiModelOptionLabel(model: ProviderModelOption): string {
     : model.id;
 }
 
+function codexPathRepairState(
+  result: ConnectionTestResponse,
+): { detectedPath: string; canUseDetected: boolean } | null {
+  if (!result.ok) return null;
+  if (
+    result.usedExecutableSource !== 'fallback_invalid' &&
+    result.usedExecutableSource !== 'fallback_failed'
+  ) {
+    return null;
+  }
+  const detectedPath = result.detectedExecutablePath?.trim() || '';
+  if (!detectedPath) return null;
+  return {
+    detectedPath,
+    canUseDetected: true,
+  };
+}
+
 /**
  * Returns whether the modal's footer Save button should be enabled for the
  * currently active sidebar section.
@@ -656,21 +658,35 @@ export function SettingsDialog({
   onReloadMediaProviders,
 }: Props) {
   const { t, locale, setLocale } = useI18n();
+  const analytics = useAnalytics();
   const [cfg, setCfg] = useState<AppConfig>(initial);
+  const lastSavedAppearanceRef = useRef({
+    theme: initial.theme ?? 'system',
+    accentColor: resolveAccentColor(initial.accentColor),
+  });
 
-  // Revert the live theme preview when the dialog closes without saving.
-  // On Save, App's useLayoutEffect fires after unmount and applies the new
-  // saved theme, so this cleanup is effectively a no-op in that path.
-  useLayoutEffect(() => {
-    return () => {
-      applyAppearanceToDocument({
-        theme: initial.theme ?? 'system',
-        accentColor: initial.accentColor,
-      });
+  // settings_view — fire on dialog open and on every section switch so the
+  // configuration funnel can see which section the user spent time in.
+  // The fire is keyed on section so a section bounce (open → switch →
+  // close) emits one event per surface.
+  const lastViewSectionRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    lastSavedAppearanceRef.current = {
+      theme: initial.theme ?? 'system',
+      accentColor: resolveAccentColor(initial.accentColor),
     };
   }, [initial.theme, initial.accentColor]);
+
+  // Revert the live theme preview to the most recently persisted appearance.
+  // That is the initial appearance until autosave succeeds; after autosave,
+  // closing Settings must not roll the document back to stale colors.
+  useLayoutEffect(() => {
+    return () => {
+      applyAppearanceToDocument(lastSavedAppearanceRef.current);
+    };
+  }, []);
   const [showApiKey, setShowApiKey] = useState(false);
-  const [languageOpen, setLanguageOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection);
   // Scroll the right-hand content pane back to the top whenever the user
   // picks a different settings section. Without this, switching from a
@@ -678,7 +694,6 @@ export function SettingsDialog({
   // (About) keeps the previous scrollTop, so the new section's header
   // can land out of view and the panel reads as half-loaded. Issue #634.
   const settingsContentRef = useRef<HTMLDivElement | null>(null);
-  const [languageMenuRect, setLanguageMenuRect] = useState<DOMRect | null>(null);
   const [agentRescanRunning, setAgentRescanRunning] = useState(false);
   const [agentRescanNotice, setAgentRescanNotice] =
     useState<RescanNotice | null>(null);
@@ -703,13 +718,58 @@ export function SettingsDialog({
   const [agentCustomModelIds, setAgentCustomModelIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
-  const languageRef = useRef<HTMLDivElement | null>(null);
+  const [versionChecking, setVersionChecking] = useState(false);
+  const [aboutToast, setAboutToast] = useState<string | null>(null);
+
+  const handleInstallLatest = useCallback(async () => {
+    if (versionChecking || !appVersionInfo) return;
+    setVersionChecking(true);
+    try {
+      const res = await fetch('https://api.github.com/repos/nexu-io/open-design/releases/latest', {
+        headers: { Accept: 'application/vnd.github+json' },
+      });
+      if (res.ok) {
+        const data = await res.json() as { tag_name?: string; html_url?: string };
+        const latestTag = (data.tag_name ?? '').replace(/^v/, '');
+        if (latestTag && latestTag === appVersionInfo.version) {
+          setAboutToast(t('settings.alreadyLatest'));
+          return;
+        }
+      }
+    } catch {
+      // network error — fall through to open releases page
+    } finally {
+      setVersionChecking(false);
+    }
+    window.open('https://github.com/nexu-io/open-design/releases', '_blank', 'noopener,noreferrer');
+  }, [versionChecking, appVersionInfo, t]);
+
   // Imperative handle for the External MCP section. The dialog footer Save
   // routes through this when the MCP tab is active so the user can press the
   // single Save button at the bottom instead of hunting for the inner one.
   useEffect(() => {
     setActiveSection(initialSection);
   }, [initialSection]);
+
+  // settings_view — fires whenever the active section changes (and once on
+  // mount). Keying the fire on a section+section-string lets us dedupe
+  // accidental double-renders while still capturing genuine tab switches.
+  useEffect(() => {
+    if (lastViewSectionRef.current === activeSection) return;
+    lastViewSectionRef.current = activeSection;
+    const hasCli = agents.some((a) => a.available);
+    const selected = agents.find((a) => a.id === cfg.agentId && a.available);
+    trackSettingsView(analytics.track, {
+      page: 'settings',
+      area: 'settings_panel',
+      element: 'page',
+      view_type: 'page',
+      active_section: settingsSectionToTracking(activeSection),
+      execution_mode: executionModeToTracking(cfg.mode),
+      has_available_cli: hasCli,
+      ...(selected ? { selected_cli_id: agentIdToTracking(selected.id) } : {}),
+    });
+  }, [activeSection, agents, cfg.mode, cfg.agentId, analytics.track]);
   useEffect(() => {
     const el = settingsContentRef.current;
     if (el) el.scrollTop = 0;
@@ -733,6 +793,15 @@ export function SettingsDialog({
     agentChoiceForTest?.reasoning,
     cfg.agentCliEnv,
   ]);
+  // Rescan notices are list-level feedback for a one-shot action and
+  // shouldn't linger in the content stream. After 6s, fade them out so
+  // repeated Rescan clicks don't pile up; the next click resets the
+  // notice immediately, so this only affects "user moved on" cases.
+  useEffect(() => {
+    if (!agentRescanNotice) return;
+    const id = window.setTimeout(() => setAgentRescanNotice(null), 6000);
+    return () => window.clearTimeout(id);
+  }, [agentRescanNotice]);
   useEffect(() => {
     providerTestRevisionRef.current += 1;
     setProviderTestState((state) =>
@@ -766,47 +835,28 @@ export function SettingsDialog({
     };
   }, []);
 
-  useEffect(() => {
-    if (!languageOpen) return;
-    const updateRect = () => {
-      const button = languageRef.current?.querySelector('button');
-      setLanguageMenuRect(button?.getBoundingClientRect() ?? null);
-    };
-    updateRect();
-    function onDown(e: MouseEvent) {
-      if (languageRef.current?.contains(e.target as Node)) return;
-      setLanguageOpen(false);
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setLanguageOpen(false);
-    }
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    window.addEventListener('resize', updateRect);
-    window.addEventListener('scroll', updateRect, true);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-      window.removeEventListener('resize', updateRect);
-      window.removeEventListener('scroll', updateRect, true);
-    };
-  }, [languageOpen]);
-
-  // Close the language menu on window resize so its placement (computed on
-  // open) cannot end up stale relative to the new viewport dimensions.
-  useEffect(() => {
-    if (!languageOpen) return;
-    const handleResize = () => setLanguageOpen(false);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [languageOpen]);
-
   const installedCount = useMemo(
     () => agents.filter((a) => a.available).length,
     [agents],
   );
 
-  const setMode = (mode: ExecMode) => setCfg((c) => ({ ...c, mode }));
+  const setMode = (mode: ExecMode) => {
+    setCfg((c) => {
+      const modeBefore = executionModeToTracking(c.mode);
+      const modeAfter = executionModeToTracking(mode);
+      if (modeBefore !== modeAfter) {
+        trackSettingsClickExecutionModeTab(analytics.track, {
+          page: 'settings',
+          area: 'execution_model',
+          element: 'execution_mode_tab',
+          action: 'switch_execution_mode',
+          mode_before: modeBefore,
+          mode_after: modeAfter,
+        });
+      }
+      return { ...c, mode };
+    });
+  };
   const setApiProtocol = (protocol: ApiProtocol) => {
     setApiModelCustomEditing(false);
     setCfg((c) => switchApiProtocolConfig(c, protocol));
@@ -842,6 +892,8 @@ export function SettingsDialog({
     const revision = agentTestRevisionRef.current;
     agentTestAbortRef.current = controller;
     setAgentTestState({ status: 'running' });
+    const startedAt = performance.now();
+    const cliProviderId = agentIdToTracking(selected.id);
     const clearIfStale = () => {
       if (agentTestAbortRef.current === controller) {
         setAgentTestState({ status: 'idle' });
@@ -863,6 +915,14 @@ export function SettingsDialog({
         return;
       }
       setAgentTestState({ status: 'done', result });
+      trackSettingsCliTestResult(analytics.track, {
+        page: 'settings',
+        area: 'execution_model',
+        cli_provider_id: cliProviderId,
+        result: result.ok ? 'success' : 'failed',
+        ...(result.ok ? {} : { error_code: result.kind || 'UNKNOWN' }),
+        duration_ms: Math.round(performance.now() - startedAt),
+      });
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
       if (agentTestRevisionRef.current !== revision) {
@@ -879,6 +939,14 @@ export function SettingsDialog({
           detail: err instanceof Error ? err.message : 'Test request failed',
         },
       });
+      trackSettingsCliTestResult(analytics.track, {
+        page: 'settings',
+        area: 'execution_model',
+        cli_provider_id: cliProviderId,
+        result: 'failed',
+        error_code: err instanceof Error ? err.name : 'UNKNOWN',
+        duration_ms: Math.round(performance.now() - startedAt),
+      });
     } finally {
       if (agentTestAbortRef.current === controller) {
         agentTestAbortRef.current = null;
@@ -894,6 +962,7 @@ export function SettingsDialog({
     const revision = providerTestRevisionRef.current;
     providerTestAbortRef.current = controller;
     setProviderTestState({ status: 'running' });
+    const startedAt = performance.now();
     const clearIfStale = () => {
       if (providerTestAbortRef.current === controller) {
         setProviderTestState({ status: 'idle' });
@@ -919,6 +988,14 @@ export function SettingsDialog({
         return;
       }
       setProviderTestState({ status: 'done', result });
+      trackSettingsByokTestResult(analytics.track, {
+        page: 'settings',
+        area: 'execution_model',
+        provider_id: apiProtocol,
+        result: result.ok ? 'success' : 'failed',
+        ...(result.ok ? {} : { error_code: result.kind || 'UNKNOWN' }),
+        duration_ms: Math.round(performance.now() - startedAt),
+      });
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
       if (providerTestRevisionRef.current !== revision) {
@@ -934,6 +1011,14 @@ export function SettingsDialog({
           model: cfg.model,
           detail: err instanceof Error ? err.message : 'Test request failed',
         },
+      });
+      trackSettingsByokTestResult(analytics.track, {
+        page: 'settings',
+        area: 'execution_model',
+        provider_id: apiProtocol,
+        result: 'failed',
+        error_code: err instanceof Error ? err.name : 'UNKNOWN',
+        duration_ms: Math.round(performance.now() - startedAt),
       });
     } finally {
       if (providerTestAbortRef.current === controller) {
@@ -1034,9 +1119,39 @@ export function SettingsDialog({
     const agentName = result.agentName ?? '';
     const testedModel = result.model ?? cfg.model;
     if (result.ok) {
-      return kindForSuccess === 'api'
+      const baseMessage = kindForSuccess === 'api'
         ? t('settings.testSuccessApi', { ms, sample })
         : t('settings.testSuccessCli', { agentName, ms, sample });
+      if (kindForSuccess === 'cli' && cfg.agentId === 'codex') {
+        const codexStrings = codexPathStrings(locale);
+        if (
+          result.usedExecutableSource === 'configured' &&
+          result.configuredExecutablePath
+        ) {
+          return `${baseMessage} ${codexStrings.configuredSuccess(result.configuredExecutablePath)}`;
+        }
+        if (
+          result.usedExecutableSource === 'fallback_invalid' &&
+          result.configuredExecutablePath &&
+          result.detectedExecutablePath
+        ) {
+          return `${baseMessage} ${codexStrings.invalidFallback(
+            result.configuredExecutablePath,
+            result.detectedExecutablePath,
+          )}`;
+        }
+        if (
+          result.usedExecutableSource === 'fallback_failed' &&
+          result.configuredExecutablePath &&
+          result.detectedExecutablePath
+        ) {
+          return `${baseMessage} ${codexStrings.failedFallback(
+            result.configuredExecutablePath,
+            result.detectedExecutablePath,
+          )}`;
+        }
+      }
+      return result.detail ? `${baseMessage} ${result.detail}` : baseMessage;
     }
     switch (result.kind) {
       case 'auth_failed':
@@ -1057,6 +1172,8 @@ export function SettingsDialog({
         return t('settings.testTimeout', { ms });
       case 'agent_not_installed':
         return t('settings.testAgentMissing', { agentName });
+      case 'agent_auth_required':
+        return result.detail || 'Agent authentication is required.';
       case 'agent_spawn_failed':
         return t('settings.testAgentSpawn', {
           agentName,
@@ -1099,6 +1216,16 @@ export function SettingsDialog({
     }
   };
 
+  const applyCodexDetectedPath = (detectedPath: string) => {
+    setCfg((c) => updateAgentCliEnvValue(c, 'codex', 'CODEX_BIN', detectedPath));
+    setAgentTestState({ status: 'idle' });
+  };
+
+  const clearCodexCustomPath = () => {
+    setCfg((c) => updateAgentCliEnvValue(c, 'codex', 'CODEX_BIN', ''));
+    setAgentTestState({ status: 'idle' });
+  };
+
   const apiProtocol = cfg.apiProtocol ?? 'anthropic';
   const baseUrlValid = isValidApiBaseUrl(cfg.baseUrl);
   const baseUrlInvalid = Boolean(cfg.baseUrl.trim() && !baseUrlValid);
@@ -1121,6 +1248,13 @@ export function SettingsDialog({
   const autosaveRetryTimerRef = useRef<number | null>(null);
   const autosavePendingFlushRef = useRef(false);
   const autosaveLatestRef = useRef<AppConfig>(cfg);
+  // Baseline used by the draft-only detector: the snapshot at the most
+  // recent successful autosave (or the initial cfg on mount). Compared
+  // against the current snapshot to decide whether the only edits
+  // since last save are intentionally-stripped fields like the
+  // Composio API key — in which case we must NOT flash "All changes
+  // saved", because the draft has not actually been persisted.
+  const autosaveLastSavedRef = useRef<AppConfig>(cfg);
   const mediaProvidersChangeVersionRef = useRef(0);
   const lastSyncedMediaProvidersVersionRef = useRef(0);
   const [autosaveRetryTick, setAutosaveRetryTick] = useState(0);
@@ -1128,6 +1262,7 @@ export function SettingsDialog({
   useEffect(() => {
     if (autosaveSkipFirstRef.current) {
       autosaveSkipFirstRef.current = false;
+      autosaveLastSavedRef.current = cfg;
       return;
     }
     setAutosaveStatus('pending');
@@ -1151,10 +1286,31 @@ export function SettingsDialog({
       const persistOptions = {
         forceMediaProviderSync: mediaProvidersVersion > lastSyncedMediaProvidersVersionRef.current,
       };
+      // Draft-only edit (e.g. the user is mid-typing the Composio API
+      // key, which only commits via the explicit "Save key" gesture):
+      // the persisted shape would be identical to what is already on
+      // disk, so a save would be a no-op that mis-reports "Saved" and
+      // makes users trust that a sensitive key was persisted when it
+      // was not. Skip the persist and settle the indicator to idle.
+      // The forced media-provider sync path still runs because that
+      // is a real outbound effect even when the persisted shape
+      // hasn't changed.
+      if (
+        !persistOptions.forceMediaProviderSync
+        && isAutosaveDraftOnlyChange(snapshot, autosaveLastSavedRef.current)
+      ) {
+        setAutosaveStatus('idle');
+        return;
+      }
       setAutosaveStatus('saving');
       void (async () => {
         try {
           await onPersist(snapshot, persistOptions);
+          autosaveLastSavedRef.current = snapshot;
+          lastSavedAppearanceRef.current = {
+            theme: snapshot.theme ?? 'system',
+            accentColor: resolveAccentColor(snapshot.accentColor),
+          };
           if (persistOptions.forceMediaProviderSync) {
             lastSyncedMediaProvidersVersionRef.current = mediaProvidersVersion;
           }
@@ -1231,19 +1387,15 @@ export function SettingsDialog({
   }, [onPersist]);
 
   // Global Escape closes the dialog. With no footer button anymore the
-  // close affordances are: top-right X · backdrop click · Escape. We
-  // skip the handler when an inline popover (e.g. the language menu
-  // listbox) is open, because that menu owns its own Escape handling
-  // and closing the dialog out from under it would be jarring.
+  // close affordances are: top-right X · backdrop click · Escape.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== 'Escape') return;
-      if (languageOpen) return;
       onClose();
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose, languageOpen]);
+  }, [onClose]);
 
   const protocolProviders = useMemo(
     () => KNOWN_PROVIDERS.filter((p) => p.protocol === apiProtocol),
@@ -1297,8 +1449,10 @@ export function SettingsDialog({
 
   // Header title/subtitle follow the active sidebar section so the dialog
   // header always reflects what the user is looking at, instead of being
-  // pinned to "Execution & model" copy that only described one of the
-  // 11 sections this dialog now hosts.
+  // pinned to one section's copy. The execution section's header doubles
+  // as the section heading — there is no inner h3 inside the Local CLI /
+  // BYOK content so "Local CLI" only renders once (in the seg-control tab),
+  // not twice (heading + tab).
   const sectionHeader: Record<SettingsSection, { title: string; subtitle: string }> = {
     execution: { title: t('settings.title'), subtitle: t('settings.subtitle') },
     media: { title: t('settings.mediaProviders'), subtitle: t('settings.mediaProvidersHint') },
@@ -1312,10 +1466,19 @@ export function SettingsDialog({
     mcpClient: { title: t('settings.externalMcpTitle'), subtitle: t('settings.externalMcpHint') },
     language: { title: t('settings.language'), subtitle: t('settings.languageHint') },
     appearance: { title: t('settings.appearance'), subtitle: t('settings.appearanceHint') },
+    critiqueTheater: {
+      title: t('critiqueTheater.settingsNav'),
+      subtitle: t('critiqueTheater.settingsNavHint'),
+    },
     notifications: { title: t('settings.notifications'), subtitle: t('settings.notificationsHint') },
     privacy: { title: t('settings.privacy'), subtitle: t('settings.privacyHint') },
     pet: { title: t('pet.title'), subtitle: t('pet.subtitle') },
-    library: { title: t('settings.library'), subtitle: t('settings.libraryHint') },
+    skills: { title: t('settings.skills'), subtitle: t('settings.skillsHint') },
+    designSystems: {
+      title: t('settings.designSystems'),
+      subtitle: t('settings.designSystemsHint'),
+    },
+    memory: { title: t('settings.memory'), subtitle: t('settings.memoryHint') },
     about: { title: t('settings.about'), subtitle: t('settings.aboutHint') },
   };
   const activeHeader = sectionHeader[activeSection];
@@ -1383,32 +1546,14 @@ export function SettingsDialog({
               <span className="kicker">{t('settings.welcomeKicker')}</span>
               <h2>{t('settings.welcomeTitle')}</h2>
               <p className="subtitle">{t('settings.welcomeSubtitle')}</p>
-              {/* First-run users see a mini pet teaser inside the welcome
-                  modal so adoption is part of the warm intro rather than
-                  hidden behind another nav click. The chip nudges them
-                  toward Pets without forcing them to leave the rest of
-                  the welcome flow. */}
-              <button
-                type="button"
-                className="welcome-pet-teaser"
-                onClick={() => setActiveSection('pet')}
-              >
-                <span className="welcome-pet-glyph" aria-hidden>🐾</span>
-                <span className="welcome-pet-copy">
-                  <strong>{t('pet.welcomeTeaserTitle')}</strong>
-                  <span>{t('pet.welcomeTeaserBody')}</span>
-                </span>
-                <span className="welcome-pet-cta">
-                  {t('pet.welcomeTeaserCta')}
-                  <Icon name="chevron-right" size={12} />
-                </span>
-              </button>
             </>
           ) : (
             <>
               <span className="kicker">{t('settings.kicker')}</span>
-              <h2>{activeHeader.title}</h2>
-              <p className="subtitle">{activeHeader.subtitle}</p>
+              <div className="modal-head-line">
+                <h2>{activeHeader.title}</h2>
+                <p className="subtitle">{activeHeader.subtitle}</p>
+              </div>
             </>
           )}
         </header>
@@ -1428,6 +1573,17 @@ export function SettingsDialog({
             </button>
             <button
               type="button"
+              className={`settings-nav-item${activeSection === 'memory' ? ' active' : ''}`}
+              onClick={() => setActiveSection('memory')}
+            >
+              <Icon name="history" size={18} />
+              <span>
+                <strong>{t('settings.memory')}</strong>
+                <small>{t('settings.memoryHint')}</small>
+              </span>
+            </button>
+            <button
+              type="button"
               className={`settings-nav-item${activeSection === 'media' ? ' active' : ''}`}
               onClick={() => setActiveSection('media')}
             >
@@ -1435,6 +1591,28 @@ export function SettingsDialog({
               <span>
                 <strong>{t('settings.mediaProviders')}</strong>
                 <small>Image / video / audio</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`settings-nav-item${activeSection === 'skills' ? ' active' : ''}`}
+              onClick={() => setActiveSection('skills')}
+            >
+              <Icon name="grid" size={18} />
+              <span>
+                <strong>{t('settings.skills')}</strong>
+                <small>{t('settings.skillsHint')}</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`settings-nav-item${activeSection === 'mcpClient' ? ' active' : ''}`}
+              onClick={() => setActiveSection('mcpClient')}
+            >
+              <Icon name="sparkles" size={18} />
+              <span>
+                <strong>{t('settings.externalMcpTitle')}</strong>
+                <small>{t('settings.externalMcpHint')}</small>
               </span>
             </button>
             <button
@@ -1483,17 +1661,6 @@ export function SettingsDialog({
             </button>
             <button
               type="button"
-              className={`settings-nav-item${activeSection === 'mcpClient' ? ' active' : ''}`}
-              onClick={() => setActiveSection('mcpClient')}
-            >
-              <Icon name="sparkles" size={18} />
-              <span>
-                <strong>{t('settings.externalMcpTitle')}</strong>
-                <small>{t('settings.externalMcpHint')}</small>
-              </span>
-            </button>
-            <button
-              type="button"
               className={`settings-nav-item${activeSection === 'language' ? ' active' : ''}`}
               onClick={() => setActiveSection('language')}
             >
@@ -1512,6 +1679,17 @@ export function SettingsDialog({
               <span>
                 <strong>{t('settings.appearance')}</strong>
                 <small>{t('settings.appearanceHint')}</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`settings-nav-item${activeSection === 'critiqueTheater' ? ' active' : ''}`}
+              onClick={() => setActiveSection('critiqueTheater')}
+            >
+              <Icon name="comment" size={18} />
+              <span>
+                <strong>{t('critiqueTheater.settingsNav')}</strong>
+                <small>{t('critiqueTheater.settingsNavHint')}</small>
               </span>
             </button>
             <button
@@ -1538,13 +1716,13 @@ export function SettingsDialog({
             </button>
             <button
               type="button"
-              className={`settings-nav-item${activeSection === 'library' ? ' active' : ''}`}
-              onClick={() => setActiveSection('library')}
+              className={`settings-nav-item${activeSection === 'designSystems' ? ' active' : ''}`}
+              onClick={() => setActiveSection('designSystems')}
             >
-              <Icon name="grid" size={18} />
+              <Icon name="draw" size={18} />
               <span>
-                <strong>{t('settings.library')}</strong>
-                <small>{t('settings.libraryHint')}</small>
+                <strong>{t('settings.designSystems')}</strong>
+                <small>{t('settings.designSystemsHint')}</small>
               </span>
             </button>
             <button
@@ -1583,7 +1761,10 @@ export function SettingsDialog({
                   type="button"
                   role="tab"
                   aria-selected={cfg.mode === 'daemon'}
-                  className={'seg-btn' + (cfg.mode === 'daemon' ? ' active' : '')}
+                  className={
+                    'seg-btn seg-btn--inline' +
+                    (cfg.mode === 'daemon' ? ' active' : '')
+                  }
                   disabled={!daemonLive}
                   onClick={() => setMode('daemon')}
                   title={
@@ -1603,7 +1784,10 @@ export function SettingsDialog({
                   type="button"
                   role="tab"
                   aria-selected={cfg.mode === 'api'}
-                  className={'seg-btn' + (cfg.mode === 'api' ? ' active' : '')}
+                  className={
+                    'seg-btn seg-btn--inline' +
+                    (cfg.mode === 'api' ? ' active' : '')
+                  }
                   onClick={() => setMode('api')}
                 >
                   <span className="seg-title">{t('settings.modeApiMeta')}</span>
@@ -1623,7 +1807,17 @@ export function SettingsDialog({
                       role="tab"
                       aria-selected={apiProtocol === tab.id}
                       className={'protocol-chip' + (apiProtocol === tab.id ? ' active' : '')}
-                      onClick={() => setApiProtocol(tab.id)}
+                      onClick={() => {
+                        trackSettingsClickByokProviderOption(analytics.track, {
+                          page: 'settings',
+                          area: 'execution_model',
+                          element: 'byok_provider_option',
+                          action: 'select_byok_provider',
+                          provider_id: tab.id,
+                          is_selected: apiProtocol === tab.id,
+                        });
+                        setApiProtocol(tab.id);
+                      }}
                     >
                       {tab.title}
                     </button>
@@ -1634,7 +1828,6 @@ export function SettingsDialog({
             <section className="settings-section">
               <div className="section-head">
                 <div>
-                  <h3>{t('settings.localCli')}</h3>
                   <p className="hint">{t('settings.codeAgentHint')}</p>
                 </div>
                 <div className="section-head-actions">
@@ -1707,25 +1900,6 @@ export function SettingsDialog({
                     : t('settings.rescanFailed')}
                 </p>
               ) : null}
-              {agentTestState.status === 'running' ? (
-                <p
-                  className="settings-test-status running"
-                  role="status"
-                  aria-live="polite"
-                >
-                  {t('settings.testRunning')}
-                </p>
-              ) : agentTestState.status === 'done' ? (
-                <p
-                  className={
-                    'settings-test-status ' +
-                    testStatusVariant(agentTestState.result)
-                  }
-                  role={agentTestState.result.ok ? 'status' : 'alert'}
-                >
-                  {renderTestMessage(agentTestState.result, 'cli')}
-                </p>
-              ) : null}
               {agents.length === 0 ? (
                 <div className="empty-card">
                   {t('settings.noAgentsDetected')}
@@ -1733,92 +1907,209 @@ export function SettingsDialog({
               ) : (
                 <>
                   <div className="agent-grid">
-                    {agents.map((a) => {
+                    {agents.flatMap((a) => {
                       const active = cfg.agentId === a.id;
-                      if (a.available) {
-                        return (
-                          <button
-                            type="button"
-                            key={a.id}
+                      const cardEl = a.available ? (
+                        <button
+                          type="button"
+                          key={a.id}
+                          className={
+                            'agent-card' + (active ? ' active' : '')
+                          }
+                          onClick={() => {
+                            trackSettingsClickCliProviderCard(analytics.track, {
+                              page: 'settings',
+                              area: 'execution_model',
+                              element: 'cli_provider_card',
+                              action: 'select_cli_provider',
+                              cli_provider_id: agentIdToTracking(a.id),
+                              install_status: a.available ? 'installed' : 'not_installed',
+                              is_selected: !active,
+                            });
+                            setCfg((c) => ({ ...c, agentId: a.id }));
+                          }}
+                          aria-pressed={active}
+                        >
+                          <AgentIcon id={a.id} size={32} />
+                          <div className="agent-card-body">
+                            <div className="agent-card-name">{a.name}</div>
+                            <div className="agent-card-meta">
+                              {a.authStatus === 'missing' ? (
+                                <span title={a.authMessage ?? a.path ?? ''}>
+                                  {t('settings.agentAuthRequired')}
+                                </span>
+                              ) : a.authStatus === 'unknown' ? (
+                                <span title={a.authMessage ?? a.path ?? ''}>
+                                  {t('settings.agentAuthUnknown')}
+                                </span>
+                              ) : a.version ? (
+                                <span title={a.path ?? ''}>{a.version}</span>
+                              ) : (
+                                <span title={a.path ?? ''}>
+                                  {t('common.installed')}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <span
                             className={
-                              'agent-card' + (active ? ' active' : '')
+                              'status-dot' + (active ? ' active' : '')
                             }
-                            onClick={() =>
-                              setCfg((c) => ({ ...c, agentId: a.id }))
-                            }
-                            aria-pressed={active}
+                            aria-hidden="true"
+                          />
+                        </button>
+                      ) : (() => {
+                        const installUrl = sanitizeHttpsUrl(a.installUrl);
+                        const docsUrl = sanitizeHttpsUrl(a.docsUrl);
+                        const hasLinks = Boolean(installUrl || docsUrl);
+                        const cardLabel = `${a.name} · ${t('common.notInstalled')}`;
+                        // Not-installed cards intentionally drop the "not
+                        // installed" label and the explicit version row.
+                        // Install / Docs links sit to the right of the name
+                        // so the card collapses to a single row, which keeps
+                        // installed CLIs (taller, with version meta) visually
+                        // dominant and shrinks the long tail of unavailable
+                        // adapters. The card's overall opacity + cardLabel
+                        // still convey unavailability for sighted + screen
+                        // reader users.
+                        return (
+                          <div
+                            key={a.id}
+                            className="agent-card disabled agent-card-unavailable"
+                            role="group"
+                            aria-label={cardLabel}
                           >
                             <AgentIcon id={a.id} size={40} />
                             <div className="agent-card-body">
                               <div className="agent-card-name">{a.name}</div>
-                              <div className="agent-card-meta">
-                                {a.version ? (
-                                  <span title={a.path ?? ''}>{a.version}</span>
-                                ) : (
-                                  <span title={a.path ?? ''}>
-                                    {t('common.installed')}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                            <span
-                              className={
-                                'status-dot' + (active ? ' active' : '')
-                              }
-                              aria-hidden="true"
-                            />
-                          </button>
-                        );
-                      }
-                      const installUrl = sanitizeHttpsUrl(a.installUrl);
-                      const docsUrl = sanitizeHttpsUrl(a.docsUrl);
-                      const hasLinks = Boolean(installUrl || docsUrl);
-                      const cardLabel = `${a.name} · ${t('common.notInstalled')}`;
-                      return (
-                        <div
-                          key={a.id}
-                          className="agent-card disabled agent-card-unavailable"
-                          role="group"
-                          aria-label={cardLabel}
-                        >
-                          <AgentIcon id={a.id} size={40} />
-                          <div className="agent-card-body">
-                            <div className="agent-card-name">{a.name}</div>
-                            <div className="agent-card-meta">
-                              <span className="muted">
-                                {t('common.notInstalled')}
-                              </span>
                             </div>
                             {hasLinks ? (
-                              <div className="agent-card-actions">
-                                {installUrl ? (
-                                  <a
-                                    href={installUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="agent-card-link"
-                                  >
-                                    {t('settings.agentInstall.install')}
-                                  </a>
-                                ) : null}
+                              <div className="agent-card-actions agent-card-actions--inline">
                                 {docsUrl ? (
                                   <a
                                     href={docsUrl}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="agent-card-link"
+                                    className="agent-card-link agent-card-link--muted"
                                   >
                                     {t('settings.agentInstall.docs')}
+                                  </a>
+                                ) : null}
+                                {installUrl ? (
+                                  <a
+                                    href={installUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="agent-card-link agent-card-link--ghost"
+                                  >
+                                    {t('settings.agentInstall.install')}
                                   </a>
                                 ) : null}
                               </div>
                             ) : null}
                           </div>
-                        </div>
-                      );
+                        );
+                      })();
+                      // Render Test feedback (running spinner / done result)
+                      // immediately after the selected card so the result is
+                      // visually bound to the card it tested. The result row
+                      // spans both grid columns via `.agent-test-result-row`.
+                      if (
+                        active &&
+                        a.available &&
+                        agentTestState.status !== 'idle'
+                      ) {
+                        const resultRow = (
+                          <div
+                            key={`${a.id}__test-result`}
+                            className="agent-test-result-row"
+                          >
+                            {agentTestState.status === 'running' ? (
+                              <p
+                                className="settings-test-status running"
+                                role="status"
+                                aria-live="polite"
+                              >
+                                {t('settings.testRunning')}
+                              </p>
+                            ) : (
+                              <>
+                                <p
+                                  className={
+                                    'settings-test-status ' +
+                                    testStatusVariant(agentTestState.result)
+                                  }
+                                  role={
+                                    agentTestState.result.ok
+                                      ? 'status'
+                                      : 'alert'
+                                  }
+                                >
+                                  {renderTestMessage(
+                                    agentTestState.result,
+                                    'cli',
+                                  )}
+                                </p>
+                                {cfg.agentId === 'codex' && (() => {
+                                  const repair = codexPathRepairState(
+                                    agentTestState.result,
+                                  );
+                                  if (!repair) return null;
+                                  const codexStrings = codexPathStrings(locale);
+                                  return (
+                                    <div className="settings-test-actions">
+                                      <span className="settings-test-actions-hint">
+                                        {codexStrings.repairHint}
+                                      </span>
+                                      <div className="settings-test-actions-row">
+                                        {repair.canUseDetected ? (
+                                          <button
+                                            type="button"
+                                            className="settings-test-btn"
+                                            onClick={() =>
+                                              applyCodexDetectedPath(
+                                                repair.detectedPath,
+                                              )
+                                            }
+                                          >
+                                            {codexStrings.useDetected}
+                                          </button>
+                                        ) : null}
+                                        <button
+                                          type="button"
+                                          className="ghost icon-btn settings-rescan-btn"
+                                          onClick={clearCodexCustomPath}
+                                        >
+                                          {codexStrings.clearCustom}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+                              </>
+                            )}
+                          </div>
+                        );
+                        return [cardEl, resultRow];
+                      }
+                      return [cardEl];
                     })}
                   </div>
-                  {agents.some((x) => !x.available) ? (
+                  {/*
+                    Show the install guide only when the user has *no*
+                    working agent picked yet. Older logic surfaced it
+                    whenever any agent on the support list was missing,
+                    which fired for almost everyone (few people install
+                    all 14 supported CLIs) — the four-step quickstart
+                    then sat between the agent grid and the model picker
+                    forever, even after the user had successfully picked
+                    Claude Code months ago. Once a working agent is
+                    selected, the guide has done its job and only adds
+                    noise.
+                  */}
+                  {!agents.find(
+                    (a) => a.id === cfg.agentId && a.available,
+                  ) ? (
                     <div className="agent-install-guide">
                       <p className="hint agent-install-path-hint">
                         {t('settings.agentInstall.pathHint')}
@@ -1876,44 +2167,60 @@ export function SettingsDialog({
                   : modelValue;
                 return (
                   <div className="agent-model-row">
+                    <div className="agent-model-row-head">
+                      {t('settings.agentModelHead')} <strong>{selected.name}</strong>
+                    </div>
                     {hasModels ? (
-                      <label className="field">
-                        <span className="field-label">
-                          {t('settings.modelPicker')}
-                        </span>
-                        <select
-                          value={selectValue}
-                          onChange={(e) => {
-                            if (e.target.value === CUSTOM_MODEL_SENTINEL) {
-                              // Switching to "Custom…" should clear the
-                              // value so the input below opens empty for
-                              // typing. Keep an explicit edit-mode flag so
-                              // intermediate values like `gpt-5` do not
-                              // collapse the custom input while typing
-                              // `gpt-5.5`.
-                              setAgentCustomModelIds((prev) => {
-                                const next = new Set(prev);
-                                next.add(selected.id);
-                                return next;
-                              });
-                              setChoice({ model: '' });
-                            } else {
-                              setAgentCustomModelIds((prev) => {
-                                if (!prev.has(selected.id)) return prev;
-                                const next = new Set(prev);
-                                next.delete(selected.id);
-                                return next;
-                              });
-                              setChoice({ model: e.target.value });
-                            }
-                          }}
-                        >
-                          {renderModelOptions(selected.models!)}
-                          <option value={CUSTOM_MODEL_SENTINEL}>
-                            {t('settings.modelCustom')}
-                          </option>
-                        </select>
-                      </label>
+                      <>
+                        <label className="field">
+                          <span className="field-label">
+                            {t('settings.modelPicker')}
+                          </span>
+                          <select
+                            value={selectValue}
+                            onChange={(e) => {
+                              if (e.target.value === CUSTOM_MODEL_SENTINEL) {
+                                // Switching to "Custom…" should clear the
+                                // value so the input below opens empty for
+                                // typing. Keep an explicit edit-mode flag so
+                                // intermediate values like `gpt-5` do not
+                                // collapse the custom input while typing
+                                // `gpt-5.5`.
+                                setAgentCustomModelIds((prev) => {
+                                  const next = new Set(prev);
+                                  next.add(selected.id);
+                                  return next;
+                                });
+                                setChoice({ model: '' });
+                              } else {
+                                setAgentCustomModelIds((prev) => {
+                                  if (!prev.has(selected.id)) return prev;
+                                  const next = new Set(prev);
+                                  next.delete(selected.id);
+                                  return next;
+                                });
+                                setChoice({ model: e.target.value });
+                              }
+                            }}
+                          >
+                            {renderModelOptions(selected.models!)}
+                            <option value={CUSTOM_MODEL_SENTINEL}>
+                              {t('settings.modelCustom')}
+                            </option>
+                          </select>
+                        </label>
+                        {/*
+                          Hint sits with its own field so the user reads
+                          "Default vs Custom…" right next to the dropdown
+                          that exposes those options. Older layouts parked
+                          this paragraph at the bottom of the section, past
+                          the Memory picker, where it got mistaken for
+                          memory documentation.
+                        */}
+                        <p className="hint agent-model-row-hint">
+                          {t('settings.modelPickerHint')}
+                        </p>
+                      </>
                     ) : null}
                     {customActive ? (
                       <label className="field">
@@ -1949,42 +2256,108 @@ export function SettingsDialog({
                         </select>
                       </label>
                     ) : null}
-                    <p className="hint">{t('settings.modelPickerHint')}</p>
+                    <MemoryModelInline
+                      mode="daemon"
+                      apiProtocol={apiProtocol}
+                      chatApiKey={cfg.apiKey}
+                      chatBaseUrl={cfg.baseUrl}
+                      chatApiVersion={cfg.apiVersion ?? ''}
+                      chatModel={modelValue}
+                      cliAgentId={selected.id}
+                      cliModelOptions={
+                        hasModels
+                          ? selected.models!.map((m) => m.id)
+                          : []
+                      }
+                    />
                   </div>
                 );
               })()}
-              <div className="agent-cli-env">
-                <div className="agent-cli-env-head">
-                  <h4>{t('settings.cliEnvTitle')}</h4>
-                  <p className="hint">{t('settings.cliEnvHint')}</p>
-                </div>
-                <div className="agent-cli-env-grid">
-                  {AGENT_CLI_ENV_FIELDS.map((field) => (
-                    <label className="field" key={`${field.agentId}:${field.envKey}`}>
-                      <span className="field-label">{t(field.labelKey)}</span>
-                      <input
-                        type="text"
-                        value={cfg.agentCliEnv?.[field.agentId]?.[field.envKey] ?? ''}
-                        placeholder={field.placeholder}
-                        spellCheck={false}
-                        onChange={(e) =>
-                          setCfg((c) =>
-                            updateAgentCliEnvValue(
-                              c,
-                              field.agentId,
-                              field.envKey,
-                              e.target.value,
-                            ),
-                          )
-                        }
-                      />
-                    </label>
-                  ))}
-                </div>
-              </div>
+              {(() => {
+                /*
+                  Per-agent CLI environment overrides — proxy URLs, custom
+                  config dirs, and a binary path override. The previous
+                  layout listed every supported agent's variables in one
+                  long always-expanded block; for users on Claude Code
+                  the Codex fields were just visual filler (and vice
+                  versa), and the section hijacked Settings real estate
+                  on every open even though nine in ten users never
+                  touch it. Now: filtered to the *currently selected*
+                  agent only, and folded into a collapsed disclosure
+                  that opens to "Advanced: proxy & custom paths" — power
+                  users who route through LiteLLM or installed the
+                  binary out-of-PATH still have one click access; new
+                  users no longer wonder "are these fields I forgot to
+                  fill in?".
+                */
+                const cliEnvFields = AGENT_CLI_ENV_FIELDS.filter(
+                  (field) => field.agentId === cfg.agentId,
+                );
+                if (cliEnvFields.length === 0) return null;
+                return (
+                  <details className="agent-cli-env">
+                    <summary className="agent-cli-env-summary">
+                      <span className="agent-cli-env-summary-title">
+                        {t('settings.cliEnvTitle')}
+                      </span>
+                    </summary>
+                    <div className="agent-cli-env-body">
+                      <p className="hint">{t('settings.cliEnvHint')}</p>
+                      <div className="agent-cli-env-grid">
+                        {cliEnvFields.map((field) => (
+                          <label
+                            className="field"
+                            key={`${field.agentId}:${field.envKey}`}
+                          >
+                            <span className="field-label">
+                              {t(field.labelKey)}
+                            </span>
+                            <input
+                              type={
+                                'secret' in field && field.secret
+                                  ? 'password'
+                                  : 'text'
+                              }
+                              value={
+                                cfg.agentCliEnv?.[field.agentId]?.[
+                                  field.envKey
+                                ] ?? ''
+                              }
+                              placeholder={field.placeholder}
+                              spellCheck={false}
+                              autoComplete="off"
+                              onChange={(e) =>
+                                setCfg((c) =>
+                                  updateAgentCliEnvValue(
+                                    c,
+                                    field.agentId,
+                                    field.envKey,
+                                    e.target.value,
+                                  ),
+                                )
+                              }
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </details>
+                );
+              })()}
             </section>
           ) : (
-            <section className="settings-section">
+            /*
+              BYOK panel — wrap the per-protocol form in a bordered card so
+              the chips above (Anthropic / OpenAI / Azure / Gemini / Ollama)
+              visually own the content below. Without the card, the chip
+              row and the form looked like two unrelated stripes; users
+              had no anchor for "this is what I configured for the active
+              tab", and switching tabs felt like the whole right column
+              just reshuffled. The card lives on the same white-with-soft-
+              border pattern as `.agent-model-row` so the two BYOK / CLI
+              panels feel like the same family.
+            */
+            <section className="settings-section settings-section-card settings-section-byok">
               <div className="section-head">
                 <div>
                   <h3>{API_PROTOCOL_LABELS[apiProtocol]}</h3>
@@ -2135,6 +2508,17 @@ export function SettingsDialog({
                     placeholder={API_KEY_PLACEHOLDERS[apiProtocol]}
                     value={cfg.apiKey}
                     onChange={(e) => updateApiConfig({ apiKey: e.target.value })}
+                    onFocus={() => {
+                      trackSettingsClickByokField(analytics.track, {
+                        page: 'settings',
+                        area: 'execution_model',
+                        element: 'byok_field',
+                        action: 'focus_byok_field',
+                        field_id: 'api_key',
+                        provider_id: apiProtocol,
+                        has_value: Boolean(cfg.apiKey?.trim()),
+                      });
+                    }}
                     autoFocus
                   />
                   <button
@@ -2157,6 +2541,17 @@ export function SettingsDialog({
                 </span>
                 <select
                   value={apiModelSelectValue}
+                  onFocus={() => {
+                    trackSettingsClickByokField(analytics.track, {
+                      page: 'settings',
+                      area: 'execution_model',
+                      element: 'byok_field',
+                      action: 'focus_byok_field',
+                      field_id: 'model',
+                      provider_id: apiProtocol,
+                      has_value: Boolean(cfg.model?.trim()),
+                    });
+                  }}
                   onChange={(e) => {
                     if (e.target.value === CUSTOM_MODEL_SENTINEL) {
                       setApiModelCustomEditing(true);
@@ -2193,6 +2588,14 @@ export function SettingsDialog({
                   />
                 </label>
               ) : null}
+              <MemoryModelInline
+                mode="api"
+                apiProtocol={apiProtocol}
+                chatApiKey={cfg.apiKey}
+                chatBaseUrl={cfg.baseUrl}
+                chatApiVersion={cfg.apiVersion ?? ''}
+                chatModel={cfg.model}
+              />
               <label className="field">
                 <span className="field-label">{t('settings.baseUrl')}</span>
                 <input
@@ -2203,6 +2606,17 @@ export function SettingsDialog({
                   aria-describedby={
                     baseUrlInvalid ? 'settings-base-url-error' : undefined
                   }
+                  onFocus={() => {
+                    trackSettingsClickByokField(analytics.track, {
+                      page: 'settings',
+                      area: 'execution_model',
+                      element: 'byok_field',
+                      action: 'focus_byok_field',
+                      field_id: 'base_url',
+                      provider_id: apiProtocol,
+                      has_value: Boolean(cfg.baseUrl?.trim()),
+                    });
+                  }}
                   onChange={(e) => updateApiConfig({ baseUrl: e.target.value, apiProviderBaseUrl: null })}
                 />
                 {baseUrlInvalid ? (
@@ -2256,7 +2670,7 @@ export function SettingsDialog({
             />
           ) : null}
 
-          {activeSection === 'routines' ? <RoutinesSection /> : null}
+          {activeSection === 'routines' ? <RoutinesSection onClose={onClose} /> : null}
 
           {activeSection === 'orbit' ? (
             <OrbitSection
@@ -2281,85 +2695,40 @@ export function SettingsDialog({
 
           {activeSection === 'language' ? (
           <section className="settings-section">
-            <div className="section-head">
-              <div>
-                <h3>{t('settings.language')}</h3>
-                <p className="hint">{t('settings.languageHint')}</p>
-              </div>
-            </div>
-            <div className="settings-language-picker" ref={languageRef}>
-              <button
-                type="button"
-                className="settings-language-button"
-                aria-haspopup="menu"
-                aria-expanded={languageOpen}
-                onClick={() => setLanguageOpen((v) => !v)}
-              >
-                <span className="settings-language-icon" aria-hidden="true">
-                  <Icon name="languages" size={22} strokeWidth={1.8} />
-                </span>
-                <span className="settings-language-text">
-                  <span className="settings-language-title">
-                    {LOCALE_LABEL[locale]}
-                  </span>
-                  <span className="settings-language-code">{locale}</span>
-                </span>
-                <Icon name="chevron-down" size={16} />
-              </button>
-              {languageOpen && languageMenuRect ? (() => {
-                const spaceBelow = window.innerHeight - languageMenuRect.bottom;
-                const spaceAbove = languageMenuRect.top;
-                // Prefer downward if at least 200px available (enough for ~5 options)
-                const openDownward = spaceBelow >= spaceAbove || spaceBelow >= 200;
+            <div className="settings-language-grid" role="radiogroup" aria-label={t('settings.language')}>
+              {LOCALES.map((code) => {
+                const active = locale === code;
                 return (
-                <div
-                  className="settings-language-menu"
-                  role="menu"
-                  style={{
-                    top: openDownward ? languageMenuRect.bottom + 6 : undefined,
-                    bottom: openDownward
-                      ? undefined
-                      : window.innerHeight - languageMenuRect.top + 6,
-                    left: languageMenuRect.left,
-                    width: languageMenuRect.width,
-                    '--menu-available-h': `${(openDownward ? spaceBelow : spaceAbove) - 6}px`,
-                  } as React.CSSProperties}
-                >
-                  {LOCALES.map((code) => {
-                    const active = locale === code;
-                    return (
-                      <button
-                        key={code}
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked={active}
-                        className={`settings-language-option${active ? ' active' : ''}`}
-                        onClick={() => {
-                          setLocale(code as Locale);
-                          setLanguageOpen(false);
-                        }}
-                      >
-                        <span>
-                          <span className="settings-language-option-title">
-                            {LOCALE_LABEL[code]}
-                          </span>
-                          <span className="settings-language-option-code">
-                            {code}
-                          </span>
-                        </span>
-                        {active ? <Icon name="check" size={16} /> : null}
-                      </button>
-                    );
-                  })}
-                </div>
+                  <button
+                    key={code}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    className={`settings-language-tile${active ? ' active' : ''}`}
+                    onClick={() => setLocale(code as Locale)}
+                  >
+                    <span className="settings-language-tile-text">
+                      <span className="settings-language-tile-title">
+                        {LOCALE_LABEL[code]}
+                      </span>
+                      <span className="settings-language-tile-code">
+                        {code}
+                      </span>
+                    </span>
+                    {active ? <Icon name="check" size={16} /> : null}
+                  </button>
                 );
-              })() : null}
+              })}
             </div>
           </section>
           ) : null}
 
           {activeSection === 'appearance' ? (
             <AppearanceSection cfg={cfg} setCfg={setCfg} />
+          ) : null}
+
+          {activeSection === 'critiqueTheater' ? (
+            <CritiqueTheaterSection />
           ) : null}
 
           {activeSection === 'notifications' ? (
@@ -2370,8 +2739,34 @@ export function SettingsDialog({
             <PetSettings cfg={cfg} setCfg={setCfg} />
           ) : null}
 
-          {activeSection === 'library' ? (
-            <LibrarySection cfg={cfg} setCfg={setCfg} />
+          {activeSection === 'skills' ? (
+            <SkillsSection cfg={cfg} setCfg={setCfg} />
+          ) : null}
+
+          {activeSection === 'designSystems' ? (
+            <DesignSystemsSection cfg={cfg} setCfg={setCfg} />
+          ) : null}
+
+          {activeSection === 'memory' ? (
+            <>
+              <section className="settings-section settings-section-card">
+                <div className="section-head">
+                  <div>
+                    <h3>{t('settings.customInstructionsTitle')}</h3>
+                    <p className="hint">{t('settings.customInstructionsHint')}</p>
+                  </div>
+                </div>
+                <textarea
+                  className="custom-instructions-input"
+                  rows={3}
+                  maxLength={5000}
+                  placeholder={t('settings.customInstructionsPlaceholder')}
+                  value={cfg.customInstructions ?? ''}
+                  onChange={(e) => setCfg({ ...cfg, customInstructions: e.target.value || undefined })}
+                />
+              </section>
+              <MemorySection />
+            </>
           ) : null}
 
           {activeSection === 'privacy' ? (
@@ -2380,17 +2775,21 @@ export function SettingsDialog({
 
           {activeSection === 'about' ? (
             <section className="settings-section">
-              <div className="section-head">
-                <div>
-                  <h3>{t('settings.about')}</h3>
-                  <p className="hint">{t('settings.aboutHint')}</p>
-                </div>
-              </div>
               {appVersionInfo ? (
                 <dl className="settings-about-list">
-                  <div>
-                    <dt>{t('settings.appVersion')}</dt>
-                    <dd>{appVersionInfo.version}</dd>
+                  <div className="settings-about-version-row">
+                    <div className="settings-about-version-left">
+                      <dt>{t('settings.appVersion')}</dt>
+                      <span className="settings-about-version-num">{appVersionInfo.version}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="settings-about-download-link"
+                      disabled={versionChecking}
+                      onClick={handleInstallLatest}
+                    >
+                      {versionChecking ? t('common.loading') : t('settings.installLatest')}
+                    </button>
                   </div>
                   <div>
                     <dt>{t('settings.appChannel')}</dt>
@@ -2417,6 +2816,12 @@ export function SettingsDialog({
                 <div className="empty-card">{t('settings.versionUnavailable')}</div>
               )}
             </section>
+          ) : null}
+          {aboutToast ? (
+            <Toast
+              message={aboutToast}
+              onDismiss={() => setAboutToast(null)}
+            />
           ) : null}
           </div>
         </div>
@@ -2492,12 +2897,27 @@ function ConnectorSection({
   // completes, the daemon returns a tail-only echo, and we land in
   // the saved state with the same UI as a key loaded from disk.
   const [keySaveStatus, setKeySaveStatus] =
-    useState<'idle' | 'saving' | 'error'>('idle');
+    useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [catalogRefreshNonce, setCatalogRefreshNonce] = useState(0);
+  const keySavedTimerRef = useRef<number | null>(null);
+  // Clear the saved-state timer on unmount to avoid setState after unmount
+  useEffect(() => {
+    return () => {
+      if (keySavedTimerRef.current != null) {
+        window.clearTimeout(keySavedTimerRef.current);
+      }
+    };
+  }, []);
   const handleSaveKey = async () => {
     if (keySaveStatus === 'saving') return;
     if (!hasPendingEdit) return;
     if (composioConfigLoading) return;
+    // Clear any stale timer before transitioning to 'saving' to prevent
+    // it from firing during the await and flipping the button back to idle.
+    if (keySavedTimerRef.current != null) {
+      window.clearTimeout(keySavedTimerRef.current);
+      keySavedTimerRef.current = null;
+    }
     const pendingKey = composio.apiKey ?? '';
     setKeySaveStatus('saving');
     try {
@@ -2513,9 +2933,22 @@ function ConnectorSection({
         apiKeyTail: pendingKey.trim().slice(-4),
       });
       setCatalogRefreshNonce((nonce) => nonce + 1);
-      setKeySaveStatus('idle');
+      // Clear any existing timer before starting a new one to avoid
+      // a stale timeout flipping status back to 'idle' after a
+      // subsequent save or clear.
+      if (keySavedTimerRef.current != null) {
+        window.clearTimeout(keySavedTimerRef.current);
+      }
+      setKeySaveStatus('saved');
+      keySavedTimerRef.current = window.setTimeout(() => {
+        setKeySaveStatus('idle');
+      }, 2000);
     } catch {
+      if (keySavedTimerRef.current != null) {
+        window.clearTimeout(keySavedTimerRef.current);
+      }
       setKeySaveStatus('error');
+      keySavedTimerRef.current = null;
     }
   };
 
@@ -2589,6 +3022,12 @@ function ConnectorSection({
   const handleClearCommit = async () => {
     if (keySaveStatus === 'saving') return;
     if (!clearArmed) return;
+    // Clear any stale timer before transitioning to 'saving', matching
+    // handleSaveKey's pattern for consistency.
+    if (keySavedTimerRef.current != null) {
+      window.clearTimeout(keySavedTimerRef.current);
+      keySavedTimerRef.current = null;
+    }
     setKeySaveStatus('saving');
     try {
       const cleared = {
@@ -2603,18 +3042,16 @@ function ConnectorSection({
       setClearArmed(false);
       setKeySaveStatus('idle');
     } catch {
+      if (keySavedTimerRef.current != null) {
+        window.clearTimeout(keySavedTimerRef.current);
+      }
       setKeySaveStatus('error');
+      keySavedTimerRef.current = null;
     }
   };
 
   return (
     <section className="settings-section settings-section-connectors">
-      <div className="section-head">
-        <div>
-          <h3>{t('connectors.title')}</h3>
-          <p className="hint">{t('settings.connectorsHint')}</p>
-        </div>
-      </div>
 
       <label
         className={`field settings-section-connectors-credentials${composioConfigLoading ? ' is-loading' : ''}`}
@@ -2706,6 +3143,11 @@ function ConnectorSection({
               <>
                 <Icon name="spinner" size={12} className="icon-spin" />
                 <span>{t('settings.connectorsKeySaving')}</span>
+              </>
+            ) : keySaveStatus === 'saved' ? (
+              <>
+                <Icon name="check" size={12} />
+                <span>{t('settings.connectorsKeySaved')}</span>
               </>
             ) : (
               t('settings.connectorsSaveKey')
@@ -2928,11 +3370,12 @@ function OrbitSection({
   const [legacyLastRunTemplateSkillId, setLegacyLastRunTemplateSkillId] = useState<string | null>(null);
   const legacyLastRunIdentity = status?.lastRun?.id
     ?? `${status?.lastRun?.completedAt ?? ''}:${status?.lastRun?.agentRunId ?? ''}:${status?.lastRun?.markdown ?? ''}`;
-  // Orbit-scenario skill templates fetched from /api/skills. We fetch on mount
-  // and keep three states for graceful UX: `null` = still loading, `[]` =
-  // loaded with no orbit templates available, `SkillSummary[]` = ready. If
-  // the daemon is offline the call resolves with [] (see fetchSkills) so the
-  // section never throws — the rest of the Orbit controls keep working.
+  // Orbit templates ship under the renderable design-templates registry after
+  // the skills/design-templates split. We fetch on mount and keep three states
+  // for graceful UX: `null` = still loading, `[]` = loaded with no Orbit
+  // templates available, `SkillSummary[]` = ready. If the daemon is offline
+  // the call resolves with [] (see fetchDesignTemplates) so the section never
+  // throws — the rest of the Orbit controls keep working.
   const [orbitTemplates, setOrbitTemplates] = useState<SkillSummary[] | null>(null);
   // Connector presence drives the configuration gate at the top of the Orbit
   // tab. We track three states: `null` = still loading (skip rendering the
@@ -2986,14 +3429,15 @@ function OrbitSection({
     return () => window.clearInterval(interval);
   }, [status?.running]);
 
-  // Fetch the skills registry once on mount and filter to scenario === 'orbit'.
-  // We tolerate fetch failure: fetchSkills already swallows errors and returns
-  // []. The component then transitions from "loading" → "empty" and the rest
-  // of the Orbit panel stays fully functional.
+  // Fetch the design-template registry once on mount and filter to
+  // scenario === 'orbit'. We tolerate fetch failure:
+  // fetchDesignTemplates already swallows errors and returns []. The
+  // component then transitions from "loading" → "empty" and the rest of the
+  // Orbit panel stays fully functional.
   useEffect(() => {
     let alive = true;
     void (async () => {
-      const all = await fetchSkills();
+      const all = await fetchDesignTemplates();
       if (!alive) return;
       const filtered = all.filter((s) => s.scenario === 'orbit');
       // Stable order: featured first (higher number = more featured), then by name.
@@ -3079,6 +3523,7 @@ function OrbitSection({
         navigateRoute({
           kind: 'project',
           projectId: payload.projectId,
+          conversationId: null,
           fileName: null,
         });
       } catch {
@@ -3718,8 +4163,19 @@ function MediaProvidersSection({
       return next.size === current.size ? current : next;
     });
   }, [cfg.mediaProviders]);
-  const providers = MEDIA_PROVIDERS
-    .filter((p) => p.settingsVisible !== false)
+  const visibleProviders = MEDIA_PROVIDERS.filter(
+    (p) => p.settingsVisible !== false,
+  );
+  // Split the catalog into two surfaces:
+  //   - "Available" — daemon ships a real client, user can paste a key
+  //     and it works. Rendered as full editable cards.
+  //   - "Coming soon" — listed for transparency / roadmap signaling but
+  //     the daemon has no client yet, so the form fields would be
+  //     disabled placeholders. Hiding them behind a <details> keeps the
+  //     primary list focused (was 16 cards, now 8) without dropping the
+  //     informational value.
+  const availableProviders = visibleProviders
+    .filter((p) => p.integrated)
     .slice()
     .sort((a, b) => {
       const aEntry = cfg.mediaProviders?.[a.id];
@@ -3727,9 +4183,12 @@ function MediaProvidersSection({
       const aConfigured = isStoredMediaProviderEntryPresent(aEntry);
       const bConfigured = isStoredMediaProviderEntryPresent(bEntry);
       if (aConfigured !== bConfigured) return aConfigured ? -1 : 1;
-      if (a.integrated !== b.integrated) return a.integrated ? -1 : 1;
       return a.label.localeCompare(b.label);
     });
+  const comingSoonProviders = visibleProviders
+    .filter((p) => !p.integrated)
+    .slice()
+    .sort((a, b) => a.label.localeCompare(b.label));
   const updateProvider = (
     provider: MediaProvider,
     patch: {
@@ -3769,6 +4228,17 @@ function MediaProvidersSection({
       setReloadRunning(false);
     }
   };
+  // Successful reload acknowledgement lives on the button (✓ Reloaded)
+  // for ~2s then disappears. Keeping it as a permanent paragraph under
+  // the section header was noise — the user just clicked a button and
+  // got a visible state change, an extra "we did the thing" line is
+  // redundant. Errors stay sticky because they actually require user
+  // attention.
+  useEffect(() => {
+    if (reloadNotice?.kind !== 'success') return;
+    const handle = window.setTimeout(() => setReloadNotice(null), 2000);
+    return () => window.clearTimeout(handle);
+  }, [reloadNotice]);
 
   const toggleApiKeyVisibility = (providerId: string) => {
     setVisibleApiKeys((current) => {
@@ -3784,63 +4254,102 @@ function MediaProvidersSection({
 
   return (
     <section className="settings-section">
-      <div className="section-head">
-        <div>
-          <h3>{t('settings.mediaProviders')}</h3>
-          <p className="hint">{t('settings.mediaProvidersHint')}</p>
-        </div>
-        {onReloadMediaProviders ? (
-          <button
-            type="button"
-            className="ghost"
-            onClick={() => void handleReload()}
-            disabled={reloadRunning}
-          >
-            {reloadRunning ? t('common.loading') : t('settings.mediaProviderReload')}
-          </button>
-        ) : null}
-      </div>
       {mediaProvidersNotice ? (
         <p className="hint" role="alert">{mediaProvidersNotice}</p>
       ) : null}
-      {reloadNotice ? (
-        <p className="hint" role={reloadNotice.kind === 'error' ? 'alert' : 'status'}>
+      {reloadNotice && reloadNotice.kind === 'error' ? (
+        // Errors only — successful reload feedback now rides on the
+        // button (see is-success-flash above) and clears itself after
+        // 2s, so the section header doesn't get colonised by a
+        // permanent "yes I did the thing" paragraph.
+        <p className="hint" role="alert">{reloadNotice.message}</p>
+      ) : null}
+      {reloadNotice && reloadNotice.kind === 'success' ? (
+        // Off-screen announcement so assistive tech still hears the
+        // success state even though the visible feedback collapses
+        // into a transient button label change.
+        <span className="sr-only" role="status">
           {reloadNotice.message}
-        </p>
+        </span>
+      ) : null}
+      {onReloadMediaProviders ? (
+        <div className="media-provider-reload-row">
+          <button
+            type="button"
+            className={`ghost media-provider-reload-btn${
+              reloadNotice?.kind === 'success' ? ' is-success-flash' : ''
+            }`}
+            onClick={() => void handleReload()}
+            disabled={reloadRunning}
+            aria-live="polite"
+          >
+            {reloadRunning ? (
+              t('common.loading')
+            ) : reloadNotice?.kind === 'success' ? (
+              <>
+                <Icon name="check" size={13} />
+                <span style={{ marginLeft: 4 }}>Reloaded</span>
+              </>
+            ) : (
+              <>
+                <Icon name="refresh" size={13} />
+                <span style={{ marginLeft: 4 }}>{t('settings.mediaProviderReload')}</span>
+              </>
+            )}
+          </button>
+        </div>
       ) : null}
       <div className="media-provider-list">
-        {providers.map((provider) => {
+        {availableProviders.map((provider) => {
           const entry = cfg.mediaProviders?.[provider.id] ?? { apiKey: '', baseUrl: '', model: '' };
           const hasPendingEdit = Boolean(entry.apiKey.trim());
           const isSavedState = Boolean((hasPendingEdit || entry.apiKeyConfigured) && !hasPendingEdit);
           const tail = entry.apiKeyTail?.trim();
-          const configured = isStoredMediaProviderEntryPresent(entry);
-          const disabled = !provider.integrated;
+          // Every provider rendered in the main list is integrated by
+          // construction (see availableProviders filter), so the inputs
+          // are always editable here. Non-integrated entries live in
+          // the "Coming soon" <details> below.
+          const disabled = false;
           const supportsCustomModel = provider.supportsCustomModel === true;
           const clearable = isStoredMediaProviderEntryPresent(entry);
           const apiKeyVisible = visibleApiKeys.has(provider.id);
           return (
-            <div key={provider.id} className={`media-provider-row${provider.integrated ? '' : ' pending'}`}>
+            <div key={provider.id} className="media-provider-row">
               <div className="media-provider-head">
                 <div className="media-provider-meta">
-                  <span className="media-provider-name">{provider.label}</span>
-                  {isSavedState ? (
-                    <span className="field-status-badge" title={t('settings.connectorsSavedTitle')}>
-                      {tail ? t('settings.connectorsSavedWithTail', { tail }) : t('settings.connectorsSaved')}
-                    </span>
-                  ) : null}
+                  {/*
+                    Provider name + "Saved" badge sit on a single row.
+                    The badge used to render below the name with a green
+                    success-pill treatment, which clashed with the green
+                    "Integrated" badge on the right of the same row and
+                    pushed the model hint two lines down. Inline + a
+                    neutral muted treatment keeps the row scannable: green
+                    means "we support this", blue means "you configured
+                    it", gray means "your key is persisted" — three
+                    distinct hues, three distinct meanings.
+                  */}
+                  <div className="media-provider-name-row">
+                    <span className="media-provider-name">{provider.label}</span>
+                    {isSavedState ? (
+                      <span
+                        className="field-status-badge field-status-badge--inline"
+                        title={t('settings.connectorsSavedTitle')}
+                      >
+                        {tail
+                          ? t('settings.connectorsSavedWithTail', { tail })
+                          : t('settings.connectorsSaved')}
+                      </span>
+                    ) : null}
+                  </div>
                   <span className="media-provider-hint">{provider.hint}</span>
                 </div>
-                <div className="media-provider-badges">
-                  <span className={`media-provider-badge ${provider.integrated ? 'integrated' : 'unsupported'}`}>
-                    {provider.integrated ? 'Integrated' : 'Unsupported'}
-                  </span>
-                  {configured ? (
-                    <span className="media-provider-badge on">
-                      {t('settings.mediaProviderConfigured')}
-                    </span>
-                  ) : null}
-                </div>
+                {/*
+                  Right-side badges deliberately omitted now: every row
+                  in this list is "Integrated" by definition and the
+                  "Configured" pill duplicated the inline "Saved" chip
+                  next to the provider name. Three pills per row read
+                  as warnings; one chip reads as status.
+                */}
               </div>
               <div className="media-provider-body">
                 <div className="media-provider-secret-field">
@@ -3918,6 +4427,60 @@ function MediaProvidersSection({
           );
         })}
       </div>
+      {comingSoonProviders.length > 0 ? (
+        // Roadmap drawer. We still want to advertise that we know
+        // these providers exist (so users don't ask "where is Fal?"),
+        // but disabled placeholder cards in the main list were noise.
+        // Closed by default — opens to a compact name + hint + docs
+        // link list, no inputs because there's nothing to wire up yet.
+        // TODO(i18n): inline English placeholders; promote to locale
+        // keys when we touch this section again.
+        <details className="library-group media-provider-coming-soon">
+          <summary className="memory-details-summary">
+            <span className="memory-details-title">
+              Coming soon
+            </span>
+            <span className="filter-pill-count">
+              {comingSoonProviders.length}
+            </span>
+          </summary>
+          <p className="hint" style={{ marginTop: 4, marginBottom: 8 }}>
+            We track these for the roadmap; the daemon doesn’t ship a
+            client yet, so there’s nothing to configure.
+          </p>
+          <ul className="media-provider-coming-soon-list">
+            {comingSoonProviders.map((provider) => {
+              const docsHref = sanitizeHttpsUrl(provider.docsUrl);
+              return (
+                <li
+                  key={provider.id}
+                  className="media-provider-coming-soon-item"
+                >
+                  <div className="media-provider-coming-soon-meta">
+                    <span className="media-provider-name">
+                      {provider.label}
+                    </span>
+                    <span className="media-provider-hint">
+                      {provider.hint}
+                    </span>
+                  </div>
+                  {docsHref ? (
+                    <a
+                      href={docsHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ghost-link"
+                    >
+                      Docs
+                      <Icon name="external-link" size={11} />
+                    </a>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        </details>
+      ) : null}
     </section>
   );
 }
@@ -4230,14 +4793,7 @@ function IntegrationsSection() {
 
   return (
     <section className="settings-section">
-      <div className="section-head">
-        <div>
-          <h3>{t('settings.mcpTitle')}</h3>
-          <p className="hint">{t('settings.mcpHint')}</p>
-        </div>
-      </div>
-
-      <div className="settings-about-list" style={{ display: 'block' }}>
+      <div className="mcp-client-body">
         {infoError ? (
           <div
             className="empty-card"
@@ -4247,28 +4803,24 @@ function IntegrationsSection() {
           </div>
         ) : null}
 
-        {info && (!info.cliExists || !info.nodeExists) ? (
-          <div
-            className="empty-card"
-            style={{
-              marginBottom: 14,
-              borderLeft: '3px solid var(--warning-fg, #fbbf24)',
-            }}
-          >
-            <strong>
-              {!info.cliExists
-                ? t('settings.mcpBuildDaemon')
-                : t('settings.mcpNodeMissing')}
-            </strong>{' '}
-            {info.buildHint ?? t('settings.mcpBuildHint')}
-          </div>
-        ) : null}
+        {/* Group 1: what the MCP server does */}
+        <div className="mcp-capabilities-card">
+          <p className="mcp-capabilities-label">
+            {t('settings.mcpCapabilitiesTitle')}
+          </p>
+          <ul className="mcp-capabilities-list">
+            <li>{t('settings.mcpCapabilityRead')}</li>
+            <li>{t('settings.mcpCapabilityPull')}</li>
+            <li>{t('settings.mcpCapabilityDefault')}</li>
+          </ul>
+        </div>
 
-        <div
-          className="ds-picker"
-          ref={pickerRef}
-          style={{ marginBottom: 14 }}
-        >
+        {/* Group 2: setup flow */}
+        <div className="mcp-setup-card">
+          <div
+            className="ds-picker"
+            ref={pickerRef}
+          >
           <button
             type="button"
             className={`ds-picker-trigger${pickerOpen ? ' open' : ''}`}
@@ -4326,7 +4878,7 @@ function IntegrationsSection() {
         </div>
 
         {info ? (
-          <p style={{ margin: '0 0 10px' }}>{client.buildInstruction(info)}</p>
+          <p style={{ margin: 0 }}>{client.buildInstruction(info)}</p>
         ) : null}
 
         {client.buildDeeplink && info ? (
@@ -4417,13 +4969,33 @@ function IntegrationsSection() {
           </button>
         </div>
 
+        {/* "Build the daemon first" lives here — next to the code
+            block it explains — rather than at the top of the section
+            before the user has seen anything. A dev-mode pre-condition
+            warning at the very top reads as "something is broken"
+            before the user has even picked their client. */}
+        {info && (!info.cliExists || !info.nodeExists) ? (
+          <div
+            className="empty-card"
+            style={{ borderLeft: '3px solid var(--warning-fg, #fbbf24)' }}
+          >
+            <strong>
+              {!info.cliExists
+                ? t('settings.mcpBuildDaemon')
+                : t('settings.mcpNodeMissing')}
+            </strong>{' '}
+            {info.buildHint ?? t('settings.mcpBuildHint')}
+          </div>
+        ) : null}
+
+        {/* Restart note is a "next step" after running the command,
+            not an error — keep it right after the code block. */}
         <div
           style={{
-            marginTop: 14,
             padding: '10px 12px',
             background: 'var(--bg-subtle)',
             border: '1px solid var(--border)',
-            borderLeft: '3px solid var(--accent)',
+            borderLeft: '3px solid var(--border-strong)',
             borderRadius: 6,
             fontSize: 13,
             lineHeight: 1.5,
@@ -4435,65 +5007,20 @@ function IntegrationsSection() {
           </span>
         </div>
 
-        <div style={{ marginTop: 20, lineHeight: 1.55 }}>
-          <p
-            style={{
-              margin: '0 0 8px',
-              fontSize: 11,
-              color: 'var(--text-muted)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-              fontWeight: 600,
-            }}
-          >
-            {t('settings.mcpCapabilitiesTitle')}
+          <p className="mcp-running-note">
+            {t('settings.mcpRunningNote')}
           </p>
-          <ul
-            style={{
-              margin: 0,
-              paddingLeft: 18,
-              fontSize: 13,
-              color: 'var(--text)',
-            }}
-          >
-            <li>{t('settings.mcpCapabilityRead')}</li>
-            <li>{t('settings.mcpCapabilityPull')}</li>
-            <li>{t('settings.mcpCapabilityDefault')}</li>
-          </ul>
-        </div>
-
-        <p
-          style={{
-            marginTop: 14,
-            fontSize: 12,
-            color: 'var(--text-muted)',
-            lineHeight: 1.5,
-          }}
-        >
-          {t('settings.mcpRunningNote')}
-        </p>
+        </div>{/* end mcp-setup-card */}
       </div>
     </section>
   );
 }
 
-const THEMES: Array<{ value: AppTheme; labelKey: 'settings.themeSystem' | 'settings.themeLight' | 'settings.themeDark' }> = [
+const THEMES: Array<{ value: AppTheme; labelKey: 'settings.themeSystem' | 'settings.themeLight' | 'settings.themeDark'; icon?: 'sun' | 'moon' }> = [
   { value: 'system', labelKey: 'settings.themeSystem' },
-  { value: 'light', labelKey: 'settings.themeLight' },
-  { value: 'dark', labelKey: 'settings.themeDark' },
+  { value: 'light', labelKey: 'settings.themeLight', icon: 'sun' },
+  { value: 'dark', labelKey: 'settings.themeDark', icon: 'moon' },
 ];
-
-const DEFAULT_ACCENT_COLOR = '#c96442';
-const ACCENT_SWATCHES = [
-  DEFAULT_ACCENT_COLOR,
-  '#2563eb',
-  '#7c3aed',
-  '#059669',
-  '#dc2626',
-  '#d97706',
-  '#0891b2',
-  '#db2777',
-] as const;
 
 function AppearanceSection({
   cfg,
@@ -4505,30 +5032,27 @@ function AppearanceSection({
   const { t } = useI18n();
   const current = cfg.theme ?? 'system';
   const currentAccent = normalizeAccentColor(cfg.accentColor) ?? DEFAULT_ACCENT_COLOR;
+  const accentLabel = t('pet.fieldAccent');
+  const defaultAccentLabel = t('pet.fieldAccentDefault');
+  const customAccentLabel = t('pet.fieldAccentCustom');
 
   // Apply the draft theme immediately so the user sees a live preview
   // before hitting Save. SettingsDialog's cleanup reverts this on cancel.
   useLayoutEffect(() => {
     applyAppearanceToDocument({
       theme: current,
-      accentColor: cfg.accentColor,
+      accentColor: currentAccent,
     });
-  }, [current, cfg.accentColor]);
+  }, [current, currentAccent]);
 
-  const setAccentColor = (color: string | undefined) => {
-    setCfg((c) => ({ ...c, accentColor: color ? normalizeAccentColor(color) ?? c.accentColor : undefined }));
+  const setAccentColor = (color: string) => {
+    setCfg((c) => ({ ...c, accentColor: normalizeAccentColor(color) ?? c.accentColor ?? DEFAULT_ACCENT_COLOR }));
   };
 
   return (
     <section className="settings-section">
-      <div className="section-head">
-        <div>
-          <h3>{t('settings.appearance')}</h3>
-          <p className="hint">{t('settings.appearanceHint')}</p>
-        </div>
-      </div>
       <div className="seg-control" role="group" aria-label={t('settings.appearance')} style={{ '--seg-cols': THEMES.length } as React.CSSProperties}>
-        {THEMES.map(({ value, labelKey }) => (
+        {THEMES.map(({ value, labelKey, icon }) => (
           <button
             key={value}
             type="button"
@@ -4536,13 +5060,14 @@ function AppearanceSection({
             aria-pressed={current === value}
             onClick={() => setCfg((c) => ({ ...c, theme: value }))}
           >
+            {icon ? <Icon name={icon} size={14} aria-hidden="true" /> : null}
             <span className="seg-title">{t(labelKey)}</span>
           </button>
         ))}
       </div>
       <div className="field">
-        <span className="field-label">Accent color</span>
-        <div className="pet-swatches" role="radiogroup" aria-label="Accent color">
+        <span className="field-label">{accentLabel}</span>
+        <div className="pet-swatches" role="radiogroup" aria-label={accentLabel}>
           {ACCENT_SWATCHES.map((color) => {
             const active = currentAccent === color;
             return (
@@ -4551,22 +5076,96 @@ function AppearanceSection({
                 type="button"
                 className={`pet-swatch${active ? ' active' : ''}`}
                 style={{ background: color }}
-                aria-label={color === DEFAULT_ACCENT_COLOR ? 'Default accent color' : color}
+                aria-label={color === DEFAULT_ACCENT_COLOR ? defaultAccentLabel : color}
                 aria-checked={active}
                 role="radio"
-                onClick={() => setAccentColor(color === DEFAULT_ACCENT_COLOR ? undefined : color)}
+                onClick={() => setAccentColor(color)}
               />
             );
           })}
           <input
             type="color"
-            aria-label="Custom accent color"
+            aria-label={customAccentLabel}
             className="pet-swatch-picker"
             value={currentAccent}
             onChange={(e) => setAccentColor(e.target.value)}
           />
         </div>
       </div>
+    </section>
+  );
+}
+
+/**
+ * Settings surface for the M1 Critique Theater rollout toggle.
+ *
+ * The toggle has two halves on opposite sides of the HTTP boundary:
+ *
+ *   * Browser-side: `useCritiqueTheaterEnabled` reads / writes the
+ *     `open-design:config` localStorage blob; this is what gates
+ *     whether `<CritiqueTheaterMount>` actually renders.
+ *   * Daemon-side: the rollout resolver in `server.ts` reads
+ *     `project.metadata.critiqueTheaterEnabled`, so the daemon only
+ *     routes runs through the critique pipeline when the active
+ *     project's metadata row says yes (or env / phase / skill policy
+ *     overrides it).
+ *
+ * If we only wrote localStorage, the user would see the mount but
+ * every generation would still skip the critique pipeline server-side
+ * (Codex + lefarcen P1 on PR #1484). To keep the two halves in
+ * lockstep, the setter takes an optional `{ projectId }` and, when
+ * provided, does the read-merge-write PATCH on the project's metadata
+ * (already shipped by Phase 15 and exercised by the wireup PR).
+ *
+ * This section threads the currently-open project id when the dialog
+ * is opened from `/projects/:id`. When opened from the entry gallery
+ * (`/`), the toggle is localStorage-only, and a contextual hint tells
+ * the user that per-project persistence requires opening a project
+ * first. That matches the actual scope of the wire-up.
+ */
+function CritiqueTheaterSection() {
+  const { t } = useI18n();
+  const enabled = useCritiqueTheaterEnabled();
+  const route = useRoute();
+  const activeProjectId = route.kind === 'project' ? route.projectId : null;
+  return (
+    <section className="settings-section">
+      <div className="section-head">
+        <div>
+          <h3>{t('critiqueTheater.settingsNav')}</h3>
+          <p className="hint">{t('critiqueTheater.settingsNavHint')}</p>
+        </div>
+      </div>
+      <label className="field">
+        <span className="field-label">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => {
+              const next = e.target.checked;
+              if (activeProjectId !== null) {
+                void setCritiqueTheaterEnabled(next, { projectId: activeProjectId });
+              } else {
+                void setCritiqueTheaterEnabled(next);
+              }
+            }}
+          />
+          {' '}
+          {t('critiqueTheater.settingsEnabledLabel')}
+        </span>
+        <small className="hint">
+          {t('critiqueTheater.settingsEnabledDescription')}
+        </small>
+        {activeProjectId !== null ? (
+          <small className="hint">
+            {t('critiqueTheater.settingsEnabledProjectHint')}
+          </small>
+        ) : (
+          <small className="hint">
+            {t('critiqueTheater.settingsEnabledNoProjectHint')}
+          </small>
+        )}
+      </label>
     </section>
   );
 }
@@ -4629,29 +5228,24 @@ function NotificationsSection({
 
   return (
     <section className="settings-section">
-      <div className="section-head">
-        <div>
-          <h3>{t('settings.notifications')}</h3>
-          <p className="hint">{t('settings.notificationsHint')}</p>
-        </div>
-      </div>
-
       <div className="settings-subsection">
-        <div className="section-head">
-          <div>
+        <div className="settings-notify-card">
+          <div className="settings-notify-card-header">
             <h4>{t('settings.notifyCompletionSound')}</h4>
-            <p className="hint">{t('settings.notifyCompletionSoundHint')}</p>
+            <div className="section-head-actions">
+              <div className="seg-control" role="group" aria-label={t('settings.notifyCompletionSound')} style={{ '--seg-cols': 1 } as React.CSSProperties}>
+                <button
+                  type="button"
+                  className={'seg-btn' + (notif.soundEnabled ? ' active' : '')}
+                  aria-pressed={notif.soundEnabled}
+                  onClick={toggleSound}
+                >
+                  <span className="seg-title">{notif.soundEnabled ? t('common.active') : t('common.offline')}</span>
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-        <div className="seg-control" role="group" aria-label={t('settings.notifyCompletionSound')} style={{ '--seg-cols': 1 } as React.CSSProperties}>
-          <button
-            type="button"
-            className={'seg-btn' + (notif.soundEnabled ? ' active' : '')}
-            aria-pressed={notif.soundEnabled}
-            onClick={toggleSound}
-          >
-            <span className="seg-title">{notif.soundEnabled ? t('common.active') : t('common.offline')}</span>
-          </button>
+          <p className="hint settings-notify-card-hint">{t('settings.notifyCompletionSoundHint')}</p>
         </div>
 
         {notif.soundEnabled ? (
@@ -4700,22 +5294,24 @@ function NotificationsSection({
       </div>
 
       <div className="settings-subsection">
-        <div className="section-head">
-          <div>
+        <div className="settings-notify-card">
+          <div className="settings-notify-card-header">
             <h4>{t('settings.notifyDesktop')}</h4>
-            <p className="hint">{t('settings.notifyDesktopHint')}</p>
+            <div className="section-head-actions">
+              <div className="seg-control" role="group" aria-label={t('settings.notifyDesktop')} style={{ '--seg-cols': 1 } as React.CSSProperties}>
+                <button
+                  type="button"
+                  className={'seg-btn' + (notif.desktopEnabled ? ' active' : '')}
+                  aria-pressed={notif.desktopEnabled}
+                  disabled={permission === 'unsupported'}
+                  onClick={() => { void toggleDesktop(); }}
+                >
+                  <span className="seg-title">{notif.desktopEnabled ? t('common.active') : t('common.offline')}</span>
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-        <div className="seg-control" role="group" aria-label={t('settings.notifyDesktop')} style={{ '--seg-cols': 1 } as React.CSSProperties}>
-          <button
-            type="button"
-            className={'seg-btn' + (notif.desktopEnabled ? ' active' : '')}
-            aria-pressed={notif.desktopEnabled}
-            disabled={permission === 'unsupported'}
-            onClick={() => { void toggleDesktop(); }}
-          >
-            <span className="seg-title">{notif.desktopEnabled ? t('common.active') : t('common.offline')}</span>
-          </button>
+          <p className="hint settings-notify-card-hint">{t('settings.notifyDesktopHint')}</p>
         </div>
         {permission === 'unsupported' ? (
           <p className="hint">{t('settings.notifyDesktopUnsupported')}</p>

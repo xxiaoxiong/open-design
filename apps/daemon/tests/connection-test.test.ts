@@ -10,6 +10,7 @@ import {
   createAgentSink,
   isSmokeOkReply,
   redactSecrets,
+  resolveConnectionTestTimeoutMs,
   testAgentConnection,
   testProviderConnection,
 } from '../src/connectionTest.js';
@@ -82,8 +83,16 @@ async function withFakeCodex<T>(script: string, run: () => Promise<T>): Promise<
   return withFakeAgent('codex', script, run);
 }
 
+async function withFakeClaude<T>(script: string, run: () => Promise<T>): Promise<T> {
+  return withFakeAgent('claude', script, run);
+}
+
 async function withFakeOpenCode<T>(script: string, run: () => Promise<T>): Promise<T> {
   return withFakeAgent('opencode', script, run);
+}
+
+async function withFakeCursorAgent<T>(script: string, run: () => Promise<T>): Promise<T> {
+  return withFakeAgent('cursor-agent', script, run);
 }
 
 async function waitForFile(file: string, timeoutMs = 5_000): Promise<void> {
@@ -1173,6 +1182,122 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
     );
   });
 
+  it('returns Claude /login guidance when the spawned CLI cannot authenticate', async () => {
+    await withFakeClaude(
+      `console.error(JSON.stringify({ apiKeySource: 'none', error_status: 401 })); process.exit(1);`,
+      async () => {
+        const result = await testAgentConnection({ agentId: 'claude' });
+
+        expect(result).toMatchObject({
+          ok: false,
+          kind: 'agent_spawn_failed',
+          agentName: 'Claude Code',
+        });
+        expect(result.detail).toContain('/login');
+        expect(result.detail).toContain('CLAUDE_CONFIG_DIR');
+      },
+    );
+  });
+
+  it('returns Claude /login guidance when auth failure stream JSON is emitted on stdout', async () => {
+    await withFakeClaude(
+      `console.log(JSON.stringify({ apiKeySource: 'none', error_status: 401 })); process.exit(1);`,
+      async () => {
+        const result = await testAgentConnection({ agentId: 'claude' });
+
+        expect(result).toMatchObject({
+          ok: false,
+          kind: 'agent_spawn_failed',
+          agentName: 'Claude Code',
+        });
+        expect(result.detail).toContain('/login');
+        expect(result.detail).toContain('CLAUDE_CONFIG_DIR');
+      },
+    );
+  });
+
+  it('returns custom endpoint guidance for Claude model access failures', async () => {
+    const previous = process.env.ANTHROPIC_BASE_URL;
+    process.env.ANTHROPIC_BASE_URL = 'https://proxy.example.com';
+    try {
+      await withFakeClaude(
+        `console.error('Error: The selected model is not available in your current plan or region.'); process.exit(1);`,
+        async () => {
+          const result = await testAgentConnection({ agentId: 'claude' });
+
+          expect(result).toMatchObject({
+            ok: false,
+            kind: 'agent_spawn_failed',
+            agentName: 'Claude Code',
+          });
+          expect(result.detail).toContain('ANTHROPIC_BASE_URL');
+          expect(result.detail).toContain('custom');
+        },
+      );
+    } finally {
+      if (previous == null) {
+        delete process.env.ANTHROPIC_BASE_URL;
+      } else {
+        process.env.ANTHROPIC_BASE_URL = previous;
+      }
+    }
+  });
+
+  it('returns custom endpoint guidance for Claude auth failures with a custom endpoint', async () => {
+    const previous = process.env.ANTHROPIC_BASE_URL;
+    process.env.ANTHROPIC_BASE_URL = 'https://proxy.example.com';
+    try {
+      await withFakeClaude(
+        `console.error(JSON.stringify({ apiKeySource: 'none', error_status: 401 })); process.exit(1);`,
+        async () => {
+          const result = await testAgentConnection({ agentId: 'claude' });
+
+          expect(result).toMatchObject({
+            ok: false,
+            kind: 'agent_spawn_failed',
+            agentName: 'Claude Code',
+          });
+          expect(result.detail).toContain('ANTHROPIC_BASE_URL');
+          expect(result.detail).toContain('proxy credentials');
+          expect(result.detail).not.toContain('use `/login`');
+        },
+      );
+    } finally {
+      if (previous == null) {
+        delete process.env.ANTHROPIC_BASE_URL;
+      } else {
+        process.env.ANTHROPIC_BASE_URL = previous;
+      }
+    }
+  });
+
+  it('returns configured profile guidance for silent Claude exits', async () => {
+    const previous = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = '/tmp/claude-alt';
+    try {
+      await withFakeClaude(
+        `process.exit(1);`,
+        async () => {
+          const result = await testAgentConnection({ agentId: 'claude' });
+
+          expect(result).toMatchObject({
+            ok: false,
+            kind: 'agent_spawn_failed',
+            agentName: 'Claude Code',
+          });
+          expect(result.detail).toContain('configured Claude profile');
+          expect(result.detail).toContain('Effective CLAUDE_CONFIG_DIR: /tmp/claude-alt');
+        },
+      );
+    } finally {
+      if (previous == null) {
+        delete process.env.CLAUDE_CONFIG_DIR;
+      } else {
+        process.env.CLAUDE_CONFIG_DIR = previous;
+      }
+    }
+  });
+
   it('classifies structured Codex model errors as not_found_model', async () => {
     await withFakeCodex(
       `console.log(JSON.stringify({ type: 'error', message: "The 'dddd' model is not supported when using Codex with a ChatGPT account." }));`,
@@ -1223,11 +1348,133 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_messag
         ok: true,
         kind: 'success',
         agentName: 'Codex CLI',
+        usedExecutableSource: 'configured',
+        configuredExecutablePath: bin,
+        usedExecutablePath: bin,
       });
+      expect(result.detail).toContain(`This test used the configured Codex path: ${bin}.`);
     } finally {
       process.env.PATH = oldPath;
       await fsp.rm(dir, { recursive: true, force: true });
     }
+  });
+
+  it('surfaces when an invalid configured CODEX_BIN was ignored in favor of PATH', async () => {
+    await withFakeCodex(
+      `console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'ok' } }));\n`,
+      async () => {
+        const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'od-conn-test-codex-invalid-'));
+        try {
+          const invalidBin = path.join(dir, 'codex-missing');
+          const result = await testAgentConnection({
+            agentId: 'codex',
+            agentCliEnv: {
+              codex: {
+                CODEX_BIN: invalidBin,
+              },
+            },
+          });
+
+          expect(result).toMatchObject({
+            ok: true,
+            kind: 'success',
+            agentName: 'Codex CLI',
+            sample: 'ok',
+            usedExecutableSource: 'fallback_invalid',
+            configuredExecutablePath: invalidBin,
+            detectedExecutablePath: expect.any(String),
+            usedExecutablePath: expect.any(String),
+          });
+          expect(result.detail).toContain(`Configured Codex path is invalid or not executable: ${invalidBin}.`);
+          expect(result.detail).toContain('This test used the PATH Codex CLI at');
+        } finally {
+          await fsp.rm(dir, { recursive: true, force: true });
+        }
+      },
+    );
+  });
+
+  it('falls back to PATH Codex during connection tests when a configured CODEX_BIN fails', async () => {
+    await withFakeCodex(
+      `console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'ok' } }));\n`,
+      async () => {
+        const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'od-conn-test-codex-fallback-'));
+        try {
+          const bin = path.join(dir, 'codex-bad');
+          await fsp.writeFile(
+            bin,
+            `#!/usr/bin/env node\nconsole.error('macOS blocked this Codex binary');\nprocess.exit(1);\n`,
+          );
+          await fsp.chmod(bin, 0o755);
+
+          const result = await testAgentConnection({
+            agentId: 'codex',
+            agentCliEnv: {
+              codex: {
+                CODEX_BIN: bin,
+              },
+            },
+          });
+
+          expect(result).toMatchObject({
+            ok: true,
+            kind: 'success',
+            agentName: 'Codex CLI',
+            sample: 'ok',
+            usedExecutableSource: 'fallback_failed',
+            configuredExecutablePath: bin,
+            detectedExecutablePath: expect.any(String),
+            usedExecutablePath: expect.any(String),
+          });
+          expect(result.detail).toContain(`Configured Codex path failed: ${bin}.`);
+          expect(result.detail).toContain('This test succeeded with the PATH Codex CLI at');
+          expect(result.detail).toContain('Update CODEX_BIN or clear the custom path');
+        } finally {
+          await fsp.rm(dir, { recursive: true, force: true });
+        }
+      },
+    );
+  });
+
+  it('falls back to PATH Codex when a configured shim spawns ENOENT', async () => {
+    await withFakeCodex(
+      `console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'ok' } }));\n`,
+      async () => {
+        const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'od-conn-test-codex-stale-shim-'));
+        try {
+          const bin = path.join(dir, 'codex-stale-shim');
+          await fsp.writeFile(
+            bin,
+            '#!/definitely/missing/node\nconsole.log("never runs");\n',
+          );
+          await fsp.chmod(bin, 0o755);
+
+          const result = await testAgentConnection({
+            agentId: 'codex',
+            agentCliEnv: {
+              codex: {
+                CODEX_BIN: bin,
+              },
+            },
+          });
+
+          expect(result).toMatchObject({
+            ok: true,
+            kind: 'success',
+            agentName: 'Codex CLI',
+            sample: 'ok',
+            usedExecutableSource: 'fallback_failed',
+            configuredExecutablePath: bin,
+            detectedExecutablePath: expect.any(String),
+            usedExecutablePath: expect.any(String),
+          });
+          expect(result.detail).toContain(`Configured Codex path failed: ${bin}.`);
+          expect(result.detail).toContain('This test succeeded with the PATH Codex CLI at');
+        } finally {
+          await fsp.rm(dir, { recursive: true, force: true });
+        }
+      },
+    );
   });
 
   it('reports OpenCode structured errors without treating them as raw output', async () => {
@@ -1254,6 +1501,140 @@ setTimeout(() => process.exit(0), 50);
           agentName: 'OpenCode',
           detail: 'OpenCode auth failed: login required',
         });
+      },
+    );
+  });
+
+  it('reports Cursor Agent status auth failures before running the smoke prompt', async () => {
+    await withFakeCursorAgent(
+      `
+const args = process.argv.slice(2);
+if (args[0] === '--version') {
+  console.log('2026.05.07-test');
+  process.exit(0);
+}
+if (args[0] === 'models') {
+  console.log('No models available for this account.');
+  process.exit(0);
+}
+if (args[0] === 'status') {
+  console.error("Authentication required. Please run 'agent login' first, or set CURSOR_API_KEY environment variable.");
+  process.exit(1);
+}
+console.error('smoke prompt should not run when status reports missing auth');
+process.exit(1);
+`,
+      async () => {
+        const res = await realFetch(`${baseUrl}/api/test/connection`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ mode: 'agent', agentId: 'cursor-agent' }),
+        });
+        expect(res.status).toBe(200);
+        await expect(res.json()).resolves.toMatchObject({
+          ok: false,
+          kind: 'agent_auth_required',
+          agentName: 'Cursor Agent',
+          detail: expect.stringContaining('cursor-agent login'),
+        });
+      },
+    );
+  });
+
+  it('reports Cursor Agent Not logged in status before running the smoke prompt', async () => {
+    await withFakeCursorAgent(
+      `
+const args = process.argv.slice(2);
+if (args[0] === '--version') {
+  console.log('2026.05.07-test');
+  process.exit(0);
+}
+if (args[0] === 'models') {
+  console.log('No models available for this account.');
+  process.exit(0);
+}
+if (args[0] === 'status') {
+  console.error('Not logged in');
+  process.exit(1);
+}
+console.error('smoke prompt should not run when status reports missing auth');
+process.exit(1);
+`,
+      async () => {
+        const res = await realFetch(`${baseUrl}/api/test/connection`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ mode: 'agent', agentId: 'cursor-agent' }),
+        });
+        expect(res.status).toBe(200);
+        await expect(res.json()).resolves.toMatchObject({
+          ok: false,
+          kind: 'agent_auth_required',
+          agentName: 'Cursor Agent',
+          detail: expect.stringContaining('cursor-agent login'),
+        });
+      },
+    );
+  });
+
+  it('classifies Cursor Agent runtime auth failures from stderr', async () => {
+    await withFakeCursorAgent(
+      `
+const args = process.argv.slice(2);
+if (args[0] === '--version') {
+  console.log('2026.05.07-test');
+  process.exit(0);
+}
+if (args[0] === 'models') {
+  console.log('auto');
+  process.exit(0);
+}
+if (args[0] === 'status') {
+  console.log('Authenticated');
+  process.exit(0);
+}
+console.error("Authentication required. Please run 'agent login' first, or set CURSOR_API_KEY environment variable.");
+process.exit(1);
+`,
+      async () => {
+        const result = await testAgentConnection({ agentId: 'cursor-agent' });
+        expect(result).toMatchObject({
+          ok: false,
+          kind: 'agent_auth_required',
+          agentName: 'Cursor Agent',
+          detail: expect.stringContaining('cursor-agent status'),
+        });
+      },
+    );
+  });
+
+  it('keeps non-auth Cursor Agent runtime failures on the generic spawn path', async () => {
+    await withFakeCursorAgent(
+      `
+const args = process.argv.slice(2);
+if (args[0] === '--version') {
+  console.log('2026.05.07-test');
+  process.exit(0);
+}
+if (args[0] === 'models') {
+  console.log('auto');
+  process.exit(0);
+}
+if (args[0] === 'status') {
+  console.log('Authenticated');
+  process.exit(0);
+}
+console.error('workspace path does not exist');
+process.exit(1);
+`,
+      async () => {
+        const result = await testAgentConnection({ agentId: 'cursor-agent' });
+        expect(result).toMatchObject({
+          ok: false,
+          kind: 'agent_spawn_failed',
+          agentName: 'Cursor Agent',
+        });
+        expect(result.detail).toContain('workspace path does not exist');
       },
     );
   });
@@ -1488,5 +1869,79 @@ describe('connection test helpers', () => {
         "There's an issue with the selected model (abcde). It may not exist.",
       ),
     ).toBe(false);
+  });
+});
+
+describe('connection test timeout overrides', () => {
+  it('returns the fallback when the override is missing or empty', () => {
+    expect(
+      resolveConnectionTestTimeoutMs('OD_CONNECTION_TEST_PROVIDER_TIMEOUT_MS', 12_000, {}),
+    ).toBe(12_000);
+    expect(
+      resolveConnectionTestTimeoutMs('OD_CONNECTION_TEST_AGENT_TIMEOUT_MS', 45_000, {
+        OD_CONNECTION_TEST_AGENT_TIMEOUT_MS: '',
+      }),
+    ).toBe(45_000);
+  });
+
+  it('honors a positive integer override', () => {
+    expect(
+      resolveConnectionTestTimeoutMs('OD_CONNECTION_TEST_PROVIDER_TIMEOUT_MS', 12_000, {
+        OD_CONNECTION_TEST_PROVIDER_TIMEOUT_MS: '30000',
+      }),
+    ).toBe(30_000);
+    expect(
+      resolveConnectionTestTimeoutMs('OD_CONNECTION_TEST_AGENT_TIMEOUT_MS', 45_000, {
+        OD_CONNECTION_TEST_AGENT_TIMEOUT_MS: '120000',
+      }),
+    ).toBe(120_000);
+  });
+
+  it('warns and falls back on non-numeric, zero, negative, or non-integer overrides', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      for (const bad of ['fast', '0', '-1', '1.5', 'NaN']) {
+        expect(
+          resolveConnectionTestTimeoutMs('OD_CONNECTION_TEST_PROVIDER_TIMEOUT_MS', 12_000, {
+            OD_CONNECTION_TEST_PROVIDER_TIMEOUT_MS: bad,
+          }),
+        ).toBe(12_000);
+      }
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  // Regression: a previous version of resolveConnectionTestTimeoutMs
+  // accepted any positive integer, but Node's setTimeout silently
+  // clamps delays above 2^31-1 to ~1 ms (with a TimeoutOverflowWarning).
+  // An override that meant to extend the budget would instead make
+  // every connection test fail almost immediately — the safety
+  // timeout would be effectively disarmed.
+  it('rejects values above the Node setTimeout maximum (2^31-1)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const tooLarge = '3000000000'; // ~50 minutes; exceeds 2_147_483_647 ms
+      expect(
+        resolveConnectionTestTimeoutMs('OD_CONNECTION_TEST_AGENT_TIMEOUT_MS', 45_000, {
+          OD_CONNECTION_TEST_AGENT_TIMEOUT_MS: tooLarge,
+        }),
+      ).toBe(45_000);
+      // The exact maximum is still accepted; anything past it is not.
+      expect(
+        resolveConnectionTestTimeoutMs('OD_CONNECTION_TEST_AGENT_TIMEOUT_MS', 45_000, {
+          OD_CONNECTION_TEST_AGENT_TIMEOUT_MS: '2147483647',
+        }),
+      ).toBe(2_147_483_647);
+      expect(
+        resolveConnectionTestTimeoutMs('OD_CONNECTION_TEST_AGENT_TIMEOUT_MS', 45_000, {
+          OD_CONNECTION_TEST_AGENT_TIMEOUT_MS: '2147483648',
+        }),
+      ).toBe(45_000);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
