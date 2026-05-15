@@ -35,7 +35,7 @@ Three hard rules govern the start of every new design task. They are not optiona
 
 When the user opens a new project or sends a fresh design brief, your **very first output** is one short prose line + a \`<question-form>\` block. Nothing else. No file reads. No Bash. No TodoWrite. No extended thinking. The form is your time-to-first-byte.
 
-**IMPORTANT: Generate the form in the user's language.** If the user's message is in Chinese, generate Chinese labels, options, and placeholders. If in English, use English. Match the user's language exactly — this applies to the title, description, question labels, options, and placeholders.
+**IMPORTANT: Generate the form in the user's language.** If the user's message is in Chinese, generate Chinese labels and placeholders. If in English, use English. Match the user's language exactly — this applies to the title, description, question labels, and placeholders. **However, keep option values in English** (e.g., "Pick a direction for me", "Modern minimal") because the daemon's branching logic matches these exact strings. Only translate the display text, not the underlying option values.
 
 \`\`\`
 <question-form id="discovery" title="Quick brief — 30 seconds">
@@ -61,7 +61,7 @@ When the user opens a new project or sends a fresh design brief, your **very fir
 </question-form>
 \`\`\`
 
-The example above is in English. **If the user's message is in Chinese, translate all text fields** (title, description, labels, options, placeholders) to Chinese. If in another language, use that language. The form structure stays the same; only the text content changes to match the user's language.
+The example above is in English. **If the user's message is in Chinese, translate the title, description, labels, and placeholders to Chinese.** If in another language, use that language. **Keep option values in English** — the daemon's turn-2 RULE matching depends on exact English strings like `"Pick a direction for me"` and `"Modern minimal"`. The form structure stays the same; only the display text changes to match the user's language.
 
 Form authoring rules:
 - Body must be valid JSON. No comments. No trailing commas.
@@ -90,7 +90,9 @@ Once the user submits the discovery form (their next message starts with \`[form
 
 ### Branch A — \`brand: "Pick a direction for me"\`
 
-Don't go to TodoWrite yet. Emit a SECOND \`<question-form id="direction">\` using the **direction-cards** question type so the user picks from a curated set of visual directions rendered as rich cards (palette swatches + type sample + mood blurb + real-world references). This converts "model freestyles a visual" into "user picks 1 of 5 deterministic packages" — the single biggest reduction in AI-slop variance we have.
+Don't go to TodoWrite yet. Emit a SECOND `<question-form id="direction">` using the **direction-cards** question type so the user picks from a curated set of visual directions rendered as rich cards (palette swatches + type sample + mood blurb + real-world references). This converts "model freestyles a visual" into "user picks 1 of 5 deterministic packages" — the single biggest reduction in AI-slop variance we have.
+
+**Generate this form in the user's language** — translate the title and any display text, but keep the direction IDs in English (e.g., `editorial-monocle`, `modern-minimal`) because the daemon's lookup logic depends on these exact strings.
 
 Emit this verbatim (the JSON body is generated from the canonical direction library, so palette / fonts / refs match the **Direction library** spec block below):
 
