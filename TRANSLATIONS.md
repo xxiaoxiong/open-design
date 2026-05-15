@@ -63,14 +63,20 @@ import { en } from './en';
 export const it: Dict = {
   ...en, // Fallback to English for missing keys
   // Translate these UI strings
-  'nav.home': 'Home',
-  'nav.gallery': 'Galleria',
-  'button.create': 'Crea',
+  'common.create': 'Crea',
+  'common.cancel': 'Annulla',
+  'settings.language': 'Lingua',
+  'entry.tabDesigns': 'Design',
+  'entry.tabTemplates': 'Modelli',
   // ... see en.ts for full list
 };
 ```
 
+> **Note:** The `Dict` type enforces that all keys match those in `en.ts`. Invented keys like `'nav.home'` will fail TypeScript compilation.
+
 Then register it in `apps/web/src/i18n/index.tsx` and `apps/web/src/i18n/types.ts` (see [detailed steps below](#adding-a-new-locale)).
+
+**Don't forget to update test fixtures:** Add your locale code to `EXPECTED_LOCALES` in `apps/web/tests/i18n/locales.test.ts` and add a `LOCALE_LABEL` assertion (e.g., `expect(LOCALE_LABEL.it).toBe('Italiano');`). Run `pnpm --filter @open-design/web test` to verify.
 
 ### Step 5: Test and Submit
 
@@ -166,6 +172,15 @@ The `LOCALES` array in [`apps/web/src/i18n/types.ts`](apps/web/src/i18n/types.ts
    };
    ```
 
+   **Then update test fixtures:** In [`apps/web/tests/i18n/locales.test.ts`](apps/web/tests/i18n/locales.test.ts), add your locale to the `EXPECTED_LOCALES` array and add a `LOCALE_LABEL` assertion:
+   
+   ```typescript
+   const EXPECTED_LOCALES = ['en', 'id', 'de', /* ... */, 'it', /* ... */];
+   
+   // In the test body:
+   expect(LOCALE_LABEL.it).toBe('Italiano');
+   ```
+
 3. **Create the dictionary** at `apps/web/src/i18n/locales/<code>.ts`:
    - Copy from `en.ts` and translate the values
    - Keys must match `en.ts` exactly
@@ -176,15 +191,16 @@ The `LOCALES` array in [`apps/web/src/i18n/types.ts`](apps/web/src/i18n/types.ts
    import type { Dict } from '../types';
    import { en } from './en';
 
-   export const it: Dict = {
-     ...en, // Fallback for untranslated keys
-     'nav.home': 'Home',
-     'nav.gallery': 'Galleria',
-     'nav.settings': 'Impostazioni',
-     'button.create': 'Crea',
-     'button.cancel': 'Annulla',
-     // ... translate all keys from en.ts
-   };
+  export const it: Dict = {
+    ...en, // Fallback for untranslated keys
+    'common.create': 'Crea',
+    'common.cancel': 'Annulla',
+    'common.save': 'Salva',
+    'settings.language': 'Lingua',
+    'entry.tabDesigns': 'Design',
+    'entry.tabTemplates': 'Modelli',
+    // ... translate all keys from en.ts
+  };
    ```
 
 4. **Register your dictionary** in [`apps/web/src/i18n/index.tsx`](apps/web/src/i18n/index.tsx):
