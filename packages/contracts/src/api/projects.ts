@@ -1,4 +1,4 @@
-import type { ChatMessage } from './chat.js';
+import type { ChatMessage, ChatRunStatus } from './chat.js';
 
 export type ProjectKind =
   | 'prototype'
@@ -10,6 +10,15 @@ export type ProjectKind =
   | 'audio';
 
 export type MediaAspect = '1:1' | '16:9' | '9:16' | '4:3' | '3:4';
+
+export type ProjectPlatform =
+  | 'auto'
+  | 'responsive'
+  | 'web-desktop'
+  | 'mobile-ios'
+  | 'mobile-android'
+  | 'tablet'
+  | 'desktop-app';
 
 export type AudioKind = 'music' | 'speech' | 'sfx';
 
@@ -59,8 +68,14 @@ export interface ProjectMetadata {
   fidelity?: 'wireframe' | 'high-fidelity';
   speakerNotes?: boolean;
   animations?: boolean;
+  includeLandingPage?: boolean;
+  includeOsWidgets?: boolean;
   templateId?: string;
   templateLabel?: string;
+  /** Primary target surface selected at project creation. */
+  platform?: ProjectPlatform;
+  /** Concrete delivery surfaces the artifact must account for. `responsive` is a web breakpoint target, not a native app expansion. */
+  platformTargets?: ProjectPlatform[];
   inspirationDesignSystemIds?: string[];
   importedFrom?: 'claude-design' | 'folder' | string;
   entryFile?: string;
@@ -98,6 +113,9 @@ export interface ProjectMetadata {
   promptTemplate?: PromptTemplateMetadata;
   // Absolute paths to local code folders the agent can read via --add-dir.
   linkedDirs?: string[];
+  // Batch/API-created projects can opt out of the initial discovery form so
+  // the first agent turn builds immediately from the submitted brief.
+  skipDiscoveryBrief?: boolean;
 }
 
 export interface Project {
@@ -110,6 +128,7 @@ export interface Project {
   status?: ProjectStatusInfo;
   pendingPrompt?: string;
   metadata?: ProjectMetadata;
+  customInstructions?: string;
 }
 
 export interface ProjectTemplate {
@@ -127,6 +146,12 @@ export interface Conversation {
   title: string | null;
   createdAt: number;
   updatedAt: number;
+  latestRun?: {
+    status: ChatRunStatus;
+    startedAt?: number;
+    endedAt?: number;
+    durationMs?: number;
+  };
 }
 
 export interface CreateProjectRequest {
@@ -135,6 +160,9 @@ export interface CreateProjectRequest {
   designSystemId?: string | null;
   pendingPrompt?: string;
   metadata?: ProjectMetadata;
+  customInstructions?: string;
+  /** Persisted to metadata.skipDiscoveryBrief for automated project runs. */
+  skipDiscoveryBrief?: boolean;
 }
 
 export interface UpdateProjectRequest {
@@ -143,6 +171,7 @@ export interface UpdateProjectRequest {
   designSystemId?: string | null;
   pendingPrompt?: string | null;
   metadata?: ProjectMetadata | null;
+  customInstructions?: string | null;
 }
 
 export interface ProjectsResponse {

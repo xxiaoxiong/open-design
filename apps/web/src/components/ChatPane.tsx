@@ -1,9 +1,10 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import type { Dict } from '../i18n/types';
+import { copyToClipboard } from '../lib/copy-to-clipboard';
 import { projectRawUrl } from '../providers/registry';
 import type { TodoItem } from '../runtime/todos';
-import type { AppConfig, ChatAttachment, ChatCommentAttachment, ChatMessage, Conversation, PreviewComment, ProjectFile, ProjectMetadata, SkillSummary } from '../types';
+import type { AppConfig, ChatAttachment, ChatCommentAttachment, ChatMessage, ChatMessageFeedbackChange, Conversation, PreviewComment, ProjectFile, ProjectMetadata, SkillSummary } from '../types';
 import { dayKey, dayLabel, exactDateTime, messageTime, relativeTimeLong } from '../utils/chatTime';
 import { commentsToAttachments, simplePositionLabel } from '../comments';
 import { AssistantMessage } from './AssistantMessage';
@@ -228,6 +229,7 @@ interface Props {
   // routes that text through onSend (no attachments).
   onSubmitForm?: (text: string) => void;
   onContinueRemainingTasks?: (assistantMessage: ChatMessage, todos: TodoItem[]) => void;
+  onAssistantFeedback?: (assistantMessage: ChatMessage, change: ChatMessageFeedbackChange) => void;
   // Header "+" button — kicks off ProjectView's create-conversation flow.
   onNewConversation?: () => void;
   newConversationDisabled?: boolean;
@@ -279,6 +281,7 @@ export function ChatPane({
   initialDraft,
   onSubmitForm,
   onContinueRemainingTasks,
+  onAssistantFeedback,
   onNewConversation,
   newConversationDisabled = false,
   conversations,
@@ -487,6 +490,65 @@ export function ChatPane({
     };
   }, [tab]);
 
+  useEffect(() => {
+    if (tab !== 'chat') return;
+    const el = logRef.current;
+    if (!el) return;
+
+    let followFrame: number | null = null;
+    const followLatestIfPinned = () => {
+      if (!pinnedToBottomRef.current || followFrame !== null) return;
+      followFrame = requestAnimationFrame(() => {
+        followFrame = null;
+        const target = logRef.current;
+        if (!target || !pinnedToBottomRef.current) return;
+        target.scrollTop = target.scrollHeight;
+        setScrolledFromBottom(false);
+      });
+    };
+
+    const resizeObserver =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(followLatestIfPinned)
+        : null;
+    const observedChildren = new Set<Element>();
+    const syncObservedChildren = () => {
+      if (!resizeObserver) return;
+      const currentChildren = new Set(Array.from(el.children));
+      for (const child of currentChildren) {
+        if (observedChildren.has(child)) continue;
+        resizeObserver.observe(child);
+        observedChildren.add(child);
+      }
+      for (const child of observedChildren) {
+        if (currentChildren.has(child)) continue;
+        resizeObserver.unobserve(child);
+        observedChildren.delete(child);
+      }
+    };
+
+    syncObservedChildren();
+
+    const mutationObserver =
+      typeof MutationObserver !== 'undefined'
+        ? new MutationObserver(() => {
+            syncObservedChildren();
+            followLatestIfPinned();
+          })
+        : null;
+    mutationObserver?.observe(el, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+
+    return () => {
+      if (followFrame !== null) cancelAnimationFrame(followFrame);
+      mutationObserver?.disconnect();
+      resizeObserver?.disconnect();
+    };
+  }, [tab]);
+
   // Close the conversation history dropdown on outside click / Escape.
   useEffect(() => {
     if (!showConvList) return;
@@ -518,26 +580,6 @@ export function ChatPane({
   return (
     <div className="pane">
       <div className="chat-header">
-        <div className="chat-header-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'chat'}
-            className={`chat-header-tab${tab === 'chat' ? ' active' : ''}`}
-            onClick={() => setTab('chat')}
-          >
-            {t('chat.tabChat')}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'comments'}
-            className={`chat-header-tab${tab === 'comments' ? ' active' : ''}`}
-            onClick={() => setTab('comments')}
-          >
-            {t('chat.tabComments')}
-          </button>
-        </div>
         <div className="chat-header-actions">
           <div
             className={`chat-history-wrap${showConvList ? ' open' : ''}`}
@@ -558,9 +600,6 @@ export function ChatPane({
               onClick={() => setShowConvList((v) => !v)}
             >
               <Icon name="history" size={15} />
-              {conversations.length > 1 ? (
-                <span className="chat-history-badge">{conversations.length}</span>
-              ) : null}
             </button>
             {showConvList ? (
               <div className="chat-history-menu" role="menu" data-testid="conversation-history-menu">
@@ -680,9 +719,11 @@ export function ChatPane({
               ) : null}
               {messages.map((m, i) => {
                 const showDaySeparator = shouldShowDaySeparator(messages[i - 1], m);
-                const messageStreaming =
-                  m.role === 'assistant' &&
-                  ((streaming && m.id === lastAssistantId) || isActiveRunStatus(m.runStatus));
+                const messageStreaming = isAssistantMessageStreaming(
+                  m,
+                  streaming,
+                  lastAssistantId,
+                );
                 return (
                   <Fragment key={m.id}>
                     {showDaySeparator ? <DaySeparator ts={messageTime(m)} /> : null}
@@ -711,6 +752,11 @@ export function ChatPane({
                         onContinueRemainingTasks={
                           m.id === lastAssistantId && onContinueRemainingTasks
                             ? (todos) => onContinueRemainingTasks(m, todos)
+                            : undefined
+                        }
+                        onFeedback={
+                          onAssistantFeedback
+                            ? (rating) => onAssistantFeedback(m, rating)
                             : undefined
                         }
                       />
@@ -760,16 +806,6 @@ export function ChatPane({
             onProjectMetadataChange={onProjectMetadataChange}
           />
         </>
-      ) : null}
-      {tab === 'comments' ? (
-        <CommentsPanel
-          comments={previewComments}
-          attachedComments={attachedComments}
-          onAttach={onAttachComment}
-          onDetach={onDetachComment}
-          onDelete={onDeleteComment}
-          t={t}
-        />
       ) : null}
     </div>
   );
@@ -892,6 +928,24 @@ function isActiveRunStatus(status: ChatMessage['runStatus']): boolean {
   return status === 'queued' || status === 'running';
 }
 
+function isTerminalRunStatus(status: ChatMessage['runStatus']): boolean {
+  return status === 'succeeded' || status === 'failed' || status === 'canceled';
+}
+
+export function isAssistantMessageStreaming(
+  message: ChatMessage,
+  paneStreaming: boolean,
+  lastAssistantId: string | null | undefined,
+): boolean {
+  if (message.role !== 'assistant') return false;
+  if (isActiveRunStatus(message.runStatus)) return true;
+  if (message.id !== lastAssistantId) return false;
+  if (!paneStreaming) return false;
+  if (message.endedAt !== undefined) return false;
+  if (isTerminalRunStatus(message.runStatus)) return false;
+  return true;
+}
+
 function ConversationRow({
   conversation,
   active,
@@ -952,7 +1006,7 @@ function ConversationRow({
           {displayTitle}
         </button>
       )}
-      <span className="chat-conv-item-meta">{relTime(conversation.updatedAt, t)}</span>
+      <span className="chat-conv-item-meta">{conversationMetaLabel(conversation, t)}</span>
       <button
         type="button"
         className="chat-conv-item-del"
@@ -988,6 +1042,27 @@ function UserMessage({
 }) {
   const attachments = message.attachments ?? [];
   const commentAttachments = message.commentAttachments ?? [];
+  const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
+
+  async function handleCopy() {
+    if (!message.content) return;
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    const ok = await copyToClipboard(message.content);
+    if (!ok) return;
+    setCopied(true);
+    copyTimerRef.current = setTimeout(() => {
+      setCopied(false);
+      copyTimerRef.current = undefined;
+    }, 2000);
+  }
+
   return (
     <div className="msg user">
       <div className="role">
@@ -1024,19 +1099,32 @@ function UserMessage({
           })}
         </div>
       ) : null}
-      {commentAttachments.length > 0 ? (
+      {commentAttachments.some((attachment) => attachment.selectionKind !== 'visual') ? (
         <div className="user-attachments comment-history-attachments">
-          {commentAttachments.map((a) => (
+          {commentAttachments.filter((attachment) => attachment.selectionKind !== 'visual').map((a) => (
             <span key={a.id} className="user-attachment staged-comment">
               <span className="staged-name" title={`${a.elementId}: ${a.comment}`}>
-                <strong>{a.elementId}</strong>
+                <strong>{a.selectionKind === 'visual' ? 'Visual mark' : a.elementId}</strong>
                 <span>{a.comment}</span>
               </span>
             </span>
           ))}
         </div>
       ) : null}
-      {message.content ? <div className="user-text">{message.content}</div> : null}
+      {message.content ? (
+        <div className="user-text-wrap">
+          <div className="user-text user-bubble">{message.content}</div>
+          <button
+            type="button"
+            className="ghost user-copy-btn"
+            onClick={handleCopy}
+            aria-label={copied ? t('chat.copyDone') : t('chat.copyPrompt')}
+            title={copied ? t('chat.copyDone') : t('chat.copyPrompt')}
+          >
+            <Icon name={copied ? 'check' : 'copy'} size={12} />
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1078,4 +1166,30 @@ function relTime(ts: number, t: TranslateFn): string {
   if (diff < day) return t('common.hoursShort', { n: Math.floor(diff / hr) });
   if (diff < 7 * day) return t('common.daysShort', { n: Math.floor(diff / day) });
   return new Date(ts).toLocaleDateString();
+}
+
+export function conversationMetaLabel(
+  conversation: Conversation,
+  t: TranslateFn,
+): string {
+  const latestRun = conversation.latestRun;
+  if (
+    latestRun &&
+    (latestRun.status === 'succeeded' ||
+      latestRun.status === 'failed' ||
+      latestRun.status === 'canceled') &&
+    typeof latestRun.durationMs === 'number' &&
+    Number.isFinite(latestRun.durationMs)
+  ) {
+    return formatDurationShort(latestRun.durationMs);
+  }
+  return relTime(conversation.updatedAt, t);
+}
+
+function formatDurationShort(ms: number): string {
+  const s = Math.max(0, ms) / 1000;
+  if (s < 60) return `${s.toFixed(s < 10 ? 1 : 0)}s`;
+  const m = Math.floor(s / 60);
+  const rem = Math.floor(s - m * 60);
+  return `${m}m ${rem.toString().padStart(2, '0')}s`;
 }

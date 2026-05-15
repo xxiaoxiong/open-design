@@ -3,10 +3,12 @@ import type {
   PreviewCommentMember,
   PreviewCommentPosition,
   PreviewCommentSelectionKind,
+  PreviewVisualMarkKind,
 } from './comments';
 import type { ResearchOptions } from './research';
 
 export type ChatRole = 'user' | 'assistant';
+export type ChatCommentSelectionKind = PreviewCommentSelectionKind | 'visual';
 
 export interface ChatRequest {
   agentId: string;
@@ -41,6 +43,28 @@ export interface ChatRunCreateRequest extends ChatRequest {
 }
 
 export type ChatRunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled';
+
+export type ChatMessageFeedbackRating = 'positive' | 'negative';
+
+export type ChatMessageFeedbackReasonCode =
+  | 'matched_request'
+  | 'strong_visual'
+  | 'useful_structure'
+  | 'easy_to_continue'
+  | 'missed_request'
+  | 'weak_visual'
+  | 'incomplete_output'
+  | 'hard_to_use'
+  | 'other';
+
+export interface ChatMessageFeedback {
+  rating: ChatMessageFeedbackRating;
+  reasonCodes?: ChatMessageFeedbackReasonCode[];
+  customReason?: string;
+  reasonsSubmittedAt?: number;
+  createdAt: number;
+  updatedAt?: number;
+}
 
 export interface ChatRunCreateResponse {
   runId: string;
@@ -85,9 +109,12 @@ export interface ChatCommentAttachment {
   currentText: string;
   pagePosition: PreviewCommentPosition;
   htmlHint: string;
-  selectionKind?: PreviewCommentSelectionKind;
+  selectionKind?: ChatCommentSelectionKind;
   memberCount?: number;
   podMembers?: PreviewCommentMember[];
+  screenshotPath?: string;
+  markKind?: PreviewVisualMarkKind;
+  intent?: string;
   source?: 'saved-comment' | 'board-batch';
 }
 
@@ -134,6 +161,7 @@ export interface ChatMessage {
   attachments?: ChatAttachment[];
   commentAttachments?: ChatCommentAttachment[];
   producedFiles?: ProjectFile[];
+  feedback?: ChatMessageFeedback;
   /**
    * Request-only marker for the final assistant-message persistence pass.
    * The daemon does not store or return this field; it only uses it to

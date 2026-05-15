@@ -37,15 +37,64 @@ import { IMAGE_MODELS } from '../media-models.js';
 import { renderPanelPrompt } from './panel.js';
 import { defaultCritiqueConfig, type CritiqueConfig } from '@open-design/contracts/critique';
 
+const ELEVENLABS_VOICE_PROMPT_OPTION_LIMIT = 100;
+const ELEVENLABS_VOICE_OPTIONS_PROMPT_PREFIX = 'ElevenLabs voice list could not be loaded';
+const PROMPT_SAFE_HTTP_STATUS_LABELS: Record<string, string> = {
+  '400': 'Bad Request',
+  '401': 'Unauthorized',
+  '403': 'Forbidden',
+  '404': 'Not Found',
+  '429': 'Too Many Requests',
+  '500': 'Internal Server Error',
+  '502': 'Bad Gateway',
+  '503': 'Service Unavailable',
+  '504': 'Gateway Timeout',
+};
+
+function normalizePromptText(value: string): string {
+  return value
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function formatElevenLabsVoiceOptionsErrorForPrompt(
+  error: string | undefined,
+): string | undefined {
+  const trimmed = normalizePromptText(error ?? '');
+  if (!trimmed) return undefined;
+
+  if (/no ElevenLabs API key/i.test(trimmed)) {
+    return `${ELEVENLABS_VOICE_OPTIONS_PROMPT_PREFIX} because the ElevenLabs API key is missing. Tell the user to configure it in Settings or paste a voice id manually.`;
+  }
+
+  const statusMatch = trimmed.match(
+    /(?:\((\d{3})(?:\s+([^)]+))?\)|\b(\d{3})(?:\s+([A-Za-z][A-Za-z -]{0,40}))?\b)/,
+  );
+  if (statusMatch) {
+    const statusCode = statusMatch[1] ?? statusMatch[3];
+    const statusText = statusCode ? PROMPT_SAFE_HTTP_STATUS_LABELS[statusCode] ?? '' : '';
+    const suffix = statusText ? ` ${statusText}` : '';
+    return `${ELEVENLABS_VOICE_OPTIONS_PROMPT_PREFIX} (${statusCode}${suffix}). Tell the user to retry the lookup or paste a voice id manually.`;
+  }
+
+  return `${ELEVENLABS_VOICE_OPTIONS_PROMPT_PREFIX}. Tell the user to retry the lookup or paste a voice id manually.`;
+}
+
 type ProjectMetadata = {
   kind?: string;
   intent?: string | null;
   fidelity?: string | null;
   speakerNotes?: boolean | null;
   animations?: boolean | null;
+  includeLandingPage?: boolean | null;
+  includeOsWidgets?: boolean | null;
   templateId?: string | null;
   templateLabel?: string | null;
+  platform?: string | null;
+  platformTargets?: string[] | null;
   inspirationDesignSystemIds?: string[];
+  skipDiscoveryBrief?: boolean | null;
   imageModel?: string | null;
   imageAspect?: string | null;
   imageStyle?: string | null;
@@ -75,8 +124,18 @@ type ProjectMetadata = {
   } | null;
 };
 type ProjectTemplate = { name: string; description?: string | null; files: Array<{ name: string; content: string }> };
+type AudioVoiceOption = {
+  name: string;
+  voiceId: string;
+  category?: string | null;
+  labels?: Record<string, string> | null;
+};
 
 export const BASE_SYSTEM_PROMPT = OFFICIAL_DESIGNER_PROMPT;
+
+export const SKIP_DISCOVERY_BRIEF_OVERRIDE = `# Automated project mode — skip discovery form
+
+This project was created through the daemon API with \`skipDiscoveryBrief: true\`. Override the discovery rules below: do NOT emit \`<question-form id="discovery">\`, do NOT show "Quick brief — 30 seconds", and do NOT ask a first-turn clarification form. Treat the user's first message and project metadata as the brief, then proceed directly to planning/building under the normal artifact workflow. Ask at most one concise follow-up only if a required detail is impossible to infer safely.`;
 
 export interface ComposeInput {
   agentId?: string | null | undefined;
@@ -95,6 +154,23 @@ export interface ComposeInput {
     | undefined;
   designSystemBody?: string | undefined;
   designSystemTitle?: string | undefined;
+  // Compiled (machine-readable) form of the active brand's design system,
+  // shipped as sibling files to DESIGN.md when available. Both fields are
+  // optional; the daemon populates them by default for every brand that
+  // ships `tokens.css` / `components.html` (today: `default` and
+  // `kami`). `OD_DESIGN_TOKEN_CHANNEL=0` disables the channel as a kill
+  // switch. When present they are appended AFTER the DESIGN.md block so
+  // prose still sets the high-level voice and the structured form
+  // disambiguates token names + worked component shapes.
+  //
+  // - `designSystemTokensCss`    — verbatim `tokens.css` :root contract
+  //                                that the agent pastes into the
+  //                                artifact's <style>.
+  // - `designSystemFixtureHtml`  — verbatim `components.html` reference
+  //                                fixture demonstrating button / card /
+  //                                type-scale shapes wired to the tokens.
+  designSystemTokensCss?: string | undefined;
+  designSystemFixtureHtml?: string | undefined;
   // Craft references the active skill opted into via `od.craft.requires`.
   // The daemon resolves the slug list to file contents and concatenates
   // them with section headers; we inject them between the DESIGN.md and
@@ -117,6 +193,14 @@ export interface ComposeInput {
   // Snapshot of HTML files that the agent should treat as a starting
   // reference rather than a fixed deliverable.
   template?: ProjectTemplate | undefined;
+  // Provider voice choices fetched by the daemon/web before composing the
+  // prompt. Used for ElevenLabs speech discovery so the agent can render
+  // a select question-form instead of asking the user to paste raw ids.
+  audioVoiceOptions?: AudioVoiceOption[] | undefined;
+  // When voice discovery fails, surface the error reason so the agent
+  // can tell the user why the dropdown is unavailable instead of
+  // pretending there were simply no voices.
+  audioVoiceOptionsError?: string | undefined;
   // When present and enabled, the Critique Theater protocol addendum is
   // concatenated to the end of the composed prompt. Omitting this field
   // (or passing cfg.enabled === false) preserves legacy behavior unchanged.
@@ -137,6 +221,13 @@ export interface ComposeInput {
   // confuses the user.
   connectedExternalMcp?: ReadonlyArray<{ id: string; label?: string | undefined }>
     | undefined;
+  // Free-form instructions the user set at the global (user-level)
+  // settings panel. Injected after personal memory and before the
+  // project-level instructions.
+  userInstructions?: string | undefined;
+  // Free-form instructions the user set on this specific project.
+  // Injected after user-level instructions and before the design system.
+  projectInstructions?: string | undefined;
 }
 
 export function composeSystemPrompt({
@@ -147,16 +238,22 @@ export function composeSystemPrompt({
   skillMode,
   designSystemBody,
   designSystemTitle,
+  designSystemTokensCss,
+  designSystemFixtureHtml,
   craftBody,
   craftSections,
   memoryBody,
   metadata,
   template,
+  audioVoiceOptions,
+  audioVoiceOptionsError,
   critique,
   critiqueBrand,
   critiqueSkill,
   connectedExternalMcp,
   streamFormat,
+  userInstructions,
+  projectInstructions,
 }: ComposeInput): string {
   // Discovery + philosophy goes FIRST so its hard rules ("emit a form on
   // turn 1", "branch on brand on turn 2", "TodoWrite on turn 3", run
@@ -177,6 +274,11 @@ export function composeSystemPrompt({
     parts.push('\n\n---\n\n');
   }
 
+  if (metadata?.skipDiscoveryBrief === true) {
+    parts.push(SKIP_DISCOVERY_BRIEF_OVERRIDE);
+    parts.push('\n\n---\n\n');
+  }
+
   parts.push(
     DISCOVERY_AND_PHILOSOPHY,
     '\n\n---\n\n# Identity and workflow charter (background)\n\n',
@@ -189,9 +291,42 @@ export function composeSystemPrompt({
     );
   }
 
+  if (userInstructions && userInstructions.trim().length > 0) {
+    parts.push(
+      `\n\n## Custom instructions (user-level)\n\nThe user has set the following persistent instructions. Apply them as defaults to every project. When a project-level instruction below contradicts a point here, the project-level version wins.\n\n${userInstructions.trim()}`,
+    );
+  }
+
+  if (projectInstructions && projectInstructions.trim().length > 0) {
+    parts.push(
+      `\n\n## Custom instructions (project-level)\n\nThe user has set the following instructions for this specific project. They take precedence over user-level custom instructions whenever both address the same topic (e.g. if user-level says "use spaces" but project-level says "use tabs", use tabs).\n\n${projectInstructions.trim()}`,
+    );
+  }
+
   if (designSystemBody && designSystemBody.trim().length > 0) {
     parts.push(
       `\n\n## Active design system${designSystemTitle ? ` — ${designSystemTitle}` : ''}\n\nTreat the following DESIGN.md as authoritative for color, typography, spacing, and component rules. Do not invent tokens outside this palette. When you copy the active skill's seed template, bind these tokens into its \`:root\` block before generating any layout.\n\n${designSystemBody.trim()}`,
+    );
+  }
+
+  // Structured (compiled) form of the active brand. The DESIGN.md above
+  // sets voice and intent; the tokens.css block below is the SAME
+  // contract in machine-readable form — names + values the agent pastes
+  // verbatim instead of re-deriving from prose. The components.html
+  // fixture grounds the token vocabulary in worked component shapes
+  // (button / card / type roles) so the agent can copy fragments
+  // directly. Both blocks are individually gated: missing files (today,
+  // every brand except `default` and `kami`) skip silently, preserving
+  // the legacy DESIGN.md-only behaviour for the other ~138 brands.
+  if (designSystemTokensCss && designSystemTokensCss.trim().length > 0) {
+    parts.push(
+      `\n\n## Active design system tokens${designSystemTitle ? ` — ${designSystemTitle}` : ''}\n\nThe block below is this brand's tokens.css contract — every \`:root\` custom property and any scoped override (e.g. \`:root[lang=...]\`) the brand defines. **Paste the unscoped \`:root { ... }\` block verbatim into the artifact's first \`<style>\`** so every \`var(--*)\` reference resolves at runtime.\n\nDo not invent new tokens. Do not redefine these values. Do not write raw hex outside this :root block. The DESIGN.md above is prose; this is the binding contract.\n\n\`\`\`css\n${designSystemTokensCss.trim()}\n\`\`\``,
+    );
+  }
+
+  if (designSystemFixtureHtml && designSystemFixtureHtml.trim().length > 0) {
+    parts.push(
+      `\n\n## Reference fixture${designSystemTitle ? ` — ${designSystemTitle}` : ''}\n\nA self-contained worked artifact in this design system. Match its component shapes (button structure, card structure, type-scale rhythm, focus ring, spacing cadence) when generating new artifacts. Copying fragments is encouraged as long as you keep the \`var(--*)\` references intact — they are already wired to the tokens above.\n\n\`\`\`html\n${designSystemFixtureHtml.trim()}\n\`\`\``,
     );
   }
 
@@ -212,7 +347,7 @@ export function composeSystemPrompt({
     );
   }
 
-  const metaBlock = renderMetadataBlock(metadata, template);
+  const metaBlock = renderMetadataBlock(metadata, template, audioVoiceOptions, audioVoiceOptionsError);
   if (metaBlock) parts.push(metaBlock);
 
   // Decks have a load-bearing framework (nav, counter, scroll JS, print
@@ -438,6 +573,8 @@ Do not silently fall back.`;
 function renderMetadataBlock(
   metadata: ProjectMetadata | undefined,
   template: ProjectTemplate | undefined,
+  audioVoiceOptions: AudioVoiceOption[] | undefined,
+  audioVoiceOptionsError: string | undefined,
 ): string {
   if (!metadata) return '';
   const lines: string[] = [];
@@ -447,6 +584,54 @@ function renderMetadataBlock(
   );
   lines.push('');
   lines.push(`- **kind**: ${metadata.kind}`);
+  if (metadata.platform) {
+    lines.push(`- **platform**: ${metadata.platform}`);
+  } else if (metadata.kind === 'prototype' || metadata.kind === 'template' || metadata.kind === 'other') {
+    lines.push('- **platform**: (unknown — ask: responsive web, desktop web, iOS app, Android app, tablet app, or desktop app?)');
+  }
+  if (Array.isArray(metadata.platformTargets) && metadata.platformTargets.length > 0) {
+    lines.push(`- **platformTargets**: ${metadata.platformTargets.join(', ')}`);
+  }
+  if (metadata.platform === 'responsive' || metadata.platformTargets?.includes('responsive')) {
+    lines.push(
+      '- **responsive web contract**: `responsive` means one web product experience that adapts across modern browser/device ranges, not only legacy desktop/tablet/mobile buckets. It is not an iOS app, Android app, or native tablet app target. Show responsive behavior through real product layout changes; do not render viewport labels as user-facing product content. Cover 2025–2026 breakpoints: mobile compact 360px, mobile standard 390–430px, foldable/small tablet 600–744px, tablet portrait 768–834px, tablet landscape/large tablet 1024–1180px, laptop 1280–1366px, desktop 1440–1536px, and wide 1920px. Use fluid `clamp()` scales, container queries where useful, and explicit layout changes at semantic thresholds. Verify no horizontal scroll at 360px, 390px, 430px, 768px, 820px, 1024px, 1366px, 1440px, and 1920px unless the brief explicitly asks for a pan/board canvas.',
+    );
+  }
+  if ((metadata.platformTargets?.length ?? 0) > 1) {
+    lines.push(
+      '- **cross-platform deliverable rule**: each selected target keeps the same product goal but MUST be delivered as its own product screen/file when more than one concrete target is selected. Use clear files such as `landing.html` (if enabled), `mobile-ios.html`, `mobile-android.html`, `tablet.html`, `desktop.html`, plus shared `css/` and `js/` when useful. `index.html` may be a launcher/overview that links to these files, but it must not be the only place where mobile/tablet/desktop designs live. Do not collapse cross-platform work into a single tabbed demo, selector UI, comparison board, platform map, or labelled documentation section inside one mock product page.',
+    );
+  }
+  if (metadata.kind === 'prototype' || metadata.kind === 'template' || metadata.kind === 'other') {
+    lines.push(
+      '- **screen-file-first rule**: each distinct user-facing screen or surface MUST be delivered as its own HTML file unless the user explicitly asks for a single-page scroll or single-file artifact. Do not combine landing pages, product app screens, dashboards, history, pricing, settings, mobile app, tablet app, desktop app, or OS widget surfaces into one long page. Use `index.html` as a launcher/overview that links to screen files when more than one screen exists; it may summarize the product and show screen cards, but it must not contain the full design for every screen.',
+    );
+    lines.push(
+      '- **product-realism rule**: final artifacts must look like real end-user product UI. Do not render project metadata, screen counts, target counts, state counts, "demo only" labels, "settings" panels for choosing platforms, "full design target" badges, viewport/device selector controls, theme/style knobs, platform output maps, behavior-spec sections, or design-process cards inside the product unless the user explicitly asks for a design spec/dashboard. Any navigation/tabs inside the artifact must be real product navigation, not designer controls for switching generated mockups.',
+    );
+    lines.push(
+      '- **visual-system rule**: when the user does not specify colors, layout, or visual direction, you must still make an intentional product-appropriate visual system. Infer a palette from the product category and audience with at least: neutral surface tokens, a primary action color, a secondary/domain accent, and status colors. Avoid plain monochrome/unstyled greyscale outputs. Use tasteful gradients, illustrations, iconography, device/product mockups, and colored state moments where they clarify the product, while still avoiding generic beige/peach/pink/brown AI washes.',
+    );
+    lines.push(
+      '- **app-specific modules rule**: include domain-specific in-app modules/components by default (cards, panels, controls, charts, lists, quick actions, status modules, mini players, checkout/cart summaries, etc. as appropriate). These are product UI modules, not OS home-screen widgets. Give each major module a clear purpose, states, and responsive behavior instead of generic card grids.',
+    );
+    lines.push(
+      '- **CJX-ready UX rule**: the artifact must be implementation-ready, not a static screenshot. Structure CSS tokens/components/responsive sections clearly; include real JavaScript behavior for meaningful UX such as tabs, dialogs, drawers, filters, generation/copy actions, validation, playback controls, or state transitions. If keeping a self-contained `index.html`, put the CSS/JS in clearly labelled blocks; for complex UX, generate `css/` and `js/` files when useful.',
+    );
+    lines.push(
+      '- **interaction-fidelity rule**: when the requested screen includes user input, generation, copying, validation, login, checkout, filtering, or any action verb, build real interactive controls for that screen. Do not substitute static text rows, prefilled-only mockups, screenshot-like device frames, or decorative state cards for editable inputs and working actions.',
+    );
+  }
+  if (metadata.includeLandingPage) {
+    lines.push(
+      '- **includeLandingPage**: true — create `landing.html` as a separate responsive marketing companion surface in addition to the selected product/app screens. Do not implement the landing page only as a section inside `index.html`, even for responsive-web-only projects. If there is a working product/app screen, create it as a separate file such as `app.html`, `dashboard.html`, or a domain-specific screen name. `index.html` should be a lightweight launcher/overview when multiple files exist. Include hero, value props, product screenshots/device mockups, proof/features, and an appropriate CTA such as waitlist, download, or contact sales.',
+    );
+  }
+  if (metadata.includeOsWidgets) {
+    lines.push(
+      '- **includeOsWidgets**: true — add platform-native OS home-screen / lock-screen / quick-access widget surfaces where relevant. These are outside-the-app widgets (for example iOS WidgetKit, Android home screen widget, Live Activity/lock screen, tablet glance panel), not in-app cards. Include realistic widget sizes and direct quick actions for the domain.',
+    );
+  }
   if (metadata.intent === 'live-artifact') {
     lines.push(
       '- **intent**: live-artifact — the user chose New live artifact. The first output should be a live artifact/dashboard/report, not a one-off static mockup. Prefer the `live-artifact` skill workflow when available, keep source data compact, and register through the daemon live-artifact tool path once that wrapper/tooling is available.',
@@ -538,6 +723,33 @@ function renderMetadataBlock(
     } else if (metadata.audioKind === 'speech') {
       lines.push('- **voice**: (unknown — ask: voice id / accent / pacing)');
     }
+    const voiceOptions = shouldRenderElevenLabsVoiceOptions(metadata, audioVoiceOptions)
+      ? audioVoiceOptions ?? []
+      : [];
+    if (voiceOptions.length > 0) {
+      lines.push(
+        '- **ElevenLabs voice options**: Ask the user to choose from a dropdown select. The visible labels are voice descriptions; the selected value must be the exact `voice_id` passed to `--voice`. Do not ask the user to type an id.',
+      );
+      if (voiceOptions.length > ELEVENLABS_VOICE_PROMPT_OPTION_LIMIT) {
+        lines.push(`- **ElevenLabs voice options**: showing the first ${ELEVENLABS_VOICE_PROMPT_OPTION_LIMIT} of ${voiceOptions.length} available voices.`);
+      }
+      lines.push('');
+      lines.push('<question-form id="elevenlabs-voice" title="Choose an ElevenLabs voice">');
+      lines.push(JSON.stringify(renderElevenLabsVoiceQuestionForm(voiceOptions), null, 2));
+      lines.push('</question-form>');
+    } else {
+      const audioVoiceOptionsPromptError = formatElevenLabsVoiceOptionsErrorForPrompt(audioVoiceOptionsError);
+      if (audioVoiceOptionsPromptError) {
+        lines.push(
+          `- **ElevenLabs voice options**: ${audioVoiceOptionsPromptError}`,
+        );
+      }
+    }
+    if (metadata.audioKind === 'sfx') {
+      lines.push(
+        '- **SFX discovery**: Ask about the sound source/action, materials, intensity, acoustic space, timing/tail, loop/non-loop, and "avoid" constraints. Do not ask for language or voice for SFX.',
+      );
+    }
     lines.push('');
     lines.push(
       'This is an **audio** project. Lock the content intent first, then dispatch via the **media generation contract** using `"$OD_NODE_BIN" "$OD_BIN" media generate --surface audio --audio-kind <kind> --model <audioModel> --duration <seconds>` and add `--voice <voice-id>` for speech when you have a provider-specific voice id. Do NOT emit `<artifact>` HTML.',
@@ -625,6 +837,65 @@ function renderMetadataBlock(
   }
 
   return lines.join('\n');
+}
+
+function shouldRenderElevenLabsVoiceOptions(
+  metadata: ProjectMetadata,
+  audioVoiceOptions: AudioVoiceOption[] | undefined,
+): boolean {
+  return metadata.kind === 'audio'
+    && metadata.audioKind === 'speech'
+    && metadata.audioModel === 'elevenlabs-v3'
+    && !metadata.voice
+    && Array.isArray(audioVoiceOptions)
+    && audioVoiceOptions.length > 0;
+}
+
+function renderElevenLabsVoiceQuestionForm(voiceOptions: AudioVoiceOption[]): {
+  description: string;
+  questions: Array<{
+    id: string;
+    label: string;
+    type: 'select';
+    required: boolean;
+    placeholder: string;
+    help: string;
+    options: Array<{ label: string; value: string }>;
+  }>;
+  submitLabel: string;
+} {
+  const options = voiceOptions.slice(0, ELEVENLABS_VOICE_PROMPT_OPTION_LIMIT).map((option) => ({
+    label: formatElevenLabsVoiceLabel(option),
+    value: option.voiceId,
+  }));
+  return {
+    description:
+      'Pick a voice by description. The selected answer will be the exact voice_id passed to the renderer.',
+    questions: [
+      {
+        id: 'voice',
+        label: 'Voice',
+        type: 'select',
+        required: true,
+        placeholder: 'Choose a voice',
+        help: 'Select a voice description; the answer submits the matching Voice ID.',
+        options,
+      },
+    ],
+    submitLabel: 'Use voice',
+  };
+}
+
+function formatElevenLabsVoiceLabel(option: AudioVoiceOption): string {
+  const labels = option.labels && typeof option.labels === 'object'
+    ? Object.values(option.labels)
+        .map((value) => (typeof value === 'string' ? value.trim() : ''))
+        .filter(Boolean)
+    : [];
+  const bits = [...labels];
+  if (bits.length > 0) return `${option.name} — ${bits.join(' · ')}`;
+  const category = typeof option.category === 'string' ? option.category.trim() : '';
+  return category ? `${option.name} — ${category}` : option.name;
 }
 
 /**

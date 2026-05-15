@@ -379,8 +379,6 @@ export const it: Dict = {
   'newproj.surfaceAudio': 'Audio',
   'newproj.modelLabel': 'Modello',
   'newproj.aspectLabel': 'Formato',
-  'newproj.imageStyleLabel': 'Note di stile',
-  'newproj.imageStylePlaceholder': 'Foto editoriale, luce morbida, palette sobria',
   'newproj.videoLengthLabel': 'Durata',
   'newproj.videoLengthSeconds': '{n}s',
   'newproj.audioKindLabel': 'Tipo di audio',

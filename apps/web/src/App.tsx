@@ -1,4 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useAnalytics } from './analytics/provider';
+import { trackAppLaunch, trackProjectCreateResult } from './analytics/events';
+import { detectClientType, detectLaunchSource } from './analytics/identity';
+import {
+  projectKindToTracking,
+  fidelityToTracking,
+} from '@open-design/contracts/analytics';
 import { EntryView } from './components/EntryView';
 import type { CreateInput } from './components/NewProjectPanel';
 import { MemoryToast } from './components/MemoryToast';
@@ -44,6 +51,7 @@ import {
   importFolderProject,
   listProjects,
   listTemplates,
+  deleteTemplate,
   patchProject,
 } from './state/projects';
 import { useI18n } from './i18n';
@@ -194,6 +202,43 @@ export function App() {
   // can't overwrite the saved state with `''` before hydration lands.
   const [composioConfigLoading, setComposioConfigLoading] = useState(true);
   const route = useRoute();
+  const analytics = useAnalytics();
+
+  // app_launch — fired exactly once per page load. Mounting in App, not the
+  // RootLayout, so we capture after the first React tick and the analytics
+  // provider has had a chance to wire its identity. Gated on
+  // `config.telemetry?.metrics` so a freshly-opted-in user gets the event
+  // on their next reload, and a declined user fires nothing.
+  const appLaunchFiredRef = useRef(false);
+  useEffect(() => {
+    if (appLaunchFiredRef.current) return;
+    if (config.telemetry?.metrics !== true) return;
+    appLaunchFiredRef.current = true;
+    trackAppLaunch(analytics.track, {
+      page: 'app',
+      launch_source: detectLaunchSource(),
+      platform: detectClientType(),
+    });
+  }, [analytics.track, config.telemetry?.metrics]);
+
+  // Propagate the Privacy toggle through to PostHog without a reload —
+  // posthog-js's opt_out_capturing flips a localStorage flag that makes
+  // every subsequent capture() a no-op. When the user opts back in we
+  // call opt_in_capturing to resume.
+  useEffect(() => {
+    analytics.setConsent(config.telemetry?.metrics === true);
+  }, [analytics.setConsent, config.telemetry?.metrics]);
+
+  // Sync PostHog's distinct_id with the anonymous installationId, both on
+  // first opt-in (when the daemon stamps a fresh id) and on Delete-my-data
+  // rotation (when PrivacySection.tsx generates a new one). posthog-js
+  // caches the previous id in localStorage; identify() alone would stitch
+  // the two ids together, so applyIdentity() does reset() first to
+  // guarantee the new session is fully decoupled from the deleted one.
+  useEffect(() => {
+    if (config.telemetry?.metrics !== true) return;
+    analytics.setIdentity(config.installationId ?? null);
+  }, [analytics.setIdentity, config.installationId, config.telemetry?.metrics]);
 
   // Sync theme preference to the <html> element so CSS variables pick it up.
   // useLayoutEffect (vs useEffect) fires before the browser paints, so a
@@ -465,6 +510,12 @@ export function App() {
     setTemplates(list);
   }, []);
 
+  const handleDeleteTemplate = useCallback(async (id: string) => {
+    const ok = await deleteTemplate(id);
+    if (ok) await refreshTemplates();
+    return ok;
+  }, [refreshTemplates]);
+
   const reloadMediaProvidersFromDaemon = useCallback(async () => {
     const result = await fetchMediaProvidersFromDaemon();
     if (result.status !== 'ok') {
@@ -603,7 +654,9 @@ export function App() {
   );
 
   const handleCreateProject = useCallback(
-    async (input: CreateInput & { pendingPrompt?: string }) => {
+    async (
+      input: CreateInput & { pendingPrompt?: string; requestId?: string },
+    ) => {
       // Honor an explicit `null` design system — the create panel defaults
       // to "None" for every kind now, and the user expects that to land
       // as a no-design-system project rather than silently inheriting the
@@ -612,6 +665,10 @@ export function App() {
       input.pendingPrompt ??
       (input.metadata?.promptTemplate?.prompt?.trim() || undefined);
 
+      const kind = input.metadata?.kind ?? null;
+      const fidelity = fidelityToTracking(input.metadata?.fidelity ?? null);
+      const creationSource: 'blank' | 'template' | 'zip' | 'folder' =
+        kind === 'template' ? 'template' : 'blank';
       const result = await createProject({
         name: input.name,
         skillId: input.skillId,
@@ -619,7 +676,38 @@ export function App() {
         pendingPrompt: derivedPendingPrompt,
         metadata: input.metadata,
       });
-      if (!result) return;
+      if (!result) {
+        trackProjectCreateResult(
+          analytics.track,
+          {
+            page: 'home',
+            area: 'create_panel',
+            action_source: 'create_button',
+            project_id: null,
+            project_kind: projectKindToTracking(kind),
+            creation_source: creationSource,
+            fidelity,
+            result: 'failed',
+            error_code: 'CREATE_REQUEST_FAILED',
+          },
+          { requestId: input.requestId },
+        );
+        return;
+      }
+      trackProjectCreateResult(
+        analytics.track,
+        {
+          page: 'home',
+          area: 'create_panel',
+          action_source: 'create_button',
+          project_id: result.project.id,
+          project_kind: projectKindToTracking(kind),
+          creation_source: creationSource,
+          fidelity,
+          result: 'success',
+        },
+        { requestId: input.requestId },
+      );
       setProjects((curr) => [
         result.project,
         ...curr.filter((p) => p.id !== result.project.id),
@@ -630,7 +718,7 @@ export function App() {
         fileName: null,
       });
     },
-    [],
+    [analytics.track],
   );
 
   const handleImportClaudeDesign = useCallback(async (file: File) => {
@@ -688,6 +776,15 @@ export function App() {
       navigate({ kind: 'home' });
     }
   }, [route]);
+
+  const handleRenameProject = useCallback(async (id: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setProjects((curr) =>
+      curr.map((p) => (p.id === id ? { ...p, name: trimmed } : p)),
+    );
+    void patchProject(id, { name: trimmed });
+  }, []);
 
   const handleBack = useCallback(() => {
     navigate({ kind: 'home' });
@@ -886,6 +983,7 @@ export function App() {
           key={activeProject.id}
           project={activeProject}
           routeFileName={route.kind === 'project' ? route.fileName : null}
+          routeConversationId={route.kind === 'project' ? route.conversationId : null}
           config={config}
           agents={agents}
           skills={enabledFunctionalSkills}
@@ -914,6 +1012,7 @@ export function App() {
           designSystems={enabledDS}
           projects={projects}
           templates={templates}
+          onDeleteTemplate={handleDeleteTemplate}
           promptTemplates={promptTemplates}
           defaultDesignSystemId={config.designSystemId}
           config={config}
@@ -929,6 +1028,7 @@ export function App() {
           onOpenProject={handleOpenProject}
           onOpenLiveArtifact={handleOpenLiveArtifact}
           onDeleteProject={handleDeleteProject}
+          onRenameProject={handleRenameProject}
           onChangeDefaultDesignSystem={handleChangeDefaultDesignSystem}
           onOpenSettings={openSettings}
           onAdoptPet={openPetSettings}
