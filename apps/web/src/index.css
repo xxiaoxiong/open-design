@@ -5575,6 +5575,10 @@ code {
   /* Older browsers ignore row-gap on flex with wrap — explicit row-gap keeps
      the wrapped row visually separated rather than flush against the pill. */
   row-gap: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: var(--bg-panel);
 }
 .tab-panel-toolbar .toolbar-left {
   display: flex;
