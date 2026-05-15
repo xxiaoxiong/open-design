@@ -45,6 +45,7 @@ export type MediaProviderId =
   | 'elevenlabs'
   | 'fishaudio'
   | 'tavily'
+  | 'leonardo'
   | 'stub';
 
 export interface MediaProvider {
