@@ -157,6 +157,13 @@ export function SkillsSection({ cfg, setCfg }: Props) {
     });
   }, [skills, modeFilter, sourceFilter, categoryFilter, search]);
 
+  // Reset source filter to 'all' when the selected source has zero skills
+  useEffect(() => {
+    if (sourceFilter === 'all') return;
+    const count = skills.filter((skill) => (skill.source ?? 'built-in') === sourceFilter).length;
+    if (count === 0) setSourceFilter('all');
+  }, [sourceFilter, skills]);
+
   const ensureBody = useCallback(
     async (id: string) => {
       if (bodyById[id] !== undefined) return bodyById[id];
@@ -365,6 +372,8 @@ export function SkillsSection({ cfg, setCfg }: Props) {
               s === 'all'
                 ? skills.length
                 : skills.filter((skill) => (skill.source ?? 'built-in') === s).length;
+            // Hide source pills with zero count (except 'all')
+            if (s !== 'all' && count === 0) return null;
             return (
               <button
                 key={s}
