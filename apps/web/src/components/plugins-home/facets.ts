@@ -736,8 +736,8 @@ export function filterByQuery(
 // creation bucket first; Slides tends to contain polished, image-heavy
 // cards, while the broader Create lane remains one tap away.
 export const PREFERRED_DEFAULT_SELECTION: FacetSelection = {
-  category: 'create',
-  subcategory: 'deck',
+  category: null,
+  subcategory: null,
 };
 
 export function resolveDefaultSelection(catalog: FacetCatalog): FacetSelection {
