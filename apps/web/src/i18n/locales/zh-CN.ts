@@ -564,6 +564,7 @@ export const zhCN: Dict = {
   'designs.renameTitle': '重命名项目',
   'designs.renameSave': '确定',
   'designs.renameCancel': '取消',
+  'designs.renameSuccess': '已重命名为 "{name}"',
 
   'examples.typeLabel': '类型',
   'examples.surfaceLabel': '类型',

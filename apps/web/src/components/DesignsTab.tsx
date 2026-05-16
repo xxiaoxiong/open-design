@@ -11,6 +11,7 @@ import type {
 } from "../types";
 import { Icon } from "./Icon";
 import { LiveArtifactBadges } from "./LiveArtifactBadges";
+import { Toast } from "./Toast";
 
 type SubTab = "recent" | "yours";
 type ViewMode = "grid" | "kanban";
@@ -89,6 +90,7 @@ export function DesignsTab({
 		confirmLabel: string;
 		onConfirm: () => void;
 	} | null>(null);
+	const [toast, setToast] = useState<{ message: string; role?: 'status' | 'alert' } | null>(null);
 	const [view, setView] = useState<ViewMode>(() => {
 		if (typeof window === "undefined") return "grid";
 		try {
@@ -297,6 +299,7 @@ export function DesignsTab({
 		const trimmed = renameInput.trim();
 		if (trimmed && trimmed !== renameTarget.original) {
 			onRename?.(renameTarget.id, trimmed);
+			setToast({ message: t("designs.renameSuccess", { name: trimmed }), role: 'status' });
 		}
 		setRenameTarget(null);
 		setRenameInput("");
@@ -815,6 +818,13 @@ export function DesignsTab({
 						</div>
 					</div>
 				</div>
+			) : null}
+			{toast ? (
+				<Toast
+					message={toast.message}
+					role={toast.role}
+					onDismiss={() => setToast(null)}
+				/>
 			) : null}
 		</div>
 	);

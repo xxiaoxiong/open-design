@@ -569,6 +569,7 @@ export const en: Dict = {
   'designs.renameTitle': 'Rename project',
   'designs.renameSave': 'OK',
   'designs.renameCancel': 'Cancel',
+  'designs.renameSuccess': 'Renamed to "{name}"',
 
   'examples.typeLabel': 'Type',
   'examples.surfaceLabel': 'Surface',

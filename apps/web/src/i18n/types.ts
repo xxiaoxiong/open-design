@@ -827,6 +827,7 @@ export interface Dict {
   'designs.renameTitle': string;
   'designs.renameSave': string;
   'designs.renameCancel': string;
+  'designs.renameSuccess': string;
 
   // Examples tab
   'examples.typeLabel': string;
