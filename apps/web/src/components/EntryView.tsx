@@ -340,6 +340,7 @@ export function EntryView({
       onOpenProject={onOpenProject}
       onOpenLiveArtifact={onOpenLiveArtifact}
       onDeleteProject={onDeleteProject}
+      onRenameProject={onRenameProject}
       onChangeDefaultDesignSystem={onChangeDefaultDesignSystem}
       onPersistComposioKey={onPersistComposioKey}
       onOpenSettings={onOpenSettings}
