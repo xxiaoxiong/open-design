@@ -2078,14 +2078,14 @@ footer {
 .plugin-hero__grid,
 .plugin-detail-hero__grid {
   display: grid;
-  gap: 56px;
+  gap: 32px;
   align-items: start;
 }
 .plugin-hero__grid {
   grid-template-columns: minmax(0, 1fr) minmax(360px, 440px);
 }
 .plugin-detail-hero__grid {
-  grid-template-columns: minmax(0, 1fr) minmax(380px, 520px);
+  grid-template-columns: minmax(0, 1fr) minmax(400px, 540px);
 }
 .plugin-hero h1,
 .plugin-detail h1 {
@@ -2112,13 +2112,16 @@ footer {
   margin-top: 34px;
 }
 .plugin-hero__panel,
-.plugin-detail-preview,
-.plugin-detail__facts,
 .plugin-detail-panel {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(247, 241, 222, 0.72);
   box-shadow: var(--shadow);
+}
+.plugin-detail-preview,
+.plugin-detail__facts {
+  background: rgba(247, 241, 222, 0.72);
+  border-radius: 0;
 }
 .plugin-hero__panel {
   display: grid;
@@ -2606,8 +2609,11 @@ footer {
 }
 .plugin-detail-side {
   display: grid;
-  gap: 16px;
+  gap: 1px;
   min-width: 0;
+  background: var(--line);
+  border-radius: 8px;
+  overflow: hidden;
 }
 .plugin-detail-preview {
   overflow: hidden;
@@ -2643,7 +2649,7 @@ footer {
 .plugin-detail-preview__frame iframe {
   width: 1080px;
   height: 675px;
-  transform: scale(0.48);
+  transform: scale(0.5);
   transform-origin: top left;
 }
 .plugin-detail-preview__frame img {
