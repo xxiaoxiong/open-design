@@ -6797,6 +6797,8 @@ a.avatar-item:visited {
   color: color-mix(in oklab, #ff6b6b 70%, var(--fg) 30%);
   font-size: 13px;
   line-height: 1.45;
+  max-height: 120px;
+  overflow-y: auto;
 }
 
 .connectors-heading h2 {
@@ -6852,6 +6854,7 @@ a.avatar-item:visited {
   flex-direction: column;
   gap: 12px;
   min-height: 168px;
+  max-height: 240px;
   padding: 16px 16px 14px;
   background: var(--bg-panel);
   border: 1px solid var(--border);
