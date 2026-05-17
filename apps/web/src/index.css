@@ -1628,6 +1628,14 @@ a.avatar-item:visited {
   align-items: flex-end;
   max-width: min(78%, 560px);
 }
+.msg.assistant {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
 .msg .role {
   display: flex;
   align-items: baseline;
