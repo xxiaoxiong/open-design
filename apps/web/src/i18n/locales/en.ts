@@ -1357,7 +1357,7 @@ export const en: Dict = {
   'pet.composerTitle': 'Pets — wake, tuck, or pick one',
   'pet.composerMenuTitle': 'Pets',
   'pet.composerMenuHint': 'tip: type /pet to toggle',
-  'pet.composerOpenSettings': 'Customize in Settings',
+  'pet.composerOpenSettings': 'Manage Pets',
   'pet.welcomeTeaserTitle': 'Adopt a pet',
   'pet.welcomeTeaserBody': 'A tiny floating companion that hangs out with you.',
   'pet.welcomeTeaserCta': 'Pick one',
