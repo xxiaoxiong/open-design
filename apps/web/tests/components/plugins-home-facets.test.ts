@@ -304,25 +304,25 @@ describe('isFeaturedPlugin', () => {
 });
 
 describe('resolveDefaultSelection', () => {
-  it('defaults the home catalog to Create > Slides when that bucket exists', () => {
+  it('defaults the home catalog to no filter (All) to show all plugins', () => {
     const catalog = buildFacetCatalog([
       fixture({ id: 'slides', od: { mode: 'deck' } }),
       fixture({ id: 'prototype', od: { mode: 'prototype' } }),
     ]);
 
     expect(resolveDefaultSelection(catalog)).toEqual({
-      category: 'create',
-      subcategory: 'deck',
+      category: null,
+      subcategory: null,
     });
   });
 
-  it('falls back to the Create lane when Slides is unavailable', () => {
+  it('returns no filter when catalog has plugins', () => {
     const catalog = buildFacetCatalog([
       fixture({ id: 'prototype', od: { mode: 'prototype' } }),
     ]);
 
     expect(resolveDefaultSelection(catalog)).toEqual({
-      category: 'create',
+      category: null,
       subcategory: null,
     });
   });

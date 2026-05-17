@@ -126,14 +126,8 @@ describe('PluginsHomeSection (category bar)', () => {
     expect(screen.queryByTestId('plugins-home-pill-category-video')).toBeNull();
     expect(screen.queryByTestId('plugins-home-pill-category-image')).toBeNull();
     expect(screen.queryByTestId('plugins-home-pill-category-reactjs')).toBeNull();
-    expect(screen.getByTestId('plugins-home-row-subcategory-create')).toBeTruthy();
-    expect(screen.getByTestId('plugins-home-pill-subcategory-create-prototype')).toBeTruthy();
-    expect(screen.getByTestId('plugins-home-pill-subcategory-create-deck')).toBeTruthy();
-    expect(screen.getByTestId('plugins-home-pill-subcategory-create-design-system')).toBeTruthy();
-    expect(screen.getByTestId('plugins-home-pill-subcategory-create-hyperframes')).toBeTruthy();
-    expect(screen.getByTestId('plugins-home-pill-subcategory-create-image')).toBeTruthy();
-    expect(screen.getByTestId('plugins-home-pill-subcategory-create-video')).toBeTruthy();
-    expect(screen.getByTestId('plugins-home-pill-subcategory-create-audio')).toBeTruthy();
+    // Default selection is now All (no category filter), so no subcategory row is shown
+    expect(screen.queryByTestId('plugins-home-row-subcategory-create')).toBeNull();
     // Surface / Type / Scenario rows and the More disclosure are gone.
     expect(screen.queryByTestId('plugins-home-row-surface')).toBeNull();
     expect(screen.queryByTestId('plugins-home-row-type')).toBeNull();
@@ -152,6 +146,8 @@ describe('PluginsHomeSection (category bar)', () => {
         onOpenDetails={() => {}}
       />,
     );
+    // Click Create category to show subcategory row
+    fireEvent.click(screen.getByTestId('plugins-home-pill-category-create'));
     expect(screen.getByTestId('plugins-home-pill-subcategory-create-audio')).toBeTruthy();
   });
 
@@ -278,7 +274,22 @@ describe('PluginsHomeSection (category bar)', () => {
         onOpenDetails={() => {}}
       />,
     );
+    // Default selection is now All, so all plugins are shown
     let items = within(screen.getByRole('list')).getAllByRole('listitem');
+    expect(items.map((i) => i.getAttribute('data-plugin-id')).sort()).toEqual([
+      'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
+    ]);
+
+    // Click Create category to show subcategory row
+    fireEvent.click(screen.getByTestId('plugins-home-pill-category-create'));
+    items = within(screen.getByRole('list')).getAllByRole('listitem');
+    expect(items.map((i) => i.getAttribute('data-plugin-id')).sort()).toEqual([
+      'a', 'b', 'c', 'd', 'e', 'f',
+    ]);
+
+    // Click deck subcategory
+    fireEvent.click(screen.getByTestId('plugins-home-pill-subcategory-create-deck'));
+    items = within(screen.getByRole('list')).getAllByRole('listitem');
     expect(items.map((i) => i.getAttribute('data-plugin-id'))).toEqual(['f']);
     expect(screen.getByTestId('plugins-home-pill-subcategory-create-deck').getAttribute('aria-selected'))
       .toBe('true');
