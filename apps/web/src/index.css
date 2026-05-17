@@ -5402,8 +5402,11 @@ a.avatar-item:visited {
   /* Hard-stop at top/bottom: disable both scroll chaining and the element's
      own rubber-band. The body's parents are transparent up to the gray
      `--bg`, so any rubber-band travel briefly exposes that gray above/below
-     the white card. `none` removes the rubber-band entirely. */
-  overscroll-behavior: none;
+     the white card. `contain` prevents scroll chaining while still allowing
+     normal scroll gestures (mouse wheel, trackpad) to work. */
+  overscroll-behavior: contain;
+  /* Ensure smooth scrolling on webkit browsers */
+  -webkit-overflow-scrolling: touch;
 }
 .newproj-title {
   margin: 0;
