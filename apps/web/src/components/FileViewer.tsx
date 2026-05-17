@@ -3588,6 +3588,19 @@ function HtmlViewer({
         },
         { requestId },
       );
+      // Show success toast for completed exports (except template, which has its own feedback)
+      if (result === 'success' && format !== 'template') {
+        const formatLabels: Record<string, string> = {
+          pdf: 'PDF',
+          pptx: 'PPTX',
+          zip: 'ZIP',
+          html: 'HTML',
+          markdown: 'Markdown',
+          vercel: 'Vercel',
+          cloudflare_pages: 'Cloudflare Pages',
+        };
+        setExportSuccessToast(t('fileViewer.exportSuccess', { format: formatLabels[format] || format }));
+      }
     };
     try {
       const out = fn();
@@ -3811,6 +3824,7 @@ function HtmlViewer({
   const [sendingBoardBatch, setSendingBoardBatch] = useState(false);
   const [commentSavedToast, setCommentSavedToast] = useState<string | null>(null);
   const [templateSavedToast, setTemplateSavedToast] = useState<string | null>(null);
+  const [exportSuccessToast, setExportSuccessToast] = useState<string | null>(null);
   const [selectedSideCommentIds, setSelectedSideCommentIds] = useState<Set<string>>(() => new Set());
   const [commentSidePanelCollapsed, setCommentSidePanelCollapsed] = useState(false);
   const [strokePoints, setStrokePoints] = useState<StrokePoint[]>([]);
@@ -6078,6 +6092,15 @@ function HtmlViewer({
                   message={templateSavedToast}
                   ttlMs={2200}
                   onDismiss={() => setTemplateSavedToast(null)}
+                />
+              </div>
+            ) : null}
+            {exportSuccessToast ? (
+              <div className="comment-toast-anchor">
+                <Toast
+                  message={exportSuccessToast}
+                  ttlMs={2200}
+                  onDismiss={() => setExportSuccessToast(null)}
                 />
               </div>
             ) : null}
