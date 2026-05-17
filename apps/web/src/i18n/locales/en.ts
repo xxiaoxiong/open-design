@@ -721,6 +721,7 @@ export const en: Dict = {
   'chat.deleteConversationConfirm':
     'Delete "{title}"? This removes its messages.',
   'chat.untitledConversation': 'Untitled conversation',
+  'chat.editTitle': 'Click to edit conversation title',
   'chat.startTitle': 'Start a conversation',
   'chat.startHint':
     'Drop or paste images for visual reference, or type @ to attach a file from this project. Or try one of these starters:',

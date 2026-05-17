@@ -619,10 +619,29 @@ export function ChatPane({
   const activeConversation =
     conversations.find((c) => c.id === activeConversationId) ?? null;
 
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
+
   function jumpToBottom() {
     const el = logRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+  }
+
+  function handleTitleEdit() {
+    if (!activeConversation || !onRenameConversation) return;
+    setTitleDraft(activeConversation.title ?? '');
+    setEditingTitle(true);
+  }
+
+  function handleTitleSave() {
+    if (!activeConversation || !onRenameConversation) return;
+    onRenameConversation(activeConversation.id, titleDraft);
+    setEditingTitle(false);
+  }
+
+  function handleTitleCancel() {
+    setEditingTitle(false);
   }
 
   return (
@@ -721,6 +740,38 @@ export function ChatPane({
             </button>
           ) : null}
         </div>
+        {activeConversation ? (
+          <div className="chat-header-title">
+            {editingTitle && onRenameConversation ? (
+              <input
+                autoFocus
+                className="chat-title-input"
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onBlur={handleTitleSave}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleTitleSave();
+                  } else if (e.key === 'Escape') {
+                    handleTitleCancel();
+                  }
+                }}
+                data-testid="chat-title-input"
+              />
+            ) : (
+              <button
+                type="button"
+                className="chat-title-display"
+                onClick={handleTitleEdit}
+                disabled={!onRenameConversation}
+                title={onRenameConversation ? t('chat.editTitle') : undefined}
+                data-testid="chat-title-display"
+              >
+                {activeConversation.title || t('chat.untitledConversation')}
+              </button>
+            )}
+          </div>
+        ) : null}
       </div>
       {tab === 'chat' ? (
         <>

@@ -1600,6 +1600,59 @@ a.avatar-item:visited {
 }
 .chat-header-actions .icon-only:hover { background: var(--bg-subtle); color: var(--text); }
 
+.chat-header-title {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  min-width: 0;
+}
+
+.chat-title-display {
+  background: transparent;
+  border: none;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  text-align: left;
+}
+
+.chat-title-display:hover {
+  background: var(--bg-subtle);
+}
+
+.chat-title-display:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.chat-title-display:disabled:hover {
+  background: transparent;
+}
+
+.chat-title-input {
+  flex: 1;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  outline: none;
+}
+
+.chat-title-input:focus {
+  border-color: var(--accent);
+}
+
 .chat-log {
   flex: 1;
   overflow-y: auto;
