@@ -6788,15 +6788,7 @@ a.avatar-item:visited {
   font-size: 13px;
 }
 
-.connector-inline-error {
-  margin: 0 0 12px;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in oklab, #ff6b6b 45%, var(--line) 55%);
-  border-radius: 12px;
-  background: color-mix(in oklab, #ff6b6b 10%, var(--panel) 90%);
-  color: color-mix(in oklab, #ff6b6b 70%, var(--fg) 30%);
-  font-size: 13px;
-  line-height: 1.45;
+.connector-authorization-error {
   max-height: 120px;
   overflow-y: auto;
 }
