@@ -1178,6 +1178,7 @@ export const ru: Dict = {
   'pet.composerTitle': 'Питомцы — разбудить, спрятать или выбрать',
   'pet.composerMenuTitle': 'Питомцы',
   'pet.composerMenuHint': 'совет: введите /pet, чтобы переключить',
+  'pet.composerOpenSettings': 'Управление питомцами',
   'pet.welcomeTeaserTitle': 'Заведите питомца',
   'pet.welcomeTeaserBody': 'Маленький спутник, парящий над воркспейсом.',
   'pet.welcomeTeaserCta': 'Выбрать',

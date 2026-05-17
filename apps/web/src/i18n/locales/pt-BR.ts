@@ -1178,6 +1178,7 @@ export const ptBR: Dict = {
   'pet.composerTitle': 'Bichinhos — acordar, esconder ou escolher',
   'pet.composerMenuTitle': 'Bichinhos',
   'pet.composerMenuHint': 'dica: digite /pet para alternar',
+  'pet.composerOpenSettings': 'Gerenciar pets',
   'pet.welcomeTeaserTitle': 'Adote um bichinho',
   'pet.welcomeTeaserBody': 'Um companheirinho que flutua pelo workspace.',
   'pet.welcomeTeaserCta': 'Escolher',

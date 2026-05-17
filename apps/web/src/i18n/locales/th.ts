@@ -1097,6 +1097,7 @@ export const th: Dict = {
   'pet.composerTitle': 'เพื่อนสัตว์เลี้ยง — เรียกตื่น ม้วนไปนอน หรือเอาอันไหนสักที',
   'pet.composerMenuTitle': 'เพื่อนสัตว์เลี้ยง',
   'pet.composerMenuHint': 'ตัวเลือกพิเศษ: ลองพิมพ์ /pet เพื่อเปลี่ยนการใช้งานโหมด',
+  'pet.composerOpenSettings': 'จัดการสัตว์เลี้ยง',
   'pet.welcomeTeaserTitle': 'เปิดรับเพื่อนมา',
   'pet.welcomeTeaserBody': 'ตัวกระจุ๋มกระจิ๋มอยู่ลอยไปมาบนพื้นที่ที่โชว์แวะทัก',
   'pet.welcomeTeaserCta': 'เลือกมาตัวนึงสิ',

@@ -1179,6 +1179,7 @@ export const uk: Dict = {
   'pet.composerTitle': 'Маскоти — розбудити, Сховати або виберіть одну',
   'pet.composerMenuTitle': 'Маскоти',
   'pet.composerMenuHint': 'підказка: введіть /pet для перемикання',
+  'pet.composerOpenSettings': 'Керувати вихованцями',
   'pet.welcomeTeaserTitle': 'Встановити маскота',
   'pet.welcomeTeaserBody': 'Крихітний плаваючий супутник, який зависає з вами.',
   'pet.welcomeTeaserCta': 'Виберіть один',

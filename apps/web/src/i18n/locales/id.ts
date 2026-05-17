@@ -1286,6 +1286,7 @@ export const id: Dict = {
   'pet.composerTitle': 'Pet',
   'pet.composerMenuTitle': 'Perintah pet',
   'pet.composerMenuHint': 'Kelola pet dari composer.',
+  'pet.composerOpenSettings': 'Kelola Hewan Peliharaan',
   'pet.welcomeTeaserTitle': 'Tambahkan teman kecil',
   'pet.welcomeTeaserBody': 'Pet bisa menemani workspace saat agent bekerja.',
   'pet.welcomeTeaserCta': 'Pilih pet',

@@ -1276,6 +1276,7 @@ export const zhTW: Dict = {
   'pet.composerTitle': '寵物 — 喚醒、收起或挑一隻',
   'pet.composerMenuTitle': '寵物',
   'pet.composerMenuHint': '小提示：輸入 /pet 即可切換',
+  'pet.composerOpenSettings': '管理寵物',
   'pet.welcomeTeaserTitle': '領養一隻寵物',
   'pet.welcomeTeaserBody': '一隻小小的浮窗夥伴，會陪你工作。',
   'pet.welcomeTeaserCta': '挑一隻',

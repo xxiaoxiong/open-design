@@ -1124,6 +1124,7 @@ export const tr: Dict = {
   'pet.composerTitle': 'Evcil Dostlar — uyandır, sakla veya seç',
   'pet.composerMenuTitle': 'Evcil Dostlar',
   'pet.composerMenuHint': 'ipucu: değiştirmek için /pet yaz',
+  'pet.composerOpenSettings': 'Evcil Hayvanları Yönet',
   'pet.welcomeTeaserTitle': 'Bir evcil dost sahiplen',
   'pet.welcomeTeaserBody': 'Çalışma alanın üstünde süzülen küçük bir yoldaş.',
   'pet.welcomeTeaserCta': 'Birini seç',

@@ -1187,6 +1187,7 @@ export const ko: Dict = {
   'pet.composerTitle': '펫 — 깨우기, 숨기기 또는 선택',
   'pet.composerMenuTitle': '펫',
   'pet.composerMenuHint': '팁: /pet 을 입력하면 토글',
+  'pet.composerOpenSettings': '펫 관리',
   'pet.welcomeTeaserTitle': '펫 입양하기',
   'pet.welcomeTeaserBody': '작업 공간 위에 떠다니는 작은 친구입니다.',
   'pet.welcomeTeaserCta': '고르기',
