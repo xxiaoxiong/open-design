@@ -583,6 +583,7 @@ export const th: Dict = {
   'chat.deleteConversation': 'ลบบทสนทนา',
   'chat.deleteConversationConfirm': 'ลบ "{title}" หรือไม่?',
   'chat.untitledConversation': 'บทสนทนาที่ไม่มีชื่อ',
+  'chat.editTitle': 'Click to edit conversation title',
   'chat.startTitle': 'เริ่มแชทได้เลย',
   'chat.startHint': 'ลากหรือวางรูปภาพที่นี่ หรือพิมพ์ @ เพื่อดึงไฟล์โปรเจกต์',
   'chat.fillInputTitle': 'คลิกเพื่อใส่ข้อความ',

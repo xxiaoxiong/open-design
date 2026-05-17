@@ -715,6 +715,7 @@ export const zhCN: Dict = {
   'chat.deleteConversation': '删除对话',
   'chat.deleteConversationConfirm': '确定删除「{title}」？该操作会删除其消息。',
   'chat.untitledConversation': '未命名对话',
+  'chat.editTitle': 'Click to edit conversation title',
   'chat.startTitle': '开始一个对话',
   'chat.startHint':
     '可以拖拽或粘贴图片作为视觉参考，或键入 @ 引用本项目中的文件。也可以从下面的示例开始：',

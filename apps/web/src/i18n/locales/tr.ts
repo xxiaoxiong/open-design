@@ -618,6 +618,7 @@ export const tr: Dict = {
   'chat.deleteConversationConfirm':
     '"{title}"’ı sil? Bu mesajları silecektir.',
   'chat.untitledConversation': 'Başlıksız konuşma',
+  'chat.editTitle': 'Click to edit conversation title',
   'chat.startTitle': 'Bir konuşma başlat',
   'chat.startHint':
     'Görsel referans için görsel sürükleyin veya yapıştırın, veya bu projeden bir dosya iliştirmek için @ yazın. Veya bu başlatıcılardan birini deneyin:',

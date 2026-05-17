@@ -745,6 +745,7 @@ export const id: Dict = {
   'chat.deleteConversation': 'Hapus percakapan',
   'chat.deleteConversationConfirm': 'Hapus "{title}"? Semua pesannya ikut dihapus.',
   'chat.untitledConversation': 'Percakapan tanpa judul',
+  'chat.editTitle': 'Click to edit conversation title',
   'chat.startTitle': 'Mulai percakapan',
   'chat.startHint': 'Jelaskan apa yang ingin kamu buat. Agent akan menulis file dan menampilkan pratinjau di sini.',
   'chat.fillInputTitle': 'Isi brief dulu',

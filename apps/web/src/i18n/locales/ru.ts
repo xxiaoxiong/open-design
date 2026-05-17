@@ -650,6 +650,7 @@ export const ru: Dict = {
   'chat.deleteConversationConfirm':
     'Удалить «{title}»? Это удалит его сообщения.',
   'chat.untitledConversation': 'Разговор без названия',
+  'chat.editTitle': 'Click to edit conversation title',
   'chat.startTitle': 'Начать разговор',
   'chat.startHint':
     'Перетащите или вставьте изображения для визуальной ссылки или введите @ для прикрепления файла из этого проекта. Или попробуйте одно из этих начал:',

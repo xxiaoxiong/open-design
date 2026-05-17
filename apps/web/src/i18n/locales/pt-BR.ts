@@ -650,6 +650,7 @@ export const ptBR: Dict = {
   'chat.deleteConversationConfirm':
     'Excluir "{title}"? Isso remove as mensagens.',
   'chat.untitledConversation': 'Conversa sem título',
+  'chat.editTitle': 'Click to edit conversation title',
   'chat.startTitle': 'Comece uma conversa',
   'chat.startHint':
     'Arraste ou cole imagens como referência visual, ou digite @ para anexar um arquivo deste projeto. Ou experimente um destes começos:',

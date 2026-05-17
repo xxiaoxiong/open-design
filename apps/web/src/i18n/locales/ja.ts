@@ -516,6 +516,7 @@ export const ja: Dict = {
   'chat.deleteConversationConfirm':
     '"{title}" を削除しますか？メッセージも削除されます。',
   'chat.untitledConversation': '無題の会話',
+  'chat.editTitle': 'Click to edit conversation title',
   'chat.startTitle': '会話を始める',
   'chat.startHint':
     '画像をドロップまたは貼り付けてビジュアルリファレンスにするか、@ でこのプロジェクトのファイルを添付してください。またはこれらのスターターをお試しください:',

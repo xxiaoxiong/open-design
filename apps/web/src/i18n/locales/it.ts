@@ -549,6 +549,7 @@ export const it: Dict = {
   'chat.deleteConversationConfirm':
     'Eliminare « {title} » ? Questo elimina i suoi messaggi.',
   'chat.untitledConversation': 'Conversazione senza titolo',
+  'chat.editTitle': 'Click to edit conversation title',
   'chat.startTitle': 'Inizia una conversazione',
   'chat.startHint':
     'Trascina o incolla immagini come riferimento visivo, o digita @ per allegare un file del progetto. Oppure prova uno di questi suggerimenti:',

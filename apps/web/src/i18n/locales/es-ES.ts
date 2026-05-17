@@ -518,6 +518,7 @@ export const esES: Dict = {
   'chat.deleteConversationConfirm':
     '¿Eliminar «{title}»? Se borrarán sus mensajes.',
   'chat.untitledConversation': 'Conversación sin título',
+  'chat.editTitle': 'Click to edit conversation title',
   'chat.startTitle': 'Empieza una conversación',
   'chat.startHint':
     'Suelta o pega imágenes como referencia visual, o escribe @ para adjuntar un archivo de este proyecto. O prueba uno de estos comienzos:',

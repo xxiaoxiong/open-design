@@ -651,6 +651,7 @@ export const uk: Dict = {
   'chat.deleteConversationConfirm':
     'Видалити "{title}"? Це видалить усі її повідомлення.',
   'chat.untitledConversation': 'Розмова без назви',
+  'chat.editTitle': 'Click to edit conversation title',
   'chat.startTitle': 'Почніть розмову',
   'chat.startHint':
     'Перенесіть або вставте зображення для візуального посилання, або введіть @, щоб прикріпити файл з цього проекту. Або спробуйте один з цих стартерів:',

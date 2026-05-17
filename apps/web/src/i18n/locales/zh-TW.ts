@@ -706,6 +706,7 @@ export const zhTW: Dict = {
   'chat.deleteConversation': '刪除對話',
   'chat.deleteConversationConfirm': '確定刪除「{title}」？該操作會刪除其訊息。',
   'chat.untitledConversation': '未命名對話',
+  'chat.editTitle': 'Click to edit conversation title',
   'chat.startTitle': '開始一個對話',
   'chat.startHint':
     '可以拖曳或貼上圖片作為視覺參考，或鍵入 @ 引用本專案中的檔案。也可以從下面的範例開始：',

@@ -629,6 +629,7 @@ export const fr: Dict = {
   'chat.deleteConversationConfirm':
     'Supprimer « {title} » ? Cela supprime ses messages.',
   'chat.untitledConversation': 'Conversation sans titre',
+  'chat.editTitle': 'Click to edit conversation title',
   'chat.startTitle': 'Démarrer une conversation',
   'chat.startHint':
     'Déposez ou collez des images comme référence visuelle, ou tapez @ pour attacher un fichier du projet. Ou essayez l\'une de ces suggestions :',

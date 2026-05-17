@@ -629,6 +629,7 @@ export const ko: Dict = {
   'chat.deleteConversationConfirm':
     '"{title}" 대화를 삭제하시겠습니까? 관련 메시지가 모두 삭제됩니다.',
   'chat.untitledConversation': '제목 없는 대화',
+  'chat.editTitle': 'Click to edit conversation title',
   'chat.startTitle': '대화 시작하기',
   'chat.startHint':
     '시각적 참조를 위해 이미지를 붙여넣거나 끌어다 놓으세요. @를 입력하여 이 프로젝트의 파일을 첨부할 수도 있습니다. 아래 추천 질문으로 시작할 수도 있습니다:',

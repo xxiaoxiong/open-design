@@ -629,6 +629,7 @@ export const hu: Dict = {
   'chat.deleteConversationConfirm':
     'Törlöd a(z) „{title}" beszélgetést? Ez eltávolítja az üzeneteit.',
   'chat.untitledConversation': 'Cím nélküli beszélgetés',
+  'chat.editTitle': 'Click to edit conversation title',
   'chat.startTitle': 'Indíts beszélgetést',
   'chat.startHint':
     'Húzz vagy illessz be képeket vizuális hivatkozásként, vagy gépelj @-et a projekt egy fájljának csatolásához. Vagy próbáld ki ezeket a kezdéseket:',
