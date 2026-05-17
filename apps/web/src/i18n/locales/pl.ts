@@ -1137,7 +1137,6 @@ export const pl: Dict = {
   'pet.composerTitle': 'Pupile — obudź, schowaj lub wybierz',
   'pet.composerMenuTitle': 'Pupile',
   'pet.composerMenuHint': 'wskazówka: wpisz /pet, aby przełączyć',
-  'pet.composerOpenSettings': 'Dostosuj w Ustawieniach',
   'pet.welcomeTeaserTitle': 'Adoptuj pupila',
   'pet.welcomeTeaserBody': 'Mały towarzysz unoszący się nad workspace.',
   'pet.welcomeTeaserCta': 'Wybierz',

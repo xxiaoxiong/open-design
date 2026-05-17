@@ -1137,7 +1137,6 @@ export const ar: Dict = {
   'pet.composerTitle': 'الحيوانات الأليفة - إيقاظ، إخفاء، أو اختيار واحد',
   'pet.composerMenuTitle': 'الحيوانات الأليفة',
   'pet.composerMenuHint': 'تلميح: اكتب /pet للتبديل',
-  'pet.composerOpenSettings': 'تخصيص في الإعدادات',
   'pet.welcomeTeaserTitle': 'تبنَّ حيواناً أليفاً',
   'pet.welcomeTeaserBody': 'رفيق عائم صغير يقضي الوقت معك.',
   'pet.welcomeTeaserCta': 'اختر واحداً',

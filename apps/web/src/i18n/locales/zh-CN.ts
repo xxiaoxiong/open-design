@@ -1323,7 +1323,6 @@ export const zhCN: Dict = {
   'pet.composerTitle': '宠物 — 唤醒、收起或选一只',
   'pet.composerMenuTitle': '宠物',
   'pet.composerMenuHint': '小贴士：输入 /pet 即可切换',
-  'pet.composerOpenSettings': '在设置中自定义',
   'pet.welcomeTeaserTitle': '领养一只宠物',
   'pet.welcomeTeaserBody': '一只小小的浮窗伙伴，会陪着你工作。',
   'pet.welcomeTeaserCta': '挑一只',

@@ -1022,7 +1022,6 @@ export const it: Dict = {
   'pet.composerTitle': 'Compagni — sveglia, nascondi o scegli',
   'pet.composerMenuTitle': 'Compagni',
   'pet.composerMenuHint': 'suggerimento: digita /pet per alternare',
-  'pet.composerOpenSettings': 'Personalizza nelle impostazioni',
   'pet.welcomeTeaserTitle': 'Adotta un compagno',
   'pet.welcomeTeaserBody': 'Un piccolo compagno fluttuante che sta con te.',
   'pet.welcomeTeaserCta': 'Scegline uno',

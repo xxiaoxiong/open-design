@@ -1180,7 +1180,6 @@ export const fa: Dict = {
   'pet.composerTitle': 'حیوانات خانگی — بیدار کردن، پنهان یا انتخاب',
   'pet.composerMenuTitle': 'حیوانات خانگی',
   'pet.composerMenuHint': 'نکته: /pet را تایپ کنید تا تغییر دهید',
-  'pet.composerOpenSettings': 'سفارشی‌سازی در تنظیمات',
   'pet.welcomeTeaserTitle': 'یک حیوان خانگی بپذیرید',
   'pet.welcomeTeaserBody': 'یک همراه کوچک که بالای فضای کاری شما شناور می‌شود.',
   'pet.welcomeTeaserCta': 'یکی انتخاب کنید',

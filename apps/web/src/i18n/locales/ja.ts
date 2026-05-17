@@ -1074,7 +1074,6 @@ export const ja: Dict = {
   'pet.composerTitle': 'ペット — 呼び出す・しまう・選ぶ',
   'pet.composerMenuTitle': 'ペット',
   'pet.composerMenuHint': 'ヒント：/pet と入力で切替',
-  'pet.composerOpenSettings': '設定でカスタマイズ',
   'pet.welcomeTeaserTitle': 'ペットを迎える',
   'pet.welcomeTeaserBody': 'ワークスペースに浮かぶ小さな相棒です。',
   'pet.welcomeTeaserCta': '選ぶ',
