@@ -642,6 +642,7 @@ export function FileViewer({
   if (rendererMatch?.renderer.id === 'html' || rendererMatch?.renderer.id === 'deck-html') {
     return (
       <HtmlViewer
+        key={`${projectId}::${file.name}`}
         projectId={projectId}
         projectKind={projectKind}
         file={file}
