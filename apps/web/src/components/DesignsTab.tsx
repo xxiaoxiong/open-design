@@ -299,9 +299,7 @@ export function DesignsTab({
 	const trimmed = renameInput.trim();
 	if (trimmed && trimmed !== renameTarget.original) {
 		onRename?.(renameTarget.id, trimmed);
-		if (onRename) {
-			setToast({ message: t("designs.renameSuccess", { name: trimmed }), role: 'status' });
-		}
+		setToast({ message: t("designs.renameSuccess", { name: trimmed }), role: 'status' });
 	}
 		setRenameTarget(null);
 		setRenameInput("");
