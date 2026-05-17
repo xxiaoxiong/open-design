@@ -621,6 +621,7 @@ export function ChatPane({
 
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
+  const titleHandledRef = useRef(false);
 
   function jumpToBottom() {
     const el = logRef.current;
@@ -632,16 +633,24 @@ export function ChatPane({
     if (!activeConversation || !onRenameConversation) return;
     setTitleDraft(activeConversation.title ?? '');
     setEditingTitle(true);
+    titleHandledRef.current = false;
   }
 
   function handleTitleSave() {
     if (!activeConversation || !onRenameConversation) return;
+    titleHandledRef.current = true;
     onRenameConversation(activeConversation.id, titleDraft);
     setEditingTitle(false);
   }
 
   function handleTitleCancel() {
+    titleHandledRef.current = true;
     setEditingTitle(false);
+  }
+
+  function handleTitleBlur() {
+    if (titleHandledRef.current) return;
+    handleTitleSave();
   }
 
   return (
@@ -748,7 +757,7 @@ export function ChatPane({
                 className="chat-title-input"
                 value={titleDraft}
                 onChange={(e) => setTitleDraft(e.target.value)}
-                onBlur={handleTitleSave}
+                onBlur={handleTitleBlur}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     handleTitleSave();
