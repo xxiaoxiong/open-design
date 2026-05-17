@@ -794,6 +794,7 @@ export const esES: Dict = {
   'fileViewer.savingTemplate': 'Guardando plantilla…',
   'fileViewer.savedTemplate': 'Guardado como «{name}»',
   'fileViewer.savedTemplateFail': 'No se pudo guardar la plantilla. Inténtalo de nuevo.',
+  'fileViewer.exportSuccess': 'Exported as {format}',
   'fileViewer.templateNamePrompt': 'Nombre de la plantilla',
   'fileViewer.templateNameDefault': 'Plantilla sin título',
   'fileViewer.templateDescPrompt':

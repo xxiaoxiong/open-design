@@ -1024,6 +1024,7 @@ export const id: Dict = {
   'fileViewer.savingTemplate': 'Menyimpan templat...',
   'fileViewer.savedTemplate': 'Disimpan sebagai "{name}"',
   'fileViewer.savedTemplateFail': 'Gagal menyimpan templat',
+  'fileViewer.exportSuccess': 'Exported as {format}',
   'fileViewer.templateNamePrompt': 'Nama templat',
   'fileViewer.templateNameDefault': 'Templat baru',
   'fileViewer.templateDescPrompt': 'Deskripsi templat',

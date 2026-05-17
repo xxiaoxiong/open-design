@@ -905,6 +905,7 @@ export const fr: Dict = {
   'fileViewer.savingTemplate': 'Enregistrement du modèle…',
   'fileViewer.savedTemplate': 'Enregistré comme « {name} »',
   'fileViewer.savedTemplateFail': 'Impossible d\'enregistrer le modèle — réessayez.',
+  'fileViewer.exportSuccess': 'Exported as {format}',
   'fileViewer.templateNamePrompt': 'Nom du modèle',
   'fileViewer.templateNameDefault': 'Modèle sans titre',
   'fileViewer.templateDescPrompt':

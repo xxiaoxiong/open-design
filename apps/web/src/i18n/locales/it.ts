@@ -814,6 +814,7 @@ export const it: Dict = {
   'fileViewer.savingTemplate': 'Salvataggio del modello…',
   'fileViewer.savedTemplate': 'Salvato come « {name} »',
   'fileViewer.savedTemplateFail': 'Impossibile salvare il modello — riprova.',
+  'fileViewer.exportSuccess': 'Exported as {format}',
   'fileViewer.templateNamePrompt': 'Nome del modello',
   'fileViewer.templateNameDefault': 'Modello senza titolo',
   'fileViewer.templateDescPrompt':

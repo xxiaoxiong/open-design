@@ -979,6 +979,7 @@ export const zhTW: Dict = {
   'fileViewer.savingTemplate': '正在儲存範本…',
   'fileViewer.savedTemplate': '已儲存為「{name}」',
   'fileViewer.savedTemplateFail': '儲存範本失敗，請重試。',
+  'fileViewer.exportSuccess': 'Exported as {format}',
   'fileViewer.templateNamePrompt': '範本名稱',
   'fileViewer.templateNameDefault': '未命名範本',
   'fileViewer.templateDescPrompt': '簡短描述（可選 — 這個範本用於什麼情境？）',

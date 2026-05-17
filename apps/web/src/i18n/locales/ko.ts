@@ -905,6 +905,7 @@ export const ko: Dict = {
   'fileViewer.savingTemplate': '템플릿 저장 중…',
   'fileViewer.savedTemplate': '"{name}"(으)로 저장됨',
   'fileViewer.savedTemplateFail': '템플릿 저장에 실패했습니다. 다시 시도해 주세요.',
+  'fileViewer.exportSuccess': 'Exported as {format}',
   'fileViewer.templateNamePrompt': '템플릿 이름',
   'fileViewer.templateNameDefault': '제목 없는 템플릿',
   'fileViewer.templateDescPrompt':

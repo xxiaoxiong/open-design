@@ -928,6 +928,7 @@ export const ru: Dict = {
   'fileViewer.savingTemplate': 'Сохранение шаблона…',
   'fileViewer.savedTemplate': 'Сохранено как «{name}»',
   'fileViewer.savedTemplateFail': 'Не удалось сохранить шаблон — попробуйте снова.',
+  'fileViewer.exportSuccess': 'Exported as {format}',
   'fileViewer.templateNamePrompt': 'Название шаблона',
   'fileViewer.templateNameDefault': 'Шаблон без названия',
   'fileViewer.templateDescPrompt':

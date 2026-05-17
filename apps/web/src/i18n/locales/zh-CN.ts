@@ -988,6 +988,7 @@ export const zhCN: Dict = {
   'fileViewer.savingTemplate': '正在保存模板…',
   'fileViewer.savedTemplate': '已保存为「{name}」',
   'fileViewer.savedTemplateFail': '保存模板失败，请重试。',
+  'fileViewer.exportSuccess': 'Exported as {format}',
   'fileViewer.templateNamePrompt': '模板名称',
   'fileViewer.templateNameDefault': '未命名模板',
   'fileViewer.templateDescPrompt': '简短描述（可选 — 这个模板用于什么场景？）',

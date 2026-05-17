@@ -833,6 +833,7 @@ export const th: Dict = {
   'fileViewer.savingTemplate': 'ระบบคอยเซฟแม่แบบให้…',
   'fileViewer.savedTemplate': 'ได้สร้างเทมเพลตใหม่ชื่อ "{name}"',
   'fileViewer.savedTemplateFail': 'ติดปัญหาที่การจำข้อมูลเทมเพลต — ทบทวนให้ดีแล้วกดอีกหน',
+  'fileViewer.exportSuccess': 'Exported as {format}',
   'fileViewer.templateNamePrompt': 'ระบุชื่อตัวเทมเพลต',
   'fileViewer.templateNameDefault': 'แม่แบบว่างไม่มีการระบุชื่อ',
   'fileViewer.templateDescPrompt': 'อธิบายลักษณะเพิ่มเติม (ไม่จำเป็นต้องใส่เลยก็ได้ — แต่มีก็ดีต่อความเข้าใจในครั้งหน้า)',

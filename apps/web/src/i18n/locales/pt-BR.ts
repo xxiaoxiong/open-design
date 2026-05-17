@@ -928,6 +928,7 @@ export const ptBR: Dict = {
   'fileViewer.savingTemplate': 'Salvando template…',
   'fileViewer.savedTemplate': 'Salvo como "{name}"',
   'fileViewer.savedTemplateFail': 'Não foi possível salvar o template — tente novamente.',
+  'fileViewer.exportSuccess': 'Exported as {format}',
   'fileViewer.templateNamePrompt': 'Nome do template',
   'fileViewer.templateNameDefault': 'Template sem título',
   'fileViewer.templateDescPrompt':
