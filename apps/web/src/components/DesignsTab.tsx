@@ -296,11 +296,13 @@ export function DesignsTab({
 	};
 	const commitRename = () => {
 		if (!renameTarget) return;
-		const trimmed = renameInput.trim();
-		if (trimmed && trimmed !== renameTarget.original) {
-			onRename?.(renameTarget.id, trimmed);
+	const trimmed = renameInput.trim();
+	if (trimmed && trimmed !== renameTarget.original) {
+		onRename?.(renameTarget.id, trimmed);
+		if (onRename) {
 			setToast({ message: t("designs.renameSuccess", { name: trimmed }), role: 'status' });
 		}
+	}
 		setRenameTarget(null);
 		setRenameInput("");
 	};
