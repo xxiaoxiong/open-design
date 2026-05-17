@@ -1488,6 +1488,8 @@ a.avatar-item:visited {
   grid-template-columns: 460px 8px minmax(400px, 1fr);
   min-height: 0;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 .split.is-resizing-chat {
   cursor: col-resize;
