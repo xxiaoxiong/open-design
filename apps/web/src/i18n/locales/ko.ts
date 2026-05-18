@@ -1512,4 +1512,12 @@ export const ko: Dict = {
   'liveArtifact.viewer.code.loading': '코드 로드 중…',
   'liveArtifact.viewer.code.unavailable': '아직 코드를 사용할 수 없습니다.',
   'liveArtifact.viewer.code.empty': '이 코드 파일은 비어 있습니다.',
+  'designFiles.addToMyPlugins': 'Add to My plugins',
+  'designFiles.publishRepo': 'Publish repo',
+  'designFiles.openDesignPR': 'Open Design PR',
+  'designFiles.sending': 'Sending…',
+  'designFiles.pluginReady': 'Plugin ready',
+  'designFiles.pluginReadySubtitle': 'Send the next step to the agent so it can run the od CLI.',
+  'designFiles.filesReadyForPlugins': '{count} files ready for My plugins',
+  'designFiles.openManifest': 'Open manifest',
 };

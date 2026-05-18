@@ -1671,4 +1671,12 @@ export const fr: Dict = {
     'Instructions persistantes appliquées à chaque projet. Utilisez-les pour définir les préférences que le modèle doit toujours suivre.',
   'settings.customInstructionsPlaceholder':
     'ex. "Utilise toujours TypeScript. Préfère les composants fonctionnels. Réponds de façon concise."',
+  'designFiles.addToMyPlugins': 'Add to My plugins',
+  'designFiles.publishRepo': 'Publish repo',
+  'designFiles.openDesignPR': 'Open Design PR',
+  'designFiles.sending': 'Sending…',
+  'designFiles.pluginReady': 'Plugin ready',
+  'designFiles.pluginReadySubtitle': 'Send the next step to the agent so it can run the od CLI.',
+  'designFiles.filesReadyForPlugins': '{count} files ready for My plugins',
+  'designFiles.openManifest': 'Open manifest',
 };

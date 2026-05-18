@@ -1504,4 +1504,12 @@ export const uk: Dict = {
   'liveArtifact.viewer.code.loading': 'Завантаження коду…',
   'liveArtifact.viewer.code.unavailable': 'Код ще недоступний.',
   'liveArtifact.viewer.code.empty': 'Цей файл коду порожній.',
+  'designFiles.addToMyPlugins': 'Add to My plugins',
+  'designFiles.publishRepo': 'Publish repo',
+  'designFiles.openDesignPR': 'Open Design PR',
+  'designFiles.sending': 'Sending…',
+  'designFiles.pluginReady': 'Plugin ready',
+  'designFiles.pluginReadySubtitle': 'Send the next step to the agent so it can run the od CLI.',
+  'designFiles.filesReadyForPlugins': '{count} files ready for My plugins',
+  'designFiles.openManifest': 'Open manifest',
 };

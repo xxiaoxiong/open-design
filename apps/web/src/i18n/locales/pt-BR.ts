@@ -1503,4 +1503,12 @@ export const ptBR: Dict = {
   'liveArtifact.viewer.code.loading': 'Carregando código…',
   'liveArtifact.viewer.code.unavailable': 'O código ainda não está disponível.',
   'liveArtifact.viewer.code.empty': 'Este arquivo de código está vazio.',
+  'designFiles.addToMyPlugins': 'Add to My plugins',
+  'designFiles.publishRepo': 'Publish repo',
+  'designFiles.openDesignPR': 'Open Design PR',
+  'designFiles.sending': 'Sending…',
+  'designFiles.pluginReady': 'Plugin ready',
+  'designFiles.pluginReadySubtitle': 'Send the next step to the agent so it can run the od CLI.',
+  'designFiles.filesReadyForPlugins': '{count} files ready for My plugins',
+  'designFiles.openManifest': 'Open manifest',
 };

@@ -1139,6 +1139,14 @@ export interface Dict {
   'designFiles.next': string;
   'designFiles.jumpToPage': string;
   'designFiles.pageInfo': string;
+  'designFiles.addToMyPlugins': string;
+  'designFiles.publishRepo': string;
+  'designFiles.openDesignPR': string;
+  'designFiles.sending': string;
+  'designFiles.pluginReady': string;
+  'designFiles.pluginReadySubtitle': string;
+  'designFiles.filesReadyForPlugins': string;
+  'designFiles.openManifest': string;
   'quickSwitcher.placeholder': string;
   'quickSwitcher.empty': string;
   'quickSwitcher.noMatches': string;

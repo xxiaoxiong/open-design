@@ -1297,4 +1297,12 @@ export const th: Dict = {
   'settings.skillsNoFiles': 'ไม่มีไฟล์ในโฟลเดอร์ทักษะนี้',
   'settings.skillsNameRequired': 'ต้องระบุชื่อทักษะ',
   'settings.skillsBodyRequired': 'ต้องระบุเนื้อหาทักษะ',
+  'designFiles.addToMyPlugins': 'Add to My plugins',
+  'designFiles.publishRepo': 'Publish repo',
+  'designFiles.openDesignPR': 'Open Design PR',
+  'designFiles.sending': 'Sending…',
+  'designFiles.pluginReady': 'Plugin ready',
+  'designFiles.pluginReadySubtitle': 'Send the next step to the agent so it can run the od CLI.',
+  'designFiles.filesReadyForPlugins': '{count} files ready for My plugins',
+  'designFiles.openManifest': 'Open manifest',
 };

@@ -1505,4 +1505,12 @@ export const fa: Dict = {
   'liveArtifact.viewer.code.loading': 'در حال بارگذاری کد…',
   'liveArtifact.viewer.code.unavailable': 'کد هنوز در دسترس نیست.',
   'liveArtifact.viewer.code.empty': 'این فایل کد خالی است.',
+  'designFiles.addToMyPlugins': 'Add to My plugins',
+  'designFiles.publishRepo': 'Publish repo',
+  'designFiles.openDesignPR': 'Open Design PR',
+  'designFiles.sending': 'Sending…',
+  'designFiles.pluginReady': 'Plugin ready',
+  'designFiles.pluginReadySubtitle': 'Send the next step to the agent so it can run the od CLI.',
+  'designFiles.filesReadyForPlugins': '{count} files ready for My plugins',
+  'designFiles.openManifest': 'Open manifest',
 };

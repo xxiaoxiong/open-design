@@ -1449,4 +1449,12 @@ export const tr: Dict = {
   'liveArtifact.viewer.code.loading': 'Kod yükleniyor…',
   'liveArtifact.viewer.code.unavailable': 'Kod henüz kullanılamıyor.',
   'liveArtifact.viewer.code.empty': 'Bu kod dosyası boş.',
+  'designFiles.addToMyPlugins': 'Add to My plugins',
+  'designFiles.publishRepo': 'Publish repo',
+  'designFiles.openDesignPR': 'Open Design PR',
+  'designFiles.sending': 'Sending…',
+  'designFiles.pluginReady': 'Plugin ready',
+  'designFiles.pluginReadySubtitle': 'Send the next step to the agent so it can run the od CLI.',
+  'designFiles.filesReadyForPlugins': '{count} files ready for My plugins',
+  'designFiles.openManifest': 'Open manifest',
 };

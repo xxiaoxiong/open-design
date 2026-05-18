@@ -1341,4 +1341,12 @@ export const it: Dict = {
   'liveArtifact.viewer.code.loading': 'Caricamento codice…',
   'liveArtifact.viewer.code.unavailable': 'Il codice non è ancora disponibile.',
   'liveArtifact.viewer.code.empty': 'Questo file di codice è vuoto.',
+  'designFiles.addToMyPlugins': 'Add to My plugins',
+  'designFiles.publishRepo': 'Publish repo',
+  'designFiles.openDesignPR': 'Open Design PR',
+  'designFiles.sending': 'Sending…',
+  'designFiles.pluginReady': 'Plugin ready',
+  'designFiles.pluginReadySubtitle': 'Send the next step to the agent so it can run the od CLI.',
+  'designFiles.filesReadyForPlugins': '{count} files ready for My plugins',
+  'designFiles.openManifest': 'Open manifest',
 };

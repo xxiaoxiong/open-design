@@ -1601,4 +1601,12 @@ export const zhTW: Dict = {
   'liveArtifact.viewer.code.loading': '正在載入程式碼…',
   'liveArtifact.viewer.code.unavailable': '程式碼尚不可用。',
   'liveArtifact.viewer.code.empty': '此程式碼檔案是空的。',
+  'designFiles.addToMyPlugins': 'Add to My plugins',
+  'designFiles.publishRepo': 'Publish repo',
+  'designFiles.openDesignPR': 'Open Design PR',
+  'designFiles.sending': 'Sending…',
+  'designFiles.pluginReady': 'Plugin ready',
+  'designFiles.pluginReadySubtitle': 'Send the next step to the agent so it can run the od CLI.',
+  'designFiles.filesReadyForPlugins': '{count} files ready for My plugins',
+  'designFiles.openManifest': 'Open manifest',
 };
