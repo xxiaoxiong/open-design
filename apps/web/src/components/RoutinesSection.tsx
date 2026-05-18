@@ -630,7 +630,7 @@ export function RoutinesSection({ onClose }: { onClose?: () => void }) {
 
       {loading ? (
         <div className="routines-empty">Loading…</div>
-      ) : routines.length === 0 ? (
+      ) : routines.length === 0 && !showForm ? (
         <div className="routines-empty">
           <strong>No routines yet.</strong>
           <p>
