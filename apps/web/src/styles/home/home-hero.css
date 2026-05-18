@@ -343,6 +343,14 @@
   background: var(--bg-panel);
   font-size: 13px;
 }
+.home-hero__input-card .plugin-inputs-form__input[type='number'],
+.home-hero__input-card .plugin-inputs-form__input:is(select) {
+  padding: 3px 6px;
+  font-size: 12px;
+}
+.home-hero__input-card .plugin-inputs-form__input[type='number'] {
+  max-width: 120px;
+}
 .home-hero__input-card .plugin-inputs-form__input:focus {
   outline: 2px solid color-mix(in srgb, var(--accent) 18%, transparent);
   border-color: var(--accent);
