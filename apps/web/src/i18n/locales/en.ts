@@ -1673,4 +1673,8 @@ export const en: Dict = {
   'settings.memoryModelInlineHintByok': 'Optional. Reuses your chat API key — pick a cheaper model to save cost.',
   'settings.memoryModelInlineFlashSaved': 'Saved',
   'settings.memoryModelInlineFlashCleared': 'Cleared',
+  'homeView.replacePromptTitle': 'Replace current prompt?',
+  'homeView.replacePromptBody': 'Using {title} will replace the text currently in the input.',
+  'homeView.replacePromptCancel': 'Cancel',
+  'homeView.replacePromptConfirm': 'Replace',
 };

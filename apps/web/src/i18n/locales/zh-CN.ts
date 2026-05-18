@@ -1654,4 +1654,8 @@ export const zhCN: Dict = {
   'liveArtifact.viewer.code.loading': '正在加载代码…',
   'liveArtifact.viewer.code.unavailable': '代码尚不可用。',
   'liveArtifact.viewer.code.empty': '此代码文件为空。',
+  'homeView.replacePromptTitle': '替换当前提示词？',
+  'homeView.replacePromptBody': '使用 {title} 将替换输入框中的当前文本。',
+  'homeView.replacePromptCancel': '取消',
+  'homeView.replacePromptConfirm': '替换',
 };
