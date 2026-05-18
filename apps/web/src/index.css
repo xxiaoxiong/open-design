@@ -22525,6 +22525,9 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   min-height: 56px;
   resize: vertical;
 }
+.plugin-inputs-form__input[type='number'] {
+  max-width: 120px;
+}
 
 /* ============================================================
    Note: the entry-view home redesign (left rail, centered hero,
