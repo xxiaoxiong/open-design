@@ -1503,4 +1503,8 @@ export const ru: Dict = {
   'liveArtifact.viewer.code.loading': 'Загрузка кода…',
   'liveArtifact.viewer.code.unavailable': 'Код пока недоступен.',
   'liveArtifact.viewer.code.empty': 'Этот файл кода пуст.',
+  'homeView.replacePromptTitle': 'Replace current prompt?',
+  'homeView.replacePromptBody': 'Using {title} will replace the text currently in the input.',
+  'homeView.replacePromptCancel': 'Cancel',
+  'homeView.replacePromptConfirm': 'Replace',
 };

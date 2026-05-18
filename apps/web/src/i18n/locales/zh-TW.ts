@@ -1601,4 +1601,8 @@ export const zhTW: Dict = {
   'liveArtifact.viewer.code.loading': '正在載入程式碼…',
   'liveArtifact.viewer.code.unavailable': '程式碼尚不可用。',
   'liveArtifact.viewer.code.empty': '此程式碼檔案是空的。',
+  'homeView.replacePromptTitle': 'Replace current prompt?',
+  'homeView.replacePromptBody': 'Using {title} will replace the text currently in the input.',
+  'homeView.replacePromptCancel': 'Cancel',
+  'homeView.replacePromptConfirm': 'Replace',
 };

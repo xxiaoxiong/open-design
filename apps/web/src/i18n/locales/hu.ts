@@ -1472,4 +1472,8 @@ export const hu: Dict = {
   'liveArtifact.viewer.code.loading': 'Kód betöltése…',
   'liveArtifact.viewer.code.unavailable': 'A kód még nem érhető el.',
   'liveArtifact.viewer.code.empty': 'Ez a kódfájl üres.',
+  'homeView.replacePromptTitle': 'Replace current prompt?',
+  'homeView.replacePromptBody': 'Using {title} will replace the text currently in the input.',
+  'homeView.replacePromptCancel': 'Cancel',
+  'homeView.replacePromptConfirm': 'Replace',
 };

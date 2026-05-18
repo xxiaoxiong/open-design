@@ -1400,4 +1400,8 @@ export const de: Dict = {
   'liveArtifact.viewer.code.loading': 'Code wird geladen…',
   'liveArtifact.viewer.code.unavailable': 'Code ist noch nicht verfügbar.',
   'liveArtifact.viewer.code.empty': 'Diese Codedatei ist leer.',
+  'homeView.replacePromptTitle': 'Replace current prompt?',
+  'homeView.replacePromptBody': 'Using {title} will replace the text currently in the input.',
+  'homeView.replacePromptCancel': 'Cancel',
+  'homeView.replacePromptConfirm': 'Replace',
 };

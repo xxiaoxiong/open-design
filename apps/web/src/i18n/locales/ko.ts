@@ -1512,4 +1512,8 @@ export const ko: Dict = {
   'liveArtifact.viewer.code.loading': '코드 로드 중…',
   'liveArtifact.viewer.code.unavailable': '아직 코드를 사용할 수 없습니다.',
   'liveArtifact.viewer.code.empty': '이 코드 파일은 비어 있습니다.',
+  'homeView.replacePromptTitle': 'Replace current prompt?',
+  'homeView.replacePromptBody': 'Using {title} will replace the text currently in the input.',
+  'homeView.replacePromptCancel': 'Cancel',
+  'homeView.replacePromptConfirm': 'Replace',
 };

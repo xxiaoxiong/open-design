@@ -1297,4 +1297,8 @@ export const th: Dict = {
   'settings.skillsNoFiles': 'ไม่มีไฟล์ในโฟลเดอร์ทักษะนี้',
   'settings.skillsNameRequired': 'ต้องระบุชื่อทักษะ',
   'settings.skillsBodyRequired': 'ต้องระบุเนื้อหาทักษะ',
+  'homeView.replacePromptTitle': 'Replace current prompt?',
+  'homeView.replacePromptBody': 'Using {title} will replace the text currently in the input.',
+  'homeView.replacePromptCancel': 'Cancel',
+  'homeView.replacePromptConfirm': 'Replace',
 };

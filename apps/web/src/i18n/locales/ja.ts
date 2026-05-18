@@ -1399,4 +1399,8 @@ export const ja: Dict = {
   'liveArtifact.viewer.code.loading': 'コードを読み込み中…',
   'liveArtifact.viewer.code.unavailable': 'コードはまだ利用できません。',
   'liveArtifact.viewer.code.empty': 'このコードファイルは空です。',
+  'homeView.replacePromptTitle': 'Replace current prompt?',
+  'homeView.replacePromptBody': 'Using {title} will replace the text currently in the input.',
+  'homeView.replacePromptCancel': 'Cancel',
+  'homeView.replacePromptConfirm': 'Replace',
 };

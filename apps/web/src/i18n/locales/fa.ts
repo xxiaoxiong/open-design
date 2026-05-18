@@ -1505,4 +1505,8 @@ export const fa: Dict = {
   'liveArtifact.viewer.code.loading': 'در حال بارگذاری کد…',
   'liveArtifact.viewer.code.unavailable': 'کد هنوز در دسترس نیست.',
   'liveArtifact.viewer.code.empty': 'این فایل کد خالی است.',
+  'homeView.replacePromptTitle': 'Replace current prompt?',
+  'homeView.replacePromptBody': 'Using {title} will replace the text currently in the input.',
+  'homeView.replacePromptCancel': 'Cancel',
+  'homeView.replacePromptConfirm': 'Replace',
 };

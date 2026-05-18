@@ -1503,4 +1503,8 @@ export const ptBR: Dict = {
   'liveArtifact.viewer.code.loading': 'Carregando código…',
   'liveArtifact.viewer.code.unavailable': 'O código ainda não está disponível.',
   'liveArtifact.viewer.code.empty': 'Este arquivo de código está vazio.',
+  'homeView.replacePromptTitle': 'Replace current prompt?',
+  'homeView.replacePromptBody': 'Using {title} will replace the text currently in the input.',
+  'homeView.replacePromptCancel': 'Cancel',
+  'homeView.replacePromptConfirm': 'Replace',
 };

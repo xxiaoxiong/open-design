@@ -1462,4 +1462,8 @@ export const ar: Dict = {
   'liveArtifact.viewer.code.loading': 'جارٍ تحميل الكود…',
   'liveArtifact.viewer.code.unavailable': 'الكود غير متاح بعد.',
   'liveArtifact.viewer.code.empty': 'ملف الكود هذا فارغ.',
+  'homeView.replacePromptTitle': 'Replace current prompt?',
+  'homeView.replacePromptBody': 'Using {title} will replace the text currently in the input.',
+  'homeView.replacePromptCancel': 'Cancel',
+  'homeView.replacePromptConfirm': 'Replace',
 };

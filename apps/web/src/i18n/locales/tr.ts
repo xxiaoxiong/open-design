@@ -1449,4 +1449,8 @@ export const tr: Dict = {
   'liveArtifact.viewer.code.loading': 'Kod yükleniyor…',
   'liveArtifact.viewer.code.unavailable': 'Kod henüz kullanılamıyor.',
   'liveArtifact.viewer.code.empty': 'Bu kod dosyası boş.',
+  'homeView.replacePromptTitle': 'Replace current prompt?',
+  'homeView.replacePromptBody': 'Using {title} will replace the text currently in the input.',
+  'homeView.replacePromptCancel': 'Cancel',
+  'homeView.replacePromptConfirm': 'Replace',
 };

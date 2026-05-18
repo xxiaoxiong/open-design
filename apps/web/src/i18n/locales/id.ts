@@ -1506,4 +1506,8 @@ export const id: Dict = {
   'settings.memoryModelInlineHintByok': 'Optional. Reuses your chat API key on the same provider — picking a different (usually cheaper) model only changes the request body.',
   'settings.memoryModelInlineFlashSaved': 'Saved',
   'settings.memoryModelInlineFlashCleared': 'Cleared',
+  'homeView.replacePromptTitle': 'Replace current prompt?',
+  'homeView.replacePromptBody': 'Using {title} will replace the text currently in the input.',
+  'homeView.replacePromptCancel': 'Cancel',
+  'homeView.replacePromptConfirm': 'Replace',
 };

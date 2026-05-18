@@ -1696,4 +1696,9 @@ export interface Dict {
   'critiqueTheater.settingsEnabledDescription': string;
   'critiqueTheater.settingsEnabledProjectHint': string;
   'critiqueTheater.settingsEnabledNoProjectHint': string;
+  // HomeView prompt replacement modal
+  'homeView.replacePromptTitle': string;
+  'homeView.replacePromptBody': string;
+  'homeView.replacePromptCancel': string;
+  'homeView.replacePromptConfirm': string;
 }

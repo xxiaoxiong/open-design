@@ -1671,4 +1671,8 @@ export const fr: Dict = {
     'Instructions persistantes appliquées à chaque projet. Utilisez-les pour définir les préférences que le modèle doit toujours suivre.',
   'settings.customInstructionsPlaceholder':
     'ex. "Utilise toujours TypeScript. Préfère les composants fonctionnels. Réponds de façon concise."',
+  'homeView.replacePromptTitle': 'Replace current prompt?',
+  'homeView.replacePromptBody': 'Using {title} will replace the text currently in the input.',
+  'homeView.replacePromptCancel': 'Cancel',
+  'homeView.replacePromptConfirm': 'Replace',
 };
