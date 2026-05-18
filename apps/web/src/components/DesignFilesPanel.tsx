@@ -967,7 +967,7 @@ export function DesignFilesPanel({
                               void handlePluginFolderAgentAction(folder.path, 'install')
                             }
                           >
-                            {installingFolder === folder.path ? 'Sending…' : 'Add to My plugins'}
+                            {installingFolder === folder.path ? t('designFiles.sending') : t('designFiles.addToMyPlugins')}
                           </button>
                           <button
                             type="button"
@@ -978,7 +978,7 @@ export function DesignFilesPanel({
                               void handlePluginFolderAgentAction(folder.path, 'publish')
                             }
                           >
-                            {sharingFolder === `publish:${folder.path}` ? 'Sending…' : 'Publish repo'}
+                            {sharingFolder === `publish:${folder.path}` ? t('designFiles.sending') : t('designFiles.publishRepo')}
                           </button>
                           <button
                             type="button"
@@ -989,7 +989,7 @@ export function DesignFilesPanel({
                               void handlePluginFolderAgentAction(folder.path, 'contribute')
                             }
                           >
-                            {sharingFolder === `contribute:${folder.path}` ? 'Sending…' : 'Open Design PR'}
+                            {sharingFolder === `contribute:${folder.path}` ? t('designFiles.sending') : t('designFiles.openDesignPR')}
                           </button>
                         </div>
                       ) : null}

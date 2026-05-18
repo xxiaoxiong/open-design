@@ -772,6 +772,7 @@ function PluginActionPanel({
     action: PluginFolderAgentAction,
   ) => Promise<void> | void;
 }) {
+  const t = useT();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [noticeByFolder, setNoticeByFolder] = useState<Record<string, string>>(
     {},
@@ -807,9 +808,9 @@ function PluginActionPanel({
           <Icon name="sparkles" size={15} />
         </span>
         <div>
-          <div className="plugin-action-panel__title">Plugin ready</div>
+          <div className="plugin-action-panel__title">{t('designFiles.pluginReady')}</div>
           <div className="plugin-action-panel__subtitle">
-            Send the next step to the agent so it can run the od CLI.
+            {t('designFiles.pluginReadySubtitle')}
           </div>
         </div>
       </div>
@@ -826,7 +827,7 @@ function PluginActionPanel({
               </span>
               <div className="plugin-action-card__copy">
                 <code className="plugin-action-card__path">{folder.path}</code>
-                <span>{folder.fileCount} files ready for My plugins</span>
+                <span>{t('designFiles.filesReadyForPlugins', { count: folder.fileCount })}</span>
               </div>
             </div>
             <div className="plugin-action-card__actions">
@@ -842,7 +843,7 @@ function PluginActionPanel({
                   size={13}
                 />
                 <span>
-                  {busyKey === `install:${folder.path}` ? "Sending..." : "Add to My plugins"}
+                  {busyKey === `install:${folder.path}` ? t('designFiles.sending') : t('designFiles.addToMyPlugins')}
                 </span>
               </button>
               <button
@@ -857,7 +858,7 @@ function PluginActionPanel({
                   size={13}
                 />
                 <span>
-                  {busyKey === `publish:${folder.path}` ? "Sending..." : "Publish repo"}
+                  {busyKey === `publish:${folder.path}` ? t('designFiles.sending') : t('designFiles.publishRepo')}
                 </span>
               </button>
               <button
@@ -873,8 +874,8 @@ function PluginActionPanel({
                 />
                 <span>
                   {busyKey === `contribute:${folder.path}`
-                    ? "Sending..."
-                    : "Open Design PR"}
+                    ? t('designFiles.sending')
+                    : t('designFiles.openDesignPR')}
                 </span>
               </button>
               {onRequestOpenFile ? (
@@ -885,7 +886,7 @@ function PluginActionPanel({
                   onClick={() => onRequestOpenFile(folder.manifestPath)}
                 >
                   <Icon name="file-code" size={13} />
-                  <span>Open manifest</span>
+                  <span>{t('designFiles.openManifest')}</span>
                 </button>
               ) : null}
             </div>
