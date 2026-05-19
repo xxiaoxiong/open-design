@@ -267,6 +267,19 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
       }
     }, [initialDraft, draft]);
 
+    // Auto-resize textarea to fit content, up to max-height (400px in CSS).
+    // When content grows beyond the cap, the textarea scrolls internally.
+    useEffect(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      
+      // Reset height to auto to get the correct scrollHeight
+      textarea.style.height = 'auto';
+      
+      // Set height to scrollHeight (content height), CSS max-height will cap it
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }, [draft]);
+
     useEffect(() => {
       if (!toolsOpen) return;
       function onPointer(e: MouseEvent) {
