@@ -3328,6 +3328,8 @@ a.avatar-item:visited {
   color: var(--green);
   font-size: 12px;
   line-height: 1.4;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 .settings-rescan-status.error,
 .settings-test-status.error {
