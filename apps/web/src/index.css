@@ -14320,7 +14320,14 @@ button.ghost.mcp-copy-btn:hover:not(:disabled) {
   gap: 4px;
 }
 .qf-required { color: var(--accent); }
-.qf-help { font-size: 11px; color: var(--text-muted); margin-top: -2px; }
+.qf-help {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: -2px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.4;
+}
 .qf-options {
   display: flex;
   flex-wrap: wrap;
