@@ -15008,6 +15008,7 @@ button.ghost.mcp-copy-btn:hover:not(:disabled) {
   position: relative;
   display: flex;
   align-items: stretch;
+  gap: 0;
 }
 .ds-modal-stage-iframe {
   flex: 1;
@@ -15033,13 +15034,14 @@ button.ghost.mcp-copy-btn:hover:not(:disabled) {
   background: white;
 }
 .ds-modal-stage.has-sidebar .ds-modal-stage-iframe {
-  flex: 1 1 60%;
+  flex: 1 1 65%;
+  min-width: 400px;
 }
 .ds-modal-sidebar {
   position: relative;
-  flex: 1 1 40%;
-  min-width: 320px;
-  max-width: 560px;
+  flex: 0 1 35%;
+  min-width: 300px;
+  max-width: 480px;
   border-left: 1px solid var(--border);
   background: var(--bg-panel);
   overflow: auto;
