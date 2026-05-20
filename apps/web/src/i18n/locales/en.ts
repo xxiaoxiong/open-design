@@ -307,7 +307,7 @@ export const en: Dict = {
   'settings.mediaProviderReloadError': 'Could not reload media provider settings from the local daemon.',
   'settings.mediaProviderReloadSuccess': 'Reloaded media provider settings from the local daemon.',
   'settings.mediaProviderLoadError': 'Could not load media provider settings from the local daemon. Using browser-saved settings for now.',
-  'settings.mediaProviderComingSoonHint': 'We track these for the roadmap; the daemon doesn\'t ship a client yet, so there's nothing to configure.',
+  'settings.mediaProviderComingSoonHint': 'We track these for the roadmap; the daemon doesn\'t ship a client yet, so there\'s nothing to configure.',
   'settings.privacy': 'Privacy',
   'settings.privacyHint': 'What data is shared with the Open Design team',
   'settings.privacyConsentKicker': 'Help us improve Open Design',
