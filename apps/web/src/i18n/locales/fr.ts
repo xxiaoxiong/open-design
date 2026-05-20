@@ -269,6 +269,7 @@ export const fr: Dict = {
   'settings.mediaProviderReloadError': 'Impossible de recharger les paramètres des fournisseurs de médias depuis le daemon local.',
   'settings.mediaProviderReloadSuccess': 'Paramètres des fournisseurs de médias rechargés depuis le daemon local.',
   'settings.mediaProviderLoadError': 'Impossible de charger les paramètres des fournisseurs de médias depuis le daemon local. Utilisation temporaire des paramètres enregistrés dans le navigateur.',
+  'settings.mediaProviderComingSoonHint': 'Nous suivons ces fournisseurs pour la feuille de route ; le daemon ne fournit pas encore de client, il n'y a donc rien à configurer.',
   'settings.privacy': 'Confidentialité',
   'settings.privacyHint': 'Données partagées avec l’équipe Open Design',
   'settings.privacyConsentKicker': 'Aidez-nous à améliorer Open Design',

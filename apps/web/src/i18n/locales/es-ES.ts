@@ -269,6 +269,7 @@ export const esES: Dict = {
   'settings.mediaProviderReloadError': 'No se pudieron recargar los ajustes de los proveedores de medios desde el daemon local.',
   'settings.mediaProviderReloadSuccess': 'Se recargaron los ajustes de los proveedores de medios desde el daemon local.',
   'settings.mediaProviderLoadError': 'No se pudieron cargar los ajustes de los proveedores de medios desde el daemon local. Por ahora se usarán los ajustes guardados en el navegador.',
+  'settings.mediaProviderComingSoonHint': 'Rastreamos estos para la hoja de ruta; el daemon aún no incluye un cliente, por lo que no hay nada que configurar.',
   'settings.privacy': 'Privacy',
   'settings.privacyHint': 'What data is shared with the Open Design team',
   'settings.privacyConsentKicker': 'Help us improve Open Design',

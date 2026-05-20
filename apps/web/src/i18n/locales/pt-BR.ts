@@ -268,6 +268,7 @@ export const ptBR: Dict = {
   'settings.mediaProviderReloadError': 'Não foi possível recarregar as configurações dos provedores de mídia do daemon local.',
   'settings.mediaProviderReloadSuccess': 'As configurações dos provedores de mídia foram recarregadas do daemon local.',
   'settings.mediaProviderLoadError': 'Não foi possível carregar as configurações dos provedores de mídia do daemon local. Usando por enquanto as configurações salvas no navegador.',
+  'settings.mediaProviderComingSoonHint': 'Rastreamos estes para o roteiro; o daemon ainda não fornece um cliente, então não há nada para configurar.',
   'settings.privacy': 'Privacy',
   'settings.privacyHint': 'What data is shared with the Open Design team',
   'settings.privacyConsentKicker': 'Help us improve Open Design',

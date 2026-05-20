@@ -268,6 +268,7 @@ export const ru: Dict = {
   'settings.mediaProviderReloadError': 'Не удалось заново загрузить настройки медиапровайдеров из локального демона.',
   'settings.mediaProviderReloadSuccess': 'Настройки медиапровайдеров заново загружены из локального демона.',
   'settings.mediaProviderLoadError': 'Не удалось загрузить настройки медиапровайдеров из локального демона. Пока используются настройки, сохранённые в браузере.',
+  'settings.mediaProviderComingSoonHint': 'Мы отслеживаем их в дорожной карте; демон пока не поставляет клиент, поэтому настраивать нечего.',
   'settings.privacy': 'Privacy',
   'settings.privacyHint': 'What data is shared with the Open Design team',
   'settings.privacyConsentKicker': 'Help us improve Open Design',

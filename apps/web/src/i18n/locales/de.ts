@@ -269,6 +269,7 @@ export const de: Dict = {
   'settings.mediaProviderReloadError': 'Die Einstellungen der Medienanbieter konnten nicht vom lokalen Daemon neu geladen werden.',
   'settings.mediaProviderReloadSuccess': 'Die Einstellungen der Medienanbieter wurden vom lokalen Daemon neu geladen.',
   'settings.mediaProviderLoadError': 'Die Einstellungen der Medienanbieter konnten nicht vom lokalen Daemon geladen werden. Vorerst werden die im Browser gespeicherten Einstellungen verwendet.',
+  'settings.mediaProviderComingSoonHint': 'Wir verfolgen diese für die Roadmap; der Daemon liefert noch keinen Client, daher gibt es nichts zu konfigurieren.',
   'settings.privacy': 'Privacy',
   'settings.privacyHint': 'What data is shared with the Open Design team',
   'settings.privacyConsentKicker': 'Help us improve Open Design',

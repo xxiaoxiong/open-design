@@ -269,6 +269,7 @@ export const pl: Dict = {
   'settings.mediaProviderReloadError': 'Nie udało się ponownie wczytać ustawień dostawców mediów z lokalnego demona.',
   'settings.mediaProviderReloadSuccess': 'Ustawienia dostawców mediów zostały ponownie wczytane z lokalnego demona.',
   'settings.mediaProviderLoadError': 'Nie udało się wczytać ustawień dostawców mediów z lokalnego demona. Na razie używane będą ustawienia zapisane w przeglądarce.',
+  'settings.mediaProviderComingSoonHint': 'Śledzimy je w mapie drogowej; daemon nie dostarcza jeszcze klienta, więc nie ma nic do skonfigurowania.',
   'settings.privacy': 'Privacy',
   'settings.privacyHint': 'What data is shared with the Open Design team',
   'settings.privacyConsentKicker': 'Help us improve Open Design',

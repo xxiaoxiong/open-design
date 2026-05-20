@@ -5093,15 +5093,14 @@ function MediaProvidersSection({
         <details className="library-group media-provider-coming-soon">
           <summary className="memory-details-summary">
             <span className="memory-details-title">
-              Coming soon
+              {t('tasks.comingSoon')}
             </span>
             <span className="filter-pill-count">
               {comingSoonProviders.length}
             </span>
           </summary>
           <p className="hint" style={{ marginTop: 4, marginBottom: 8 }}>
-            We track these for the roadmap; the daemon doesn’t ship a
-            client yet, so there’s nothing to configure.
+            {t('settings.mediaProviderComingSoonHint')}
           </p>
           <ul className="media-provider-coming-soon-list">
             {comingSoonProviders.map((provider) => {
@@ -5126,7 +5125,7 @@ function MediaProvidersSection({
                       rel="noopener noreferrer"
                       className="ghost-link"
                     >
-                      Docs
+                      {t('settings.agentInstall.docs')}
                       <Icon name="external-link" size={11} />
                     </a>
                   ) : null}

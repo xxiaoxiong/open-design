@@ -269,6 +269,7 @@ export const ko: Dict = {
   'settings.mediaProviderReloadError': '로컬 데몬에서 미디어 제공자 설정을 다시 불러오지 못했습니다.',
   'settings.mediaProviderReloadSuccess': '로컬 데몬에서 미디어 제공자 설정을 다시 불러왔습니다.',
   'settings.mediaProviderLoadError': '로컬 데몬에서 미디어 제공자 설정을 불러오지 못했습니다. 지금은 브라우저에 저장된 설정을 사용합니다.',
+  'settings.mediaProviderComingSoonHint': '로드맵에서 이를 추적하고 있습니다. 데몬이 아직 클라이언트를 제공하지 않으므로 구성할 항목이 없습니다.',
   'settings.privacy': 'Privacy',
   'settings.privacyHint': 'What data is shared with the Open Design team',
   'settings.privacyConsentKicker': 'Help us improve Open Design',

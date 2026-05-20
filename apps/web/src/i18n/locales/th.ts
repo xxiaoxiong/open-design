@@ -253,6 +253,7 @@ export const th: Dict = {
   'settings.mediaProviderClearConfirm': 'ล้างการตั้งค่า {name} ที่บันทึกไว้ใช่หรือไม่? คุณจะต้องตั้งค่าใหม่อีกครั้งเพื่อใช้งาน {name}',
   'settings.mediaProviderPlaceholder': 'วาง API key',
   'settings.mediaProviderBaseUrlPlaceholder': 'กำหนด Base URL แท่นค่าเริ่มต้น',
+  'settings.mediaProviderComingSoonHint': 'เราติดตามสิ่งเหล่านี้สำหรับแผนงาน daemon ยังไม่ได้จัดส่งไคลเอนต์ ดังนั้นจึงไม่มีอะไรให้กำหนดค่า',
   'settings.privacy': 'ความเป็นส่วนตัว',
   'settings.privacyHint': 'ข้อมูลที่แชร์กับทีม Open Design',
   'settings.privacyConsentKicker': 'ช่วยเราพัฒนา Open Design',

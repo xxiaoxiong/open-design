@@ -269,6 +269,7 @@ export const ar: Dict = {
   'settings.mediaProviderReloadError': 'تعذر إعادة تحميل إعدادات موفري الوسائط من الـ daemon المحلي.',
   'settings.mediaProviderReloadSuccess': 'تمت إعادة تحميل إعدادات موفري الوسائط من الـ daemon المحلي.',
   'settings.mediaProviderLoadError': 'تعذر تحميل إعدادات موفري الوسائط من الـ daemon المحلي. سيُستخدم مؤقتًا ما هو محفوظ في المتصفح.',
+  'settings.mediaProviderComingSoonHint': 'نحن نتتبع هذه المزودات في خارطة الطريق؛ لم يقم البرنامج الخفي بشحن عميل بعد، لذا لا يوجد شيء لتكوينه.',
   'settings.privacy': 'Privacy',
   'settings.privacyHint': 'What data is shared with the Open Design team',
   'settings.privacyConsentKicker': 'Help us improve Open Design',

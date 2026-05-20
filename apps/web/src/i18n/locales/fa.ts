@@ -269,6 +269,7 @@ export const fa: Dict = {
   'settings.mediaProviderReloadError': 'بارگذاری دوبارهٔ تنظیمات ارائه‌دهنده‌های رسانه از دیمن محلی ممکن نشد.',
   'settings.mediaProviderReloadSuccess': 'تنظیمات ارائه‌دهنده‌های رسانه از دیمن محلی دوباره بارگذاری شد.',
   'settings.mediaProviderLoadError': 'بارگذاری تنظیمات ارائه‌دهنده‌های رسانه از دیمن محلی ممکن نشد. فعلاً از تنظیمات ذخیره‌شده در مرورگر استفاده می‌شود.',
+  'settings.mediaProviderComingSoonHint': 'ما این موارد را برای نقشه راه پیگیری می‌کنیم؛ دیمون هنوز کلاینتی ارائه نمی‌دهد، بنابراین چیزی برای پیکربندی وجود ندارد.',
   'settings.privacy': 'Privacy',
   'settings.privacyHint': 'What data is shared with the Open Design team',
   'settings.privacyConsentKicker': 'Help us improve Open Design',

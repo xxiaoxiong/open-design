@@ -269,6 +269,7 @@ export const ja: Dict = {
   'settings.mediaProviderReloadError': 'ローカルデーモンからメディアプロバイダー設定を再読み込みできませんでした。',
   'settings.mediaProviderReloadSuccess': 'ローカルデーモンからメディアプロバイダー設定を再読み込みしました。',
   'settings.mediaProviderLoadError': 'ローカルデーモンからメディアプロバイダー設定を読み込めませんでした。今のところブラウザーに保存された設定を使用します。',
+  'settings.mediaProviderComingSoonHint': 'これらはロードマップで追跡しています。デーモンはまだクライアントを提供していないため、設定するものはありません。',
   'settings.privacy': 'Privacy',
   'settings.privacyHint': 'What data is shared with the Open Design team',
   'settings.privacyConsentKicker': 'Help us improve Open Design',

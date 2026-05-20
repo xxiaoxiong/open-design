@@ -267,6 +267,7 @@ export const zhTW: Dict = {
   'settings.mediaProviderReloadError': '無法從本機守護程序重新載入媒體供應商設定。',
   'settings.mediaProviderReloadSuccess': '已從本機守護程序重新載入媒體供應商設定。',
   'settings.mediaProviderLoadError': '無法從本機守護程序載入媒體供應商設定。目前將使用瀏覽器中儲存的設定。',
+  'settings.mediaProviderComingSoonHint': '我們在路線圖中追蹤這些提供者；守護程式尚未提供客戶端，因此暫無可配置項。',
   'settings.privacy': '隱私',
   'settings.privacyHint': '與 Open Design 團隊共享哪些資料',
   'settings.privacyConsentKicker': '協助我們改進 Open Design',

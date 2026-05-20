@@ -259,6 +259,7 @@ export const tr: Dict = {
   'settings.mediaProviderReloadError': 'Medya sağlayıcı ayarları yerel daemon’dan yeniden yüklenemedi.',
   'settings.mediaProviderReloadSuccess': 'Medya sağlayıcı ayarları yerel daemon’dan yeniden yüklendi.',
   'settings.mediaProviderLoadError': 'Medya sağlayıcı ayarları yerel daemon’dan yüklenemedi. Şimdilik tarayıcıya kaydedilen ayarlar kullanılıyor.',
+  'settings.mediaProviderComingSoonHint': 'Bunları yol haritası için takip ediyoruz; daemon henüz bir istemci göndermediği için yapılandırılacak bir şey yok.',
   'settings.privacy': 'Privacy',
   'settings.privacyHint': 'What data is shared with the Open Design team',
   'settings.privacyConsentKicker': 'Help us improve Open Design',

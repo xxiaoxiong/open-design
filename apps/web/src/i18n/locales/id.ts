@@ -264,6 +264,7 @@ export const id: Dict = {
   'settings.mediaProviderReloadError': 'Tidak dapat memuat ulang pengaturan penyedia media dari daemon lokal.',
   'settings.mediaProviderReloadSuccess': 'Pengaturan penyedia media berhasil dimuat ulang dari daemon lokal.',
   'settings.mediaProviderLoadError': 'Tidak dapat memuat pengaturan penyedia media dari daemon lokal. Untuk sementara menggunakan pengaturan yang tersimpan di browser.',
+  'settings.mediaProviderComingSoonHint': 'Kami melacak ini untuk roadmap; daemon belum mengirimkan klien, jadi tidak ada yang perlu dikonfigurasi.',
   'settings.privacy': 'Privacy',
   'settings.privacyHint': 'What data is shared with the Open Design team',
   'settings.privacyConsentKicker': 'Help us improve Open Design',

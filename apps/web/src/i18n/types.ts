@@ -322,6 +322,7 @@ export interface Dict {
   'settings.mediaProviderReloadError': string;
   'settings.mediaProviderReloadSuccess': string;
   'settings.mediaProviderLoadError': string;
+  'settings.mediaProviderComingSoonHint': string;
   'settings.privacy': string;
   'settings.privacyHint': string;
   'settings.privacyConsentKicker': string;

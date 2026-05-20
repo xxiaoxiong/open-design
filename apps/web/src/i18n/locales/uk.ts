@@ -270,6 +270,7 @@ export const uk: Dict = {
   'settings.mediaProviderReloadError': 'Не вдалося повторно завантажити налаштування медіапровайдерів із локального демона.',
   'settings.mediaProviderReloadSuccess': 'Налаштування медіапровайдерів повторно завантажено з локального демона.',
   'settings.mediaProviderLoadError': 'Не вдалося завантажити налаштування медіапровайдерів із локального демона. Наразі використовуються налаштування, збережені в браузері.',
+  'settings.mediaProviderComingSoonHint': 'Ми відстежуємо їх у дорожній карті; демон ще не постачає клієнт, тому налаштовувати нічого.',
   'settings.privacy': 'Privacy',
   'settings.privacyHint': 'What data is shared with the Open Design team',
   'settings.privacyConsentKicker': 'Help us improve Open Design',

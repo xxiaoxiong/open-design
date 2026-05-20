@@ -269,6 +269,7 @@ export const hu: Dict = {
   'settings.mediaProviderReloadError': 'Nem sikerült újratölteni a médiaszolgáltatók beállításait a helyi démonból.',
   'settings.mediaProviderReloadSuccess': 'A médiaszolgáltatók beállításai újra lettek töltve a helyi démonból.',
   'settings.mediaProviderLoadError': 'Nem sikerült betölteni a médiaszolgáltatók beállításait a helyi démonból. Egyelőre a böngészőben mentett beállításokat használjuk.',
+  'settings.mediaProviderComingSoonHint': 'Ezeket nyomon követjük az ütemtervben; a daemon még nem szállít klienst, így nincs mit konfigurálni.',
   'settings.privacy': 'Privacy',
   'settings.privacyHint': 'What data is shared with the Open Design team',
   'settings.privacyConsentKicker': 'Help us improve Open Design',
