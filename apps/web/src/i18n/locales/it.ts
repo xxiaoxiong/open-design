@@ -261,7 +261,7 @@ export const it: Dict = {
   'settings.mediaProviderReloadError': 'Impossibile ricaricare le impostazioni dei provider di media dal daemon locale.',
   'settings.mediaProviderReloadSuccess': 'Impostazioni dei provider di media ricaricate dal daemon locale.',
   'settings.mediaProviderLoadError': 'Impossibile caricare le impostazioni dei provider di media dal daemon locale. Uso temporaneo delle impostazioni salvate nel browser.',
-  'settings.mediaProviderComingSoonHint': 'Teniamo traccia di questi per la roadmap; il daemon non fornisce ancora un client, quindi non c'è nulla da configurare.',
+  'settings.mediaProviderComingSoonHint': 'Teniamo traccia di questi per la roadmap; il daemon non fornisce ancora un client, quindi non c\'è nulla da configurare.',
   'settings.privacy': 'Privacy',
   'settings.privacyHint': 'Quali dati vengono condivisi con il team di Open Design',
   'settings.privacyConsentKicker': 'Aiutaci a migliorare Open Design',
