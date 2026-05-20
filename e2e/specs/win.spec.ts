@@ -16,8 +16,8 @@ const e2eRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const workspaceRoot = dirname(e2eRoot);
 const toolsPackDir = resolveFromWorkspace(process.env.OD_PACKAGED_E2E_TOOLS_PACK_DIR ?? '.tmp/tools-pack');
 const namespace = process.env.OD_PACKAGED_E2E_NAMESPACE ?? 'release-beta-win';
-const pnpmCommand = process.env.OD_E2E_PNPM_COMMAND ?? 'pnpm';
 const toolsPackBin = join(workspaceRoot, 'tools', 'pack', 'bin', 'tools-pack.mjs');
+const toolsServeBin = join(workspaceRoot, 'tools', 'serve', 'bin', 'tools-serve.mjs');
 const maxInstallDurationMs = Number.parseInt(process.env.OD_PACKAGED_E2E_WIN_MAX_INSTALL_MS ?? '120000', 10);
 const verifyReinstallWhileRunning = process.env.OD_PACKAGED_E2E_WIN_VERIFY_REINSTALL !== '0';
 const installIdentity = resolveInstallIdentity(namespace);
@@ -490,8 +490,8 @@ function restoreUpdateEnv(previous: Partial<Record<(typeof UPDATE_ENV_KEYS)[numb
 
 async function startUpdaterFixtureProcess(): Promise<UpdaterFixtureProcess> {
   const child = spawn(
-    pnpmCommand,
-    ['tools-serve', 'start', 'updater', '--json', '--channel', 'beta', '--version', '99.0.0-beta.1', '--platform', 'win'],
+    process.execPath,
+    [toolsServeBin, 'start', 'updater', '--json', '--channel', 'beta', '--version', '99.0.0-beta.1', '--platform', 'win'],
     {
       cwd: workspaceRoot,
       env: process.env,
