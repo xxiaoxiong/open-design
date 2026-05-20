@@ -571,6 +571,7 @@ export function PluginsView({
       ) : null}
       {importOpen ? (
         <PluginImportModal
+          notice={notice}
           onClose={() => setImportOpen(false)}
           onInstallSource={(source) => finishImport(() => installPluginSource(source))}
           onUploadZip={(file) => finishImport(() => uploadPluginZip(file))}
@@ -1456,11 +1457,13 @@ function SourcesPanel({
 type ImportKind = 'github' | 'zip' | 'folder';
 
 function PluginImportModal({
+  notice,
   onClose,
   onInstallSource,
   onUploadZip,
   onUploadFolder,
 }: {
+  notice: PluginInstallOutcome | { ok: boolean; message: string } | null;
   onClose: () => void;
   onInstallSource: (source: string) => Promise<PluginInstallOutcome>;
   onUploadZip: (file: File) => Promise<PluginInstallOutcome>;
@@ -1600,6 +1603,8 @@ function PluginImportModal({
           ) : null}
 
         </div>
+
+        {notice ? <Notice outcome={notice} /> : null}
 
         <footer className="plugins-import-modal__foot">
           <p>
