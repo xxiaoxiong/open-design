@@ -1851,6 +1851,9 @@ a.avatar-item:visited {
   font-size: 11.5px;
   line-height: 1.35;
   color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .msg.user .user-copy-btn {
