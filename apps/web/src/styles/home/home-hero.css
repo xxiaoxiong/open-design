@@ -525,6 +525,12 @@
   line-height: inherit;
   vertical-align: baseline;
 }
+/* Tighter max-width for numeric fields (page count, duration, etc.)
+   so they don't stretch unnecessarily wide in the prompt. */
+.home-hero__prompt-slot[data-field-type='integer'],
+.home-hero__prompt-slot[data-field-type='number'] {
+  max-width: min(100%, 12ch);
+}
 .home-hero__prompt-option-shell {
   position: relative;
   z-index: 3;
