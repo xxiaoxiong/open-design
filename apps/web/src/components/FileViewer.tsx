@@ -481,8 +481,8 @@ export function effectivePreviewScale(
   const availableHeight = Math.max(1, canvasSize.height - canvasPadding);
   const fitScale = Math.min(1, availableWidth / preset.width, availableHeight / preset.height);
   // Allow user to zoom beyond the fit-to-canvas scale for detailed inspection
-  // Only apply fitScale as a minimum when user zoom is below 100%
-  return previewScale >= 1 ? previewScale : Math.min(previewScale, fitScale);
+  // When user zoom is below 100%, apply fitScale as a minimum
+  return previewScale >= 1 ? previewScale : Math.max(previewScale, fitScale);
 }
 
 function previewScaleShellStyle(
