@@ -1629,16 +1629,17 @@
   left: 0;
   right: 0;
   display: grid;
-  gap: 2px;
-  max-height: 240px;
+  gap: 1px;
+  max-height: 180px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 6px;
+  padding: 4px;
   border: 1px solid color-mix(in srgb, var(--border) 82%, var(--accent) 18%);
   border-radius: 8px;
   background: color-mix(in srgb, var(--bg-panel) 96%, var(--bg-subtle) 4%);
-  box-shadow: 0 14px 34px color-mix(in srgb, var(--shadow-color, #000) 12%, transparent);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--shadow-color, #000) 10%, transparent);
   scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
 .onboarding-view__select-field[data-placement='top'] .onboarding-view__select-menu {
@@ -1650,29 +1651,30 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  min-height: 32px;
+  gap: 10px;
+  min-height: 28px;
   width: 100%;
   border: 0;
-  border-radius: 6px;
-  padding: 0 10px;
+  border-radius: 5px;
+  padding: 0 9px;
   color: var(--text);
   background: transparent;
   font: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
   text-align: left;
   cursor: pointer;
+  transition: background-color 100ms ease, color 100ms ease;
 }
 
 .onboarding-view__select-option:hover {
   color: var(--text-strong);
-  background: color-mix(in srgb, var(--accent) 7%, var(--bg-panel));
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg-panel));
 }
 
 .onboarding-view__select-option.is-selected {
   color: var(--accent-strong);
-  background: color-mix(in srgb, var(--accent) 10%, var(--bg-panel));
-  font-weight: 650;
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-panel));
+  font-weight: 600;
 }
 
 .onboarding-view__select-option svg {
