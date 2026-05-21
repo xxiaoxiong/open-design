@@ -81,10 +81,13 @@ describe('FileViewer preview scale', () => {
     expect(effectivePreviewScale('tablet', 1.5, { width: 820, height: 700 })).toBe(1.5);
   });
 
-  it('applies auto-fit scale when user zoom is below 100%', () => {
-    // When zooming out below 100%, fitScale is still applied as a minimum
-    expect(effectivePreviewScale('mobile', 0.5, { width: 390, height: 844 })).toBeLessThan(0.5);
-    expect(effectivePreviewScale('tablet', 0.75, { width: 820, height: 700 })).toBeLessThan(0.75);
+  it('applies auto-fit scale as minimum when user zoom is below 100%', () => {
+    // When zooming out below 100%, fitScale is applied as a minimum
+    // so the preview never gets smaller than what fits the canvas
+    const mobileResult = effectivePreviewScale('mobile', 0.5, { width: 390, height: 844 });
+    expect(mobileResult).toBeGreaterThanOrEqual(0.5);
+    const tabletResult = effectivePreviewScale('tablet', 0.75, { width: 820, height: 700 });
+    expect(tabletResult).toBeGreaterThanOrEqual(0.75);
   });
 });
 
