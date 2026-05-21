@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import type { SketchItem } from './sketch-model';
+import { useResolvedTheme } from './ConnectorLogo';
 
 export type Tool = 'select' | 'pen' | 'text' | 'rect' | 'arrow' | 'eraser';
 
@@ -31,13 +32,17 @@ export function SketchEditor({
   fileName,
 }: Props) {
   const t = useT();
+  const theme = useResolvedTheme();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [tool, setTool] = useState<Tool>('pen');
-  const [color, setColor] = useState('#1c1b1a');
+  // Use light pen color in dark mode and dark pen color in light mode for visibility
+  const [color, setColor] = useState(theme === 'dark' ? '#e8e4dc' : '#1c1b1a');
   const [size, setSize] = useState(2);
   const drawingRef = useRef<SketchItem | null>(null);
   const [, force] = useState(0);
+  // Track whether user has manually changed the color to avoid overriding their choice
+  const userChangedColorRef = useRef(false);
   // Text-tool modal. Replaces window.prompt() because Electron 28+
   // disables that API by default and silently returns null, making
   // the text tool a no-op in the desktop app. Same root cause as
@@ -45,6 +50,13 @@ export function SketchEditor({
   const [textModalOpen, setTextModalOpen] = useState(false);
   const [textModalValue, setTextModalValue] = useState('');
   const textAnchorRef = useRef<{ x: number; y: number } | null>(null);
+
+  // Update default pen color when theme changes, but only if user hasn't manually changed it
+  useEffect(() => {
+    if (!userChangedColorRef.current) {
+      setColor(theme === 'dark' ? '#e8e4dc' : '#1c1b1a');
+    }
+  }, [theme]);
 
   // Resize canvas to its container while keeping a high DPR for crisp lines.
   useEffect(() => {
@@ -202,7 +214,10 @@ export function SketchEditor({
           type="color"
           className="sketch-color"
           value={color}
-          onChange={(e) => setColor(e.target.value)}
+          onChange={(e) => {
+            userChangedColorRef.current = true;
+            setColor(e.target.value);
+          }}
           title={t('sketch.color')}
         />
         <input
