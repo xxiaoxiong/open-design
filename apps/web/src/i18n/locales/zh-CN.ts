@@ -2114,6 +2114,7 @@ export const zhCN: Dict = {
   'settings.memoryExtractionWritten': '写入',
   'settings.memoryExtractionDuration': '耗时',
   'settings.memoryExtractionDelete': '删除',
+  'settings.memoryExtractionDeleteConfirm': '确定要删除此抽取记录吗？此操作无法撤销。',
   'settings.memoryExtractionsClear': '清空',
   'settings.memoryExtractionsClearTitle': '清空整个抽取历史',
   'settings.memoryExtractionsClearConfirm': '确定要清空整个抽取历史吗？此操作无法撤销。',
