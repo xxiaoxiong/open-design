@@ -300,7 +300,7 @@ function renderInline(text: string): ReactNode {
   //     leaving italic to win turns the URL into an italic-fragmented mess.
   //  5. bold (**a** / __a__) before italic (*a* / _a_).
   const re =
-    /(`[^`]+`)|!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]+)\]\(([^)\s]+)\)|(https?:\/\/[^\s)<>]+)|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)/g;
+    /(`[^`]+`)|!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]+)\]\(([^)\s]+)\)|(https?:\/\/[^\s)<>]+?)(?=[.,;:!?"'}\]]*(?:\s|$))|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)/g;
   let lastIndex = 0;
   let m: RegExpExecArray | null;
   let key = 0;
@@ -384,7 +384,7 @@ function renderInline(text: string): ReactNode {
 // often relies on hard line breaks rather than blank-line separation.
 function pushText(out: ReactNode[], text: string, baseKey: number): void {
   if (!text) return;
-  const urlRe = /(https?:\/\/[^\s)]+)/g;
+  const urlRe = /(https?:\/\/[^\s)]+?)(?=[.,;:!?"'}\]]*(?:\s|$))/g;
   const segments: ReactNode[] = [];
   let lastIndex = 0;
   let m: RegExpExecArray | null;
