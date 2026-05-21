@@ -15533,6 +15533,7 @@ button.ghost.mcp-copy-btn:hover:not(:disabled) {
   border-radius: 8px 0 0 8px;
 }
 .ds-modal-stage-handle.is-collapse {
+  position: sticky;
   left: 0;
   border-left: none;
   border-radius: 0 8px 8px 0;
