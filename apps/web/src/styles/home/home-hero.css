@@ -344,7 +344,7 @@
   font-size: 13px;
 }
 .home-hero__input-card .plugin-inputs-form__input[type='number'],
-.home-hero__input-card .plugin-inputs-form__input:is(select) {
+.home-hero__input-card select.plugin-inputs-form__input {
   padding: 3px 6px;
   font-size: 12px;
 }
