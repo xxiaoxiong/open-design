@@ -589,6 +589,7 @@ export const zhCN: Dict = {
   'integrations.areasAria': '集成区域',
   'integrations.tabHint.mcp': '外部工具',
   'integrations.tabHint.connectors': '账号和 API',
+  'integrations.tabHint.useEverywhere': 'CLI、HTTP、MCP',
   'integrations.skillsTitle': '技能集成',
   'integrations.skillsBody': '技能级集成管理正在从另一个分支迁移过来。此标签页预留给 MCP、连接器和未来技能设置，使它们位于同一个集成路由中。',
   'mcpClient.title': '外部 MCP 服务器',

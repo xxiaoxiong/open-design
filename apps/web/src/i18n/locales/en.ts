@@ -589,6 +589,7 @@ export const en: Dict = {
   'integrations.areasAria': 'Integration areas',
   'integrations.tabHint.mcp': 'External tools',
   'integrations.tabHint.connectors': 'Accounts and APIs',
+  'integrations.tabHint.useEverywhere': 'CLI, HTTP, MCP',
   'integrations.skillsTitle': 'Skills integrations',
   'integrations.skillsBody': 'Skill-level integration management is being carried over from another branch. This tab is reserved so MCP, Connectors, and future Skills setup live in the same Integration route.',
   'mcpClient.title': 'External MCP servers',

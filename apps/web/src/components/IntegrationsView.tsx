@@ -206,6 +206,6 @@ function integrationTabHint(id: IntegrationTab, t: ReturnType<typeof useT>): str
     case 'mcp': return t('integrations.tabHint.mcp');
     case 'connectors': return t('integrations.tabHint.connectors');
     case 'skills': return t('tasks.comingSoon');
-    case 'use-everywhere': return 'CLI, HTTP, MCP';
+    case 'use-everywhere': return t('integrations.tabHint.useEverywhere');
   }
 }
