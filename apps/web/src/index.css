@@ -15451,7 +15451,7 @@ button.ghost.mcp-copy-btn:hover:not(:disabled) {
   flex-direction: column;
 }
 .ds-modal-stage-handle {
-  position: absolute;
+  position: sticky;
   top: 50%;
   width: 18px;
   height: 56px;
