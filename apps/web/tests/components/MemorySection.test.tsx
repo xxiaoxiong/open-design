@@ -1476,7 +1476,8 @@ describe('MemorySection', () => {
     fireEvent.click(within(row).getByRole('button', { name: 'Delete' }));
 
     // Confirm the deletion in the dialog
-    const confirmButton = await screen.findByRole('button', { name: 'Delete' });
+    const dialog = await screen.findByRole('dialog');
+    const confirmButton = within(dialog).getByRole('button', { name: 'Delete' });
     fireEvent.click(confirmButton);
 
     await waitFor(() => {
