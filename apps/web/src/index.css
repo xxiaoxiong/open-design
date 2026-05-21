@@ -15387,7 +15387,10 @@ button.ghost.mcp-copy-btn:hover:not(:disabled) {
   .ds-modal-header { gap: 10px; padding: 12px 14px; }
   .ds-modal-actions { justify-content: flex-start; }
   .ds-modal-stage { flex-direction: column; }
-  .ds-modal-stage.has-sidebar .ds-modal-stage-iframe { flex: 1 1 50%; }
+  .ds-modal-stage.has-sidebar .ds-modal-stage-iframe { 
+    flex: 1 1 50%; 
+    min-width: 0;
+  }
   .ds-modal-sidebar {
     border-left: none;
     border-top: 1px solid var(--border);
