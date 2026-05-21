@@ -564,6 +564,7 @@ export interface Dict {
   'settings.memoryExtractionWritten': string;
   'settings.memoryExtractionDuration': string;
   'settings.memoryExtractionDelete': string;
+  'settings.memoryExtractionDeleteConfirm': string;
   'settings.memoryExtractionsClear': string;
   'settings.memoryExtractionsClearTitle': string;
   'settings.memoryExtractionsClearConfirm': string;
