@@ -108,4 +108,116 @@ describe('SkillsSection', () => {
       });
     });
   });
+
+  it('warns before editing a built-in skill creates a user override', async () => {
+    const { fetchMock } = renderSkillsSection([
+      makeSkill({
+        id: 'builtin-skill',
+        name: 'Built-in skill',
+        source: 'built-in',
+      }),
+    ]);
+
+    const row = await screen.findByTestId('skill-row-builtin-skill');
+    fireEvent.click(within(row).getByTestId('skills-edit'));
+
+    const warning = await within(row).findByTestId('skills-edit-builtin-warning');
+    expect(warning.textContent).toMatch(/override/i);
+    expect(within(row).queryByTestId('skills-edit-form')).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      '/api/skills/builtin-skill',
+      expect.objectContaining({ method: 'PUT' }),
+    );
+
+    fireEvent.click(within(row).getByTestId('skills-edit-builtin-cancel'));
+    expect(within(row).queryByTestId('skills-edit-builtin-warning')).toBeNull();
+    expect(within(row).queryByTestId('skills-edit-form')).toBeNull();
+
+    fireEvent.click(within(row).getByTestId('skills-edit'));
+    fireEvent.click(
+      await within(row).findByTestId('skills-edit-builtin-confirm'),
+    );
+    expect(await within(row).findByTestId('skills-edit-form')).toBeTruthy();
+  });
+
+  it('skips the override warning when editing a user skill', async () => {
+    renderSkillsSection([
+      makeSkill({
+        id: 'user-skill',
+        name: 'User skill',
+        source: 'user',
+      }),
+    ]);
+
+    const row = await screen.findByTestId('skill-row-user-skill');
+    fireEvent.click(within(row).getByTestId('skills-edit'));
+
+    expect(within(row).queryByTestId('skills-edit-builtin-warning')).toBeNull();
+    expect(await within(row).findByTestId('skills-edit-form')).toBeTruthy();
+  });
+
+  it('treats skills with undefined source as built-in for filtering and counting', async () => {
+    renderSkillsSection([
+      makeSkill({
+        id: 'undefined-source-skill',
+        name: 'Undefined source skill',
+        source: undefined,
+      }),
+      makeSkill({
+        id: 'explicit-builtin',
+        name: 'Explicit built-in',
+        source: 'built-in',
+      }),
+      makeSkill({
+        id: 'user-skill',
+        name: 'User skill',
+        source: 'user',
+      }),
+    ]);
+
+    // Wait for skills to load
+    await screen.findByTestId('skill-row-undefined-source-skill');
+
+    // Find the source filter tabs
+    const builtinTab = screen.getByRole('button', { name: /built-in/i });
+    const userTab = screen.getByRole('button', { name: /user/i });
+
+    // Built-in tab should count both explicit built-in and undefined source (2 total)
+    expect(builtinTab.textContent).toMatch(/2/);
+    
+    // User tab should only count explicit user skills (1 total)
+    expect(userTab.textContent).toMatch(/1/);
+
+    // Click built-in tab - should show both explicit and undefined source skills
+    fireEvent.click(builtinTab);
+    await waitFor(() => {
+      expect(screen.getByTestId('skill-row-undefined-source-skill')).toBeInTheDocument();
+      expect(screen.getByTestId('skill-row-explicit-builtin')).toBeInTheDocument();
+      expect(screen.queryByTestId('skill-row-user-skill')).toBeNull();
+    });
+
+    // Click user tab - should only show user skills
+    fireEvent.click(userTab);
+    await waitFor(() => {
+      expect(screen.queryByTestId('skill-row-undefined-source-skill')).toBeNull();
+      expect(screen.queryByTestId('skill-row-explicit-builtin')).toBeNull();
+      expect(screen.getByTestId('skill-row-user-skill')).toBeInTheDocument();
+    });
+  });
+
+  it('does not expose delete actions for skills with undefined source', async () => {
+    renderSkillsSection([
+      makeSkill({
+        id: 'undefined-source-skill',
+        name: 'Undefined source skill',
+        source: undefined,
+      }),
+    ]);
+
+    const row = await screen.findByTestId('skill-row-undefined-source-skill');
+
+    // Skills with undefined source are treated as built-in, so no delete button
+    expect(within(row).queryByTestId('skills-delete')).toBeNull();
+    expect(within(row).queryByTestId('skills-delete-confirm')).toBeNull();
+  });
 });
