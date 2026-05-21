@@ -71,9 +71,20 @@ describe('FileViewer preview scale', () => {
     expect(effectivePreviewScale('desktop', 1.5, { width: 320, height: 480 })).toBe(1.5);
   });
 
-  it('clamps mobile and tablet overlay scale to the iframe auto-fit scale', () => {
-    expect(effectivePreviewScale('mobile', 1, { width: 390, height: 844 })).toBeLessThan(1);
-    expect(effectivePreviewScale('tablet', 1.25, { width: 820, height: 700 })).toBeLessThan(1);
+  it('allows mobile and tablet zoom beyond 100% for detailed inspection', () => {
+    // Mobile viewport can zoom beyond 100%
+    expect(effectivePreviewScale('mobile', 1.5, { width: 390, height: 844 })).toBe(1.5);
+    expect(effectivePreviewScale('mobile', 2.0, { width: 390, height: 844 })).toBe(2.0);
+    
+    // Tablet viewport can zoom beyond 100%
+    expect(effectivePreviewScale('tablet', 1.25, { width: 820, height: 700 })).toBe(1.25);
+    expect(effectivePreviewScale('tablet', 1.5, { width: 820, height: 700 })).toBe(1.5);
+  });
+
+  it('applies auto-fit scale when user zoom is below 100%', () => {
+    // When zooming out below 100%, fitScale is still applied as a minimum
+    expect(effectivePreviewScale('mobile', 0.5, { width: 390, height: 844 })).toBeLessThan(0.5);
+    expect(effectivePreviewScale('tablet', 0.75, { width: 820, height: 700 })).toBeLessThan(0.75);
   });
 });
 
