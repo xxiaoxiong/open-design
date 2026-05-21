@@ -1747,7 +1747,7 @@ a.avatar-item:visited {
   color: var(--text);
   border-bottom-color: var(--text);
 }
-.chat-header-actions { display: inline-flex; gap: 4px; align-items: center; margin-left: auto; }
+.chat-header-actions { display: inline-flex; gap: 4px; align-items: center; }
 .chat-header-actions .icon-only {
   width: 28px; height: 28px;
   padding: 0;
