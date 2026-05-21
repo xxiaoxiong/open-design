@@ -23902,6 +23902,8 @@ body.desktop-pet-shell .pet-task-item {
 .plugin-details-modal__source dt {
   color: var(--text-muted);
   font-weight: 500;
+  align-self: start;
+  padding-top: 2px;
 }
 .plugin-details-modal__source dd {
   margin: 0;
@@ -23909,7 +23911,7 @@ body.desktop-pet-shell .pet-task-item {
   overflow-wrap: anywhere;
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
 }
 .plugin-details-modal__source-kind {
