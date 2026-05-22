@@ -4108,8 +4108,11 @@ function HtmlViewer({
   // Reset the shell-ready latch whenever the srcDoc iframe re-mounts. The
   // next shell will post `od:srcdoc-transport-ready` (or fire onLoad) and
   // flip this back to true. See #2253.
+  // Also reset the activation cache so the new shell receives the HTML
+  // payload instead of being incorrectly treated as already activated. See #2699.
   useEffect(() => {
     setSrcDocShellReady(false);
+    activatedSrcDocTransportHtmlRef.current = null;
   }, [srcDocTransportResetKey]);
   // Listen for the shell's ready handshake. Gating activation on this is
   // what fixes the #2253 race: opening Tweaks right after a key-driven
