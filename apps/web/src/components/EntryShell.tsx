@@ -1788,11 +1788,12 @@ function OnboardingDropdown(props: OnboardingDropdownProps) {
     placeholder,
     value,
     options,
-    placement = 'bottom',
+    placement: propPlacement = 'bottom',
     multiple = false,
   } = props;
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const [computedPlacement, setComputedPlacement] = useState<'bottom' | 'top'>(propPlacement);
   const selectedValues = Array.isArray(value) ? value : value ? [value] : [];
   const selectedOptions = options.filter((option) => selectedValues.includes(option.value));
   const selectedOption = selectedOptions[0];
@@ -1800,6 +1801,27 @@ function OnboardingDropdown(props: OnboardingDropdownProps) {
   const selectedLabel = multiple
     ? selectedOptions.map((option) => option.label).join(', ')
     : selectedOption?.label;
+
+  // Detect available space and adjust placement when dropdown opens
+  useEffect(() => {
+    if (!open || !rootRef.current) return;
+
+    const trigger = rootRef.current.querySelector('.onboarding-view__select-trigger');
+    if (!trigger) return;
+
+    const triggerRect = trigger.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const menuMaxHeight = 240 + 12 + 6; // max-height + padding + gap
+    const spaceBelow = viewportHeight - triggerRect.bottom;
+    const spaceAbove = triggerRect.top;
+
+    // If not enough space below and more space above, flip to top
+    if (spaceBelow < menuMaxHeight && spaceAbove > spaceBelow) {
+      setComputedPlacement('top');
+    } else {
+      setComputedPlacement(propPlacement);
+    }
+  }, [open, propPlacement]);
 
   useEffect(() => {
     if (!open) return;
@@ -1825,7 +1847,7 @@ function OnboardingDropdown(props: OnboardingDropdownProps) {
   }, [open]);
 
   return (
-    <div className="onboarding-view__select-field" data-placement={placement} ref={rootRef}>
+    <div className="onboarding-view__select-field" data-placement={computedPlacement} ref={rootRef}>
       <span className="onboarding-view__select-label">{label}</span>
       <button
         type="button"
