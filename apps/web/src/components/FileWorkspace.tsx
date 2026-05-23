@@ -102,6 +102,8 @@ interface Props {
     details?: DesignSystemReviewDetails,
   ) => void;
   onUseDesignSystem?: (id: string, title: string) => void;
+  projectMetadata?: ProjectMetadata;
+  onDismissMissingFontsWarning?: () => void;
 }
 
 interface SketchState {
@@ -216,6 +218,8 @@ export function FileWorkspace({
   designSystemReview,
   onDesignSystemReviewDecision,
   onUseDesignSystem,
+  projectMetadata,
+  onDismissMissingFontsWarning,
 }: Props) {
   const t = useT();
   const analytics = useAnalytics();
@@ -959,6 +963,8 @@ export function FileWorkspace({
             designSystemReview={designSystemReview}
             onReviewDecision={onDesignSystemReviewDecision}
             onUseDesignSystem={onUseDesignSystem}
+            projectMetadata={projectMetadata}
+            onDismissMissingFontsWarning={onDismissMissingFontsWarning}
           />
         ) : activeTab === DESIGN_FILES_TAB ? (
           <DesignFilesPanel
@@ -1126,6 +1132,8 @@ function DesignSystemProjectPanel({
   designSystemReview,
   onReviewDecision,
   onUseDesignSystem,
+  projectMetadata,
+  onDismissMissingFontsWarning,
 }: {
   projectId: string;
   system: DesignSystemSummary;
@@ -1149,6 +1157,8 @@ function DesignSystemProjectPanel({
     details?: DesignSystemReviewDetails,
   ) => void;
   onUseDesignSystem?: (id: string, title: string) => void;
+  projectMetadata?: ProjectMetadata;
+  onDismissMissingFontsWarning?: () => void;
 }) {
   const [reviewDecisions, setReviewDecisions] = useState<Record<string, DesignSystemReviewDecision>>({});
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
@@ -1533,7 +1543,7 @@ function DesignSystemProjectPanel({
           </div>
         ) : null}
 
-        {fontFiles.length === 0 ? (
+        {fontFiles.length === 0 && !projectMetadata?.dismissedMissingFontsWarning ? (
           <div className="ds-project-warning-card">
             <Icon name="help-circle" size={16} />
             <span>
@@ -1543,6 +1553,10 @@ function DesignSystemProjectPanel({
             <button type="button" className="ghost compact" onClick={onUploadAssets}>
               <Icon name="upload" size={13} />
               Upload fonts
+            </button>
+            <button type="button" className="ghost compact" onClick={onDismissMissingFontsWarning}>
+              <Icon name="check" size={13} />
+              Use system fonts
             </button>
           </div>
         ) : null}

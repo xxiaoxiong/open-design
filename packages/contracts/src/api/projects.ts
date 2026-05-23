@@ -159,6 +159,8 @@ export interface ProjectMetadata {
   // Stored on design-system projects so the review overview can remember
   // which generated sections were accepted or sent back for another pass.
   designSystemReview?: Record<string, DesignSystemReviewEntry>;
+  // User preference to hide the missing brand fonts warning banner.
+  dismissedMissingFontsWarning?: boolean;
 }
 
 export interface Project {

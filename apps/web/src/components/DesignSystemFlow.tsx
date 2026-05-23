@@ -852,6 +852,7 @@ export function DesignSystemDetailView({
   const [feedbackSection, setFeedbackSection] = useState<string | null>(null);
   const [chatSeed, setChatSeed] = useState<{ id: string; text: string } | null>(null);
   const [workspaceProjectId, setWorkspaceProjectId] = useState<string | null>(null);
+  const [workspaceProject, setWorkspaceProject] = useState<Project | null>(null);
   const [workspaceProjectFiles, setWorkspaceProjectFiles] = useState<ProjectFile[]>([]);
   const [workspaceLoadError, setWorkspaceLoadError] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -876,6 +877,7 @@ export function DesignSystemDetailView({
     setSystem(null);
     setRevisions([]);
     setWorkspaceProjectId(null);
+    setWorkspaceProject(null);
     setWorkspaceProjectFiles([]);
     setWorkspaceLoadError(null);
     setConversations([]);
@@ -918,6 +920,10 @@ export function DesignSystemDetailView({
       const projectId = resolved.projectId;
       setWorkspaceProjectId(projectId);
       setWorkspaceProjectFiles(resolved.files);
+      const project = await getProject(projectId);
+      if (!cancelled && project) {
+        setWorkspaceProject(project);
+      }
       if (onOpenProject && openedProjectRef.current !== projectId) {
         openedProjectRef.current = projectId;
         await onProjectsRefresh?.();
@@ -1688,6 +1694,22 @@ export function DesignSystemDetailView({
     }
   }
 
+  async function handleDismissMissingFontsWarning() {
+    if (!workspaceProject) return;
+    const baseMetadata: ProjectMetadata = {
+      kind: workspaceProject.metadata?.kind ?? 'other',
+      ...workspaceProject.metadata,
+    };
+    const metadata: ProjectMetadata = {
+      ...baseMetadata,
+      dismissedMissingFontsWarning: true,
+    };
+    const updated = await patchProject(workspaceProject.id, { metadata });
+    if (updated) {
+      setWorkspaceProject(updated);
+    }
+  }
+
   if (!system) {
     return (
       <div className="ds-setup-shell ds-setup-shell--center">
@@ -1808,17 +1830,23 @@ export function DesignSystemDetailView({
               ) : null}
             </div>
             <DesignSystemPackageCard system={system} />
-            <div className="ds-warning-card">
-              <Icon name="help-circle" />
-              <span>
-                <strong>Missing brand fonts</strong>
-                Open Design is rendering typography with substitute web fonts.
-              </span>
-              <button type="button" className="ghost compact">
-                <Icon name="upload" />
-                Upload fonts
-              </button>
-            </div>
+            {!workspaceProject?.metadata?.dismissedMissingFontsWarning ? (
+              <div className="ds-warning-card">
+                <Icon name="help-circle" />
+                <span>
+                  <strong>Missing brand fonts</strong>
+                  Open Design is rendering typography with substitute web fonts.
+                </span>
+                <button type="button" className="ghost compact">
+                  <Icon name="upload" />
+                  Upload fonts
+                </button>
+                <button type="button" className="ghost compact" onClick={handleDismissMissingFontsWarning}>
+                  <Icon name="check" />
+                  Use system fonts
+                </button>
+              </div>
+            ) : null}
             {statusLine ? <div className="ds-status-line">{statusLine}</div> : null}
             <WorkspaceActivityCard message={workspaceActivityMessage} active={chatStreaming} />
             {pendingRevision ? (

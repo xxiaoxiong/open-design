@@ -3134,6 +3134,20 @@ export function ProjectView({
     if (details?.agentTask) entry.agentTask = details.agentTask;
     persistDesignSystemReviewEntry(sectionTitle, entry);
   }, [persistDesignSystemReviewEntry]);
+
+  const handleDismissMissingFontsWarning = useCallback(() => {
+    const baseMetadata: ProjectMetadata = {
+      kind: project.metadata?.kind ?? 'other',
+      ...project.metadata,
+    };
+    const metadata: ProjectMetadata = {
+      ...baseMetadata,
+      dismissedMissingFontsWarning: true,
+    };
+    onProjectChange({ ...project, metadata });
+    void patchProject(project.id, { metadata });
+  }, [onProjectChange, project]);
+
   useEffect(() => {
     if (!activeConversationId || !messagesInitialized || currentConversationActionDisabled) return;
     const queued = Object.entries(project.metadata?.designSystemReview ?? {}).find(
@@ -4186,6 +4200,8 @@ export function ProjectView({
           onDesignSystemNeedsWork={sendDesignSystemFeedback}
           designSystemReview={project.metadata?.designSystemReview}
           onDesignSystemReviewDecision={persistDesignSystemReviewDecision}
+          projectMetadata={project.metadata}
+          onDismissMissingFontsWarning={handleDismissMissingFontsWarning}
         />
       </div>
       {projectActionsToast ? (
