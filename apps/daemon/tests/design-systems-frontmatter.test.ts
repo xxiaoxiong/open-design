@@ -230,4 +230,116 @@ describe('listDesignSystems frontmatter parsing (issue #1857)', () => {
     const [ds] = await listDesignSystems(root);
     expect(ds?.body).toBe(raw);
   });
+
+  it('extracts swatches from markdown table format (issue #2813)', async () => {
+    const root = fresh();
+    writeDesignMd(
+      root,
+      'table-tokens',
+      [
+        '# Design System with Table Tokens',
+        '',
+        '> Category: Productivity',
+        '',
+        'A system using table format for color tokens.',
+        '',
+        '## Color Tokens',
+        '',
+        '| Token Name | Value | Usage |',
+        '|------------|-------|-------|',
+        '| Background | #fafafa | Page background |',
+        '| Text | #111111 | Primary text |',
+        '| Accent | #00b96b | Brand color |',
+        '| Border | #dddddd | Dividers |',
+      ].join('\n'),
+    );
+
+    const [ds] = await listDesignSystems(root);
+    expect(ds?.swatches).toEqual(['#fafafa', '#dddddd', '#111111', '#00b96b']);
+  });
+
+  it('extracts swatches from table format with backticks around hex values', async () => {
+    const root = fresh();
+    writeDesignMd(
+      root,
+      'table-backticks',
+      [
+        '# Table with Backticks',
+        '',
+        '> Category: Custom',
+        '',
+        'Table tokens with code formatting.',
+        '',
+        '| Name | Color |',
+        '|------|-------|',
+        '| Primary | `#ff3366` |',
+        '| Secondary | `#3366ff` |',
+        '| Background | `#ffffff` |',
+        '| Foreground | `#222222` |',
+      ].join('\n'),
+    );
+
+    const [ds] = await listDesignSystems(root);
+    expect(ds?.swatches).toEqual(['#ffffff', '#3366ff', '#222222', '#ff3366']);
+  });
+
+  it('skips table header rows and extracts only data rows', async () => {
+    const root = fresh();
+    writeDesignMd(
+      root,
+      'table-headers',
+      [
+        '# Table with Headers',
+        '',
+        '> Category: Custom',
+        '',
+        'Table with proper headers.',
+        '',
+        '| Name | Value |',
+        '|------|-------|',
+        '| Background | #ffffff |',
+        '| Foreground | #111111 |',
+        '| Accent | #00b96b |',
+        '| Border | #dddddd |',
+      ].join('\n'),
+    );
+
+    const [ds] = await listDesignSystems(root);
+    // pickSwatchRow returns [bg, support, fg, accent]
+    expect(ds?.swatches).toEqual(['#ffffff', '#dddddd', '#111111', '#00b96b']);
+  });
+
+  it('combines table format with inline format tokens (issue #2813)', async () => {
+    const root = fresh();
+    writeDesignMd(
+      root,
+      'mixed-formats',
+      [
+        '# Mixed Format Tokens',
+        '',
+        '> Category: Custom',
+        '',
+        'System with both inline and table tokens.',
+        '',
+        '## Primary Colors',
+        '',
+        '- **Brand Primary:** `#00b96b`',
+        '- **Brand Secondary:** `#0066cc`',
+        '',
+        '## Semantic Colors',
+        '',
+        '| Token | Value |',
+        '|-------|-------|',
+        '| Background | #fafafa |',
+        '| Foreground | #111111 |',
+        '| Border | #dddddd |',
+      ].join('\n'),
+    );
+
+    const [ds] = await listDesignSystems(root);
+    // Should extract from both formats without duplicates
+    expect(ds?.swatches).toHaveLength(4);
+    expect(ds?.swatches).toContain('#00b96b');
+    expect(ds?.swatches).toContain('#fafafa');
+  });
 });

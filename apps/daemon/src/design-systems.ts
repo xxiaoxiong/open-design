@@ -2823,6 +2823,22 @@ function extractSwatches(raw: string): string[] {
   // Form B: "**Stripe Purple** (`#533afd`)"
   const reB = /\*\*([A-Za-z][A-Za-z0-9 /&()+_-]{1,40}?)\*\*\s*\(?\s*`?(#[0-9a-fA-F]{3,8})/g;
   while ((m = reB.exec(raw)) !== null) push(m[1] ?? '', m[2] ?? '');
+  // Form C: Markdown table format
+  // Extract tokens from table rows: first text cell = name, first #hex in row = value
+  const tableRowRegex = /^\s*\|([^|\n]+)\|([^|\n]+(?:\|[^|\n]+)*)\|\s*$/gm;
+  while ((m = tableRowRegex.exec(raw)) !== null) {
+    const firstCell = m[1]?.trim() ?? '';
+    const restOfRow = m[2] ?? '';
+    // Skip header separator rows (e.g., |---|---|)
+    if (/^[\s-:|]+$/.test(firstCell) || /^[\s-:|]+$/.test(restOfRow)) continue;
+    // Skip if first cell looks like a header (common table headers)
+    if (/^(name|token|color|variable|key|property)$/i.test(firstCell)) continue;
+    // Extract first hex color from the rest of the row
+    const hexMatch = /#[0-9a-fA-F]{3,8}/.exec(restOfRow);
+    if (hexMatch && firstCell.length > 0 && /[A-Za-z]/.test(firstCell)) {
+      push(firstCell, hexMatch[0]);
+    }
+  }
   if (colors.length === 0) return [];
   return pickSwatchRow(colors).values;
 }

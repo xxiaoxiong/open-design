@@ -85,6 +85,14 @@ export function DesignSystemsSection({ cfg, setCfg }: Props) {
       list.push(d);
       groups.set(d.category, list);
     }
+    // Sort each category: user-created systems first, then others
+    for (const [category, items] of groups.entries()) {
+      items.sort((a, b) => {
+        if (a.source === 'user' && b.source !== 'user') return -1;
+        if (a.source !== 'user' && b.source === 'user') return 1;
+        return a.title.localeCompare(b.title);
+      });
+    }
     return groups;
   }, [filtered]);
 
