@@ -4283,6 +4283,23 @@ function HtmlViewer({
     wasUrlLoadPreviewRef.current = false;
     activateSrcDocTransport();
   }, [activateSrcDocTransport, useUrlLoadPreview]);
+  
+  // Re-activate srcDoc transport when exiting manual edit mode to ensure
+  // the preview renders correctly when switching from Edit to Draw mode.
+  // Without this, the preview can remain blank because the frozen source
+  // is cleared but the iframe content is not refreshed.
+  const prevManualEditModeRef = useRef(manualEditMode);
+  useEffect(() => {
+    const wasInEditMode = prevManualEditModeRef.current;
+    const isNowInEditMode = manualEditMode;
+    prevManualEditModeRef.current = isNowInEditMode;
+    
+    // When exiting edit mode (was true, now false), re-activate the transport
+    if (wasInEditMode && !isNowInEditMode && !useUrlLoadPreview) {
+      activateSrcDocTransport();
+    }
+  }, [manualEditMode, useUrlLoadPreview, activateSrcDocTransport]);
+  
   useEffect(() => {
     restorePreviewScrollPosition();
   }, [boardMode, manualEditMode, srcDoc, restorePreviewScrollPosition]);
