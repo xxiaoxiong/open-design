@@ -1011,6 +1011,33 @@
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
+  position: relative;
+  /* Hide scrollbar for cleaner look */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.manual-edit-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* Gradient indicator when content overflows to the right */
+.manual-edit-tabs::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 40px;
+  background: linear-gradient(to right, transparent, var(--bg-panel));
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+/* Show gradient when scrollable (not at the end) */
+.manual-edit-tabs[data-scrollable="true"]::after {
+  opacity: 1;
 }
 
 .manual-edit-tabs button {

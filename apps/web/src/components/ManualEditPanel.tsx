@@ -64,10 +64,33 @@ export function ManualEditPanel({
   const [uploadingImage, setUploadingImage] = useState(false);
   const selectedTargetRef = useRef<ManualEditTarget | null>(selectedTarget);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const tabsRef = useRef<HTMLDivElement | null>(null);
   const targetForInspector = selectedTarget;
   useEffect(() => {
     selectedTargetRef.current = selectedTarget;
   }, [selectedTarget]);
+  
+  // Detect if tabs are scrollable and update data attribute
+  useEffect(() => {
+    const tabsEl = tabsRef.current;
+    if (!tabsEl) return;
+    
+    const updateScrollable = () => {
+      const isScrollable = tabsEl.scrollWidth > tabsEl.clientWidth;
+      const isAtEnd = tabsEl.scrollLeft + tabsEl.clientWidth >= tabsEl.scrollWidth - 1;
+      tabsEl.setAttribute('data-scrollable', String(isScrollable && !isAtEnd));
+    };
+    
+    updateScrollable();
+    tabsEl.addEventListener('scroll', updateScrollable);
+    window.addEventListener('resize', updateScrollable);
+    
+    return () => {
+      tabsEl.removeEventListener('scroll', updateScrollable);
+      window.removeEventListener('resize', updateScrollable);
+    };
+  }, [targetForInspector, activeTab]);
+  
   const [activeTab, setActiveTab] = useState<ManualEditTab>('style');
   const tab = targetForInspector
     ? (activeTab === 'page' ? 'style' : activeTab)
@@ -143,7 +166,7 @@ export function ManualEditPanel({
       </section>
       <aside className="manual-edit-right">
         <section className="manual-edit-modal cc-panel">
-          <div className="manual-edit-tabs" role="tablist" aria-label="Manual edit tabs">
+          <div ref={tabsRef} className="manual-edit-tabs" role="tablist" aria-label="Manual edit tabs">
             {(targetForInspector ? ELEMENT_TABS : PAGE_TABS).map((item) => (
               <button
                 key={item.id}
