@@ -24,6 +24,7 @@ import { navigate } from '../router';
 import type { SkillSummary } from '../types';
 import { useAnalytics } from '../analytics/provider';
 import { trackAutomationsClick, trackPageView } from '../analytics/events';
+import { useI18n } from '../i18n';
 import {
   NewAutomationModal,
   describeScheduleSummary,
@@ -387,7 +388,21 @@ function proposalActionLabel(action: AutomationEvolutionProposal['action']): str
 }
 
 export function TasksView({ skills = [], designTemplates = [], connectors = [] }: Props) {
+  const { t } = useI18n();
   const analytics = useAnalytics();
+  
+  // Localize error messages from backend
+  const localizeError = useCallback((error: string): string => {
+    // Match common error patterns and return localized versions
+    if (error.includes('Agent completed without producing any output')) {
+      return t('routines.errorAgentNoOutput');
+    }
+    if (error.includes('Paste source content before ingesting it')) {
+      return t('routines.errorPasteSource');
+    }
+    // Return original error if no match
+    return error;
+  }, [t]);
   // P2 page_view page_name=automations. Ref-keyed so re-renders don't
   // double-fire while the user is on the page.
   const pageViewFiredRef = useState<{ fired: boolean }>(() => ({ fired: false }))[0];
@@ -510,7 +525,7 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
 
   const submitSourceIngestion = async () => {
     if (!sourceForm.bodyMarkdown.trim()) {
-      setError('Paste source content before ingesting it.');
+      setError(t('routines.errorPasteSource'));
       return;
     }
     setIngestingSource(true);
@@ -1202,7 +1217,7 @@ function AutomationRunHistory({
             </div>
             {run.summary || run.error ? (
               <div className={`automation-history__message${run.error ? ' is-error' : ''}`}>
-                {run.error ?? run.summary}
+                {run.error ? localizeError(run.error) : run.summary}
               </div>
             ) : null}
             <div className="automation-history__actions">

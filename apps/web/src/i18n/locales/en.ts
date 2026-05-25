@@ -894,7 +894,10 @@ export const en: Dict = {
   'routines.confirmDelete':
     'Delete this automation? Past runs and their projects are kept.',
   'routines.errorPickProject':
-    'Pick a project to reuse, or switch to “Create new each run”',
+    'Pick a project to reuse, or switch to "Create new each run"',
+  'routines.errorAgentNoOutput':
+    'Agent completed without producing any output. The model or provider may have returned an empty response — check the agent logs for upstream errors.',
+  'routines.errorPasteSource': 'Paste source content before ingesting it.',
   'entry.helpAria': 'Help',
   'entry.helpMenuAria': 'Help menu',
   'entry.helpGetHelp': 'Get help on GitHub',

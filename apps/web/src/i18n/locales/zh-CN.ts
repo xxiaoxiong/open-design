@@ -891,7 +891,10 @@ export const zhCN: Dict = {
   'routines.status.failed': '失败',
   'routines.status.canceled': '已取消',
   'routines.confirmDelete': '删除此自动化？过往运行记录及其项目将予以保留。',
-  'routines.errorPickProject': '请选择要复用的项目，或切换为“每次运行新建项目”。',
+  'routines.errorPickProject': '请选择要复用的项目，或切换为"每次运行新建项目"。',
+  'routines.errorAgentNoOutput':
+    '智能体完成运行但未产生任何输出。模型或提供商可能返回了空响应 — 请检查智能体日志以查看上游错误。',
+  'routines.errorPasteSource': '请先粘贴来源内容再进行导入。',
   'entry.helpAria': '帮助',
   'entry.helpMenuAria': '帮助菜单',
   'entry.helpGetHelp': '在 GitHub 上获取帮助',
