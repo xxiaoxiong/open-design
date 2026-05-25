@@ -3356,6 +3356,20 @@ export function ProjectView({
       messagesConversationIdRef.current = fresh.id;
       setConversations((curr) => [fresh, ...curr]);
       setActiveConversationId(fresh.id);
+      // Push the new conversation id into the URL synchronously so the
+      // route-sync effect sees a matching `routeConversationId` before
+      // it can revert `activeConversationId`. Without this, the route-sync
+      // effect can fight the conversation switch, preventing users from
+      // switching back to older conversations after creating a new one.
+      navigate(
+        {
+          kind: 'project',
+          projectId: project.id,
+          conversationId: fresh.id,
+          fileName: openTabsState.active ?? null,
+        },
+        { replace: true },
+      );
       setError(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not create a conversation for this project.';
@@ -3365,7 +3379,7 @@ export function ProjectView({
       creatingConversationRef.current = false;
       setCreatingConversation(false);
     }
-  }, [project.id, activeConversationId, messages.length]);
+  }, [project.id, activeConversationId, messages.length, navigate, openTabsState.active]);
 
   const handleSelectConversation = useCallback((id: string) => {
     if (id === activeConversationId && failedMessagesConversationId !== id) return;
