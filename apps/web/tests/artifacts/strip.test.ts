@@ -128,4 +128,52 @@ describe('stripArtifact', () => {
     ].join('\n');
     expect(stripArtifact(input)).toBe(input);
   });
+
+  it('strips multiple artifact blocks from the same message', () => {
+    // When a message contains multiple artifacts, all should be stripped
+    // to prevent raw HTML source from leaking into the conversation.
+    const input = [
+      'Here is the first artifact:',
+      '<artifact identifier="a" type="text/html" title="A">',
+      '<h1>First</h1>',
+      '</artifact>',
+      'And here is the second:',
+      '<artifact identifier="b" type="text/html" title="B">',
+      '<h1>Second</h1>',
+      '</artifact>',
+      'Done.',
+    ].join('\n');
+    const out = stripArtifact(input);
+    expect(out).not.toContain('<artifact');
+    expect(out).not.toContain('</artifact>');
+    expect(out).not.toContain('<h1>First</h1>');
+    expect(out).not.toContain('<h1>Second</h1>');
+    expect(out).toContain('Here is the first artifact:');
+    expect(out).toContain('And here is the second:');
+    expect(out).toContain('Done.');
+  });
+
+  it('strips multiple artifacts while preserving fenced code blocks', () => {
+    // Multiple artifacts with fenced code blocks between them
+    const input = [
+      '<artifact identifier="a" type="text/html" title="A">',
+      '<h1>First</h1>',
+      '</artifact>',
+      'Example code:',
+      '```html',
+      '<artifact identifier="example">This is just an example</artifact>',
+      '```',
+      '<artifact identifier="b" type="text/html" title="B">',
+      '<h1>Second</h1>',
+      '</artifact>',
+    ].join('\n');
+    const out = stripArtifact(input);
+    // Real artifacts should be stripped
+    expect(out).not.toContain('<h1>First</h1>');
+    expect(out).not.toContain('<h1>Second</h1>');
+    // But the example in the code block should remain
+    expect(out).toContain('```html');
+    expect(out).toContain('<artifact identifier="example">This is just an example</artifact>');
+    expect(out).toContain('Example code:');
+  });
 });
