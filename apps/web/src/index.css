@@ -6973,6 +6973,8 @@ button.connector-action.is-loading {
 .df-head .df-actions {
   margin-left: auto;
   display: inline-flex;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
   gap: 4px;
 }
 .df-head .df-actions button {
