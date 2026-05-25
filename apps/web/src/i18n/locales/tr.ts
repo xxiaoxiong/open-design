@@ -1660,4 +1660,7 @@ export const tr: Dict = {
   'diagnostics.exporting': 'Dışa aktarılıyor…',
   'diagnostics.exportSuccess': 'Tanılama {path} konumuna kaydedildi',
   'diagnostics.exportFailed': 'Tanılama dışa aktarılamadı: {message}',
+  'routines.errorAgentNoOutput':
+    'Agent completed without producing any output. The model or provider may have returned an empty response — check the agent logs for upstream errors.',
+  'routines.errorPasteSource': 'Paste source content before ingesting it.',
 };

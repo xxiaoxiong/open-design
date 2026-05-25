@@ -1723,4 +1723,7 @@ export const ko: Dict = {
   'diagnostics.exporting': '내보내는 중…',
   'diagnostics.exportSuccess': '진단 정보를 {path}에 저장했습니다',
   'diagnostics.exportFailed': '진단 정보 내보내기 실패: {message}',
+  'routines.errorAgentNoOutput':
+    'Agent completed without producing any output. The model or provider may have returned an empty response — check the agent logs for upstream errors.',
+  'routines.errorPasteSource': 'Paste source content before ingesting it.',
 };

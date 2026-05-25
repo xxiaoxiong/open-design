@@ -1610,4 +1610,7 @@ export const ja: Dict = {
   'diagnostics.exporting': 'エクスポート中…',
   'diagnostics.exportSuccess': '診断情報を {path} に保存しました',
   'diagnostics.exportFailed': '診断情報のエクスポートに失敗しました: {message}',
+  'routines.errorAgentNoOutput':
+    'Agent completed without producing any output. The model or provider may have returned an empty response — check the agent logs for upstream errors.',
+  'routines.errorPasteSource': 'Paste source content before ingesting it.',
 };

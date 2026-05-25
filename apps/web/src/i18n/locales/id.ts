@@ -1716,4 +1716,7 @@ export const id: Dict = {
   'diagnostics.exporting': 'Mengekspor…',
   'diagnostics.exportSuccess': 'Diagnostik disimpan di {path}',
   'diagnostics.exportFailed': 'Gagal mengekspor diagnostik: {message}',
+  'routines.errorAgentNoOutput':
+    'Agent completed without producing any output. The model or provider may have returned an empty response — check the agent logs for upstream errors.',
+  'routines.errorPasteSource': 'Paste source content before ingesting it.',
 };

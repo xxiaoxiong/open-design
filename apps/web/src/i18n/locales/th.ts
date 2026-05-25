@@ -1506,4 +1506,7 @@ export const th: Dict = {
   'settings.designSystemsCategory': 'หมวดหมู่',
   'settings.designSystemsAllCategories': 'ทุกหมวดหมู่',
   'settings.designSystemsShowInHomeGallery': 'แสดงในแกลเลอรีหน้าแรก',
+  'routines.errorAgentNoOutput':
+    'Agent completed without producing any output. The model or provider may have returned an empty response — check the agent logs for upstream errors.',
+  'routines.errorPasteSource': 'Paste source content before ingesting it.',
 };

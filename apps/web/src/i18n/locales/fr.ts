@@ -1899,4 +1899,7 @@ export const fr: Dict = {
   'diagnostics.exporting': 'Exportation…',
   'diagnostics.exportSuccess': 'Diagnostic enregistré dans {path}',
   'diagnostics.exportFailed': 'Impossible d\'exporter le diagnostic: {message}',
+  'routines.errorAgentNoOutput':
+    'Agent completed without producing any output. The model or provider may have returned an empty response — check the agent logs for upstream errors.',
+  'routines.errorPasteSource': 'Paste source content before ingesting it.',
 };

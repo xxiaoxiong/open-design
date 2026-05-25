@@ -1716,4 +1716,7 @@ export const fa: Dict = {
   'diagnostics.exporting': 'در حال صادر کردن…',
   'diagnostics.exportSuccess': 'تشخیص در {path} ذخیره شد',
   'diagnostics.exportFailed': 'صادر کردن تشخیص ناموفق بود: {message}',
+  'routines.errorAgentNoOutput':
+    'Agent completed without producing any output. The model or provider may have returned an empty response — check the agent logs for upstream errors.',
+  'routines.errorPasteSource': 'Paste source content before ingesting it.',
 };

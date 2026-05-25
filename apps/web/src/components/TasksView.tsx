@@ -843,6 +843,7 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
                       refreshKey={historyTick}
                       crystallizingRunId={crystallizingRunId}
                       onCrystallizeRun={crystallizeRun}
+                      localizeError={localizeError}
                     />
                   ) : null}
                 </li>
@@ -1161,11 +1162,13 @@ function AutomationRunHistory({
   refreshKey,
   crystallizingRunId,
   onCrystallizeRun,
+  localizeError,
 }: {
   routineId: string;
   refreshKey: number;
   crystallizingRunId: string | null;
   onCrystallizeRun: (routineId: string, runId: string) => void;
+  localizeError: (error: string) => string;
 }) {
   const [runs, setRuns] = useState<RoutineRun[] | null>(null);
 

@@ -1714,4 +1714,7 @@ export const ru: Dict = {
   'diagnostics.exporting': 'Экспортирование…',
   'diagnostics.exportSuccess': 'Диагностика сохранена: {path}',
   'diagnostics.exportFailed': 'Не удалось экспортировать диагностику: {message}',
+  'routines.errorAgentNoOutput':
+    'Agent completed without producing any output. The model or provider may have returned an empty response — check the agent logs for upstream errors.',
+  'routines.errorPasteSource': 'Paste source content before ingesting it.',
 };

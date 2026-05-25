@@ -1965,4 +1965,7 @@ export const zhTW: Dict = {
   'pluginCard.publishTitle': '將外掛發布為 GitHub 儲存庫',
   'pluginCard.contributeAria': '將 {title} 貢獻至 Open Design',
   'pluginCard.contributeTitle': '透過 pull request 將外掛貢獻至 Open Design',
+  'routines.errorAgentNoOutput':
+    'Agent completed without producing any output. The model or provider may have returned an empty response — check the agent logs for upstream errors.',
+  'routines.errorPasteSource': 'Paste source content before ingesting it.',
 };

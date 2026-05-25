@@ -1683,4 +1683,7 @@ export const hu: Dict = {
   'diagnostics.exporting': 'Exportálás…',
   'diagnostics.exportSuccess': 'Diagnosztika mentve: {path}',
   'diagnostics.exportFailed': 'Diagnosztika exportálása sikertelen: {message}',
+  'routines.errorAgentNoOutput':
+    'Agent completed without producing any output. The model or provider may have returned an empty response — check the agent logs for upstream errors.',
+  'routines.errorPasteSource': 'Paste source content before ingesting it.',
 };

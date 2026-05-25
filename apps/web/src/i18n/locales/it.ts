@@ -1540,4 +1540,7 @@ export const it: Dict = {
   'liveArtifact.viewer.code.loading': 'Caricamento codice…',
   'liveArtifact.viewer.code.unavailable': 'Il codice non è ancora disponibile.',
   'liveArtifact.viewer.code.empty': 'Questo file di codice è vuoto.',
+  'routines.errorAgentNoOutput':
+    'Agent completed without producing any output. The model or provider may have returned an empty response — check the agent logs for upstream errors.',
+  'routines.errorPasteSource': 'Paste source content before ingesting it.',
 };

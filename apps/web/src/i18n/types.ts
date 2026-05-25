@@ -1206,6 +1206,8 @@ export interface Dict {
   'routines.status.canceled': string;
   'routines.confirmDelete': string;
   'routines.errorPickProject': string;
+  'routines.errorAgentNoOutput': string;
+  'routines.errorPasteSource': string;
   // Bottom-of-rail help menu
   'entry.helpAria': string;
   'entry.helpMenuAria': string;
