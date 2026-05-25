@@ -1060,12 +1060,18 @@
   font: inherit;
   font-size: 12px;
   font-weight: 650;
+  outline: none;
 }
 
 .manual-edit-tabs button.selected {
   border-color: var(--accent);
   color: var(--text);
   background: var(--accent-soft);
+}
+
+.manual-edit-tabs button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .manual-edit-tab-body {
