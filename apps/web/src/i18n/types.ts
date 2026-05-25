@@ -1206,6 +1206,17 @@ export interface Dict {
   'routines.status.canceled': string;
   'routines.confirmDelete': string;
   'routines.errorPickProject': string;
+  'routines.summaryAria': string;
+  'routines.runNowTitle': string;
+  'routines.deleteAria': string;
+  'routines.evolutionProposalsAria': string;
+  'routines.templatePlaceholder': string;
+  'routines.sourcePlaceholder': string;
+  'routines.ingestPlaceholder': string;
+  'routines.recentPacketsAria': string;
+  'routines.templateFiltersAria': string;
+  'routines.runHistoryAria': string;
+  'routines.draftProposalsTitle': string;
   // Bottom-of-rail help menu
   'entry.helpAria': string;
   'entry.helpMenuAria': string;

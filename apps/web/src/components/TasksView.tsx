@@ -677,7 +677,7 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
           </p>
         </div>
         <div className="automations-hero__actions">
-          <div className="automations-metrics" aria-label="Automation summary">
+          <div className="automations-metrics" aria-label={t('routines.summaryAria')}>
             <Metric label={t('routines.metricActive')} value={activeCount} />
             <Metric label={t('routines.metricPaused')} value={pausedCount} />
             <Metric label={t('routines.metricTemplates')} value={templates.length} />
@@ -779,7 +779,7 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
                       className="automation-row__btn"
                       onClick={() => runNow(r.id)}
                       disabled={isBusy}
-                      title="Run now and open the conversation"
+                      title={t('routines.runNowTitle')}
                     >
                       <Icon name="play" size={12} />
                       <span>Run</span>
@@ -818,8 +818,8 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
                       className="automation-row__btn automation-row__btn--danger"
                       onClick={() => remove(r.id)}
                       disabled={isBusy}
-                      aria-label="Delete automation"
-                      title="Delete this automation"
+                      aria-label={t('routines.deleteAria')}
+                      title={t('routines.deleteTitle')}
                     >
                       <Icon name="trash" size={12} />
                     </button>
@@ -840,7 +840,7 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
       </section>
 
       {proposals.length > 0 ? (
-        <section className="automations-saved" aria-label="Automation evolution proposals">
+        <section className="automations-saved" aria-label={t('routines.evolutionProposalsAria')}>
           <div className="automations-section-head">
             <div>
               <h2 className="automations-section__label">Evolution proposals</h2>
@@ -989,7 +989,7 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
               <input
                 value={sourceForm.title}
                 onChange={(event) => patchSourceForm({ title: event.currentTarget.value })}
-                placeholder="Decision, brand notes, workflow pattern..."
+                placeholder={t('routines.templatePlaceholder')}
               />
             </label>
             <label className="automation-ingest-field">
@@ -997,7 +997,7 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
               <input
                 value={sourceForm.sourceRef}
                 onChange={(event) => patchSourceForm({ sourceRef: event.currentTarget.value })}
-                placeholder="URL, repo path, connector event id, artifact id..."
+                placeholder={t('routines.sourcePlaceholder')}
               />
             </label>
           </div>
@@ -1006,12 +1006,12 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
             <textarea
               value={sourceForm.bodyMarkdown}
               onChange={(event) => patchSourceForm({ bodyMarkdown: event.currentTarget.value })}
-              placeholder="Paste the content to canonicalize into a source packet and proposals."
+              placeholder={t('routines.ingestPlaceholder')}
             />
           </label>
           <div className="automation-ingest-footer">
             {sourcePackets.length > 0 ? (
-              <ul className="automation-ingest-recent" aria-label="Recent source packets">
+              <ul className="automation-ingest-recent" aria-label={t('routines.recentPacketsAria')}>
                 {sourcePackets.map((packet) => (
                   <li key={packet.id}>
                     <span>{packet.title}</span>
@@ -1052,7 +1052,7 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
         <div
           className="automations-template-tabs"
           role="tablist"
-          aria-label="Template filters"
+          aria-label={t('routines.templateFiltersAria')}
         >
           {TEMPLATE_FILTERS.map((filter) => {
             const count = filterTemplates(templates, filter.id).length;
@@ -1183,7 +1183,7 @@ function AutomationRunHistory({
   }
 
   return (
-    <div className="automation-history" aria-label="Automation run history">
+    <div className="automation-history" aria-label={t('routines.runHistoryAria')}>
       <div className="automation-history__head">
         <span>Run history</span>
         <span>Latest 10</span>
@@ -1214,7 +1214,7 @@ function AutomationRunHistory({
                   className="automation-history__open"
                   onClick={() => onCrystallizeRun(routineId, run.id)}
                   disabled={crystallizingRunId === run.id}
-                  title="Draft skill and memory proposals from this run"
+                  title={t('routines.draftProposalsTitle')}
                 >
                   <Icon name="sparkles" size={12} />
                   <span>{crystallizingRunId === run.id ? 'Crystallizing' : 'Crystallize'}</span>
