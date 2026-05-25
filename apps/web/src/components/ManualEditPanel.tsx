@@ -25,8 +25,13 @@ export function ManualEditPanel({
   targets,
   selectedTarget,
   draft,
+  history,
   error,
+  success,
   canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
   onSelectTarget,
   onDraftChange,
   onStyleChange,
@@ -43,6 +48,7 @@ export function ManualEditPanel({
   draft: ManualEditDraft;
   history: ManualEditHistoryEntry[];
   error: string | null;
+  success?: string | null;
   canUndo: boolean;
   canRedo: boolean;
   busy?: boolean;
@@ -326,6 +332,7 @@ export function ManualEditPanel({
         ) : null}
 
         {error ? <div className="manual-edit-error">{error}</div> : null}
+        {success ? <div className="manual-edit-success">{success}</div> : null}
         </section>
       </aside>
     </>

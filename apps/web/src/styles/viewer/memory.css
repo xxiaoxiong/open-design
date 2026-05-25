@@ -1109,6 +1109,16 @@
   font-size: 12px;
 }
 
+.manual-edit-success {
+  margin: 0 12px 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--green-border);
+  border-radius: 6px;
+  color: var(--green);
+  background: var(--green-bg);
+  font-size: 12px;
+}
+
 .manual-edit-changes {
   flex: 1;
   min-height: 0;

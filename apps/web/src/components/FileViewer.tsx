@@ -3848,6 +3848,7 @@ function HtmlViewer({
   const [manualEditHistory, setManualEditHistory] = useState<ManualEditHistoryEntry[]>([]);
   const [manualEditUndone, setManualEditUndone] = useState<ManualEditHistoryEntry[]>([]);
   const [manualEditError, setManualEditError] = useState<string | null>(null);
+  const [manualEditSuccess, setManualEditSuccess] = useState<string | null>(null);
   const [manualEditSaving, setManualEditSaving] = useState(false);
   const manualEditSavingRef = useRef(false);
   const manualEditPendingStyleRef = useRef<ManualEditPendingStyleSave | null>(null);
@@ -4958,6 +4959,7 @@ function HtmlViewer({
     manualEditSavingRef.current = true;
     setManualEditSaving(true);
     setManualEditError(null);
+    setManualEditSuccess(null);
     try {
       const baseSource = sourceRef.current;
       const result = applyManualEditPatch(baseSource, patch);
@@ -4997,6 +4999,10 @@ function HtmlViewer({
         reconcileManualEditStyleSave(patch.id, patch.styles, result.source);
       }
       await onFileSaved?.();
+      // Show success feedback
+      setManualEditSuccess(label);
+      // Clear success message after 2 seconds
+      setTimeout(() => setManualEditSuccess(null), 2000);
       return true;
     } finally {
       manualEditSavingRef.current = false;
@@ -6359,6 +6365,7 @@ function HtmlViewer({
                 draft={manualEditDraft}
                 history={manualEditHistory}
                 error={manualEditError}
+                success={manualEditSuccess}
                 canUndo={manualEditHistory.length > 0}
                 canRedo={manualEditUndone.length > 0}
                 busy={manualEditSaving}
