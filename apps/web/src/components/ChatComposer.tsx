@@ -1000,6 +1000,10 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
           new RegExp(`(^|\\s)@${escapeRegExp(s.id)}(\\s|$)`).test(value),
         ),
       );
+      // Skip mention and slash detection during IME composition (e.g.,
+      // Chinese, Japanese, Korean input) to prevent cursor jumping.
+      // Issue #2851.
+      if (composingRef.current) return;
       // Detect a fresh @ at start or after whitespace; capture the typed
       // query up to the cursor.
       const before = value.slice(0, cursor);
