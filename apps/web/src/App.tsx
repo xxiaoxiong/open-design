@@ -557,8 +557,17 @@ export function App() {
   }, [route]);
 
   const handleBack = useCallback(() => {
+    const projectId = route.kind === 'project' ? route.projectId : null;
+    if (projectId) {
+      setProjects((curr) =>
+        curr.map((p) =>
+          p.id === projectId ? { ...p, pendingPrompt: undefined } : p,
+        ),
+      );
+      void patchProject(projectId, { pendingPrompt: undefined });
+    }
     navigate({ kind: 'home' });
-  }, []);
+  }, [route]);
 
   const handleClearPendingPrompt = useCallback(() => {
     const projectId = route.kind === 'project' ? route.projectId : null;
