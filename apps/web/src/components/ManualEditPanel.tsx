@@ -66,6 +66,8 @@ export function ManualEditPanel({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const tabsRef = useRef<HTMLDivElement | null>(null);
   const targetForInspector = selectedTarget;
+  const [activeTab, setActiveTab] = useState<ManualEditTab>('style');
+  
   useEffect(() => {
     selectedTargetRef.current = selectedTarget;
   }, [selectedTarget]);
@@ -91,7 +93,6 @@ export function ManualEditPanel({
     };
   }, [targetForInspector, activeTab]);
   
-  const [activeTab, setActiveTab] = useState<ManualEditTab>('style');
   const tab = targetForInspector
     ? (activeTab === 'page' ? 'style' : activeTab)
     : (activeTab === 'source' ? 'source' : 'page');
