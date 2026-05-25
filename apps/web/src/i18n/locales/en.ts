@@ -894,7 +894,22 @@ export const en: Dict = {
   'routines.confirmDelete':
     'Delete this automation? Past runs and their projects are kept.',
   'routines.errorPickProject':
-    'Pick a project to reuse, or switch to “Create new each run”',
+    'Pick a project to reuse, or switch to "Create new each run"',
+  'routines.yourAutomations': 'Your automations',
+  'routines.emptyTitle': 'No automations yet',
+  'routines.emptyBody': 'Create one from a template or start with a blank schedule.',
+  'routines.newProjectEachRun': 'New project each run',
+  'routines.metricActive': 'Active',
+  'routines.metricPaused': 'Paused',
+  'routines.metricTemplates': 'Templates',
+  'routines.ingestSourceTitle': 'Ingest source',
+  'routines.ingestSourceDescription':
+    'Turn connector, repo, artifact, or chat context into reviewable evolution proposals.',
+  'routines.ingestSourceRecent': 'recent',
+  'routines.ingestTemplate': 'Template',
+  'routines.ingestSource': 'Source',
+  'routines.ingestCompression': 'Compression',
+  'routines.templatesTitle': 'Templates',
   'entry.helpAria': 'Help',
   'entry.helpMenuAria': 'Help menu',
   'entry.helpGetHelp': 'Get help on GitHub',

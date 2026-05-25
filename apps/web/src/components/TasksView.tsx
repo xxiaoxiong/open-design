@@ -24,6 +24,7 @@ import { navigate } from '../router';
 import type { SkillSummary } from '../types';
 import { useAnalytics } from '../analytics/provider';
 import { trackAutomationsClick, trackPageView } from '../analytics/events';
+import { useI18n } from '../i18n';
 import {
   NewAutomationModal,
   describeScheduleSummary,
@@ -387,6 +388,7 @@ function proposalActionLabel(action: AutomationEvolutionProposal['action']): str
 }
 
 export function TasksView({ skills = [], designTemplates = [], connectors = [] }: Props) {
+  const { t } = useI18n();
   const analytics = useAnalytics();
   // P2 page_view page_name=automations. Ref-keyed so re-renders don't
   // double-fire while the user is on the page.
@@ -676,9 +678,9 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
         </div>
         <div className="automations-hero__actions">
           <div className="automations-metrics" aria-label="Automation summary">
-            <Metric label="Active" value={activeCount} />
-            <Metric label="Paused" value={pausedCount} />
-            <Metric label="Templates" value={templates.length} />
+            <Metric label={t('routines.metricActive')} value={activeCount} />
+            <Metric label={t('routines.metricPaused')} value={pausedCount} />
+            <Metric label={t('routines.metricTemplates')} value={templates.length} />
           </div>
           <button
             type="button"
@@ -687,7 +689,7 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
             data-testid="automations-new"
           >
             <Icon name="plus" size={14} />
-            <span>New automation</span>
+            <span>{t('routines.newAutomation')}</span>
           </button>
         </div>
       </header>
@@ -698,10 +700,10 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
         </div>
       ) : null}
 
-      <section className="automations-saved" aria-label="Your automations">
+      <section className="automations-saved" aria-label={t('routines.yourAutomations')}>
         <div className="automations-section-head">
-          <h2 className="automations-section__label">Your automations</h2>
-          {loading ? <span className="automations-section__meta">Loading</span> : null}
+          <h2 className="automations-section__label">{t('routines.yourAutomations')}</h2>
+          {loading ? <span className="automations-section__meta">{t('routines.loading')}</span> : null}
         </div>
         {!loading && sortedRoutines.length === 0 ? (
           <button
@@ -713,8 +715,8 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
               <Icon name="plus" size={16} />
             </span>
             <span className="automation-empty__body">
-              <strong>No automations yet</strong>
-              <span>Create one from a template or start with a blank schedule.</span>
+              <strong>{t('routines.emptyTitle')}</strong>
+              <span>{t('routines.emptyBody')}</span>
             </span>
           </button>
         ) : null}
@@ -725,7 +727,7 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
               const targetLabel =
                 r.target.mode === 'reuse'
                   ? projectsById.get(r.target.projectId) ?? r.target.projectId
-                  : 'New project each run';
+                  : t('routines.newProjectEachRun');
               const isExpanded = expandedId === r.id;
               return (
                 <li
@@ -903,20 +905,20 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
         </section>
       ) : null}
 
-      <section className="automations-ingest" aria-label="Source ingestion">
+      <section className="automations-ingest" aria-label={t('routines.ingestSourceTitle')}>
         <div className="automations-section-head">
           <div>
-            <h2 className="automations-section__label">Ingest source</h2>
+            <h2 className="automations-section__label">{t('routines.ingestSourceTitle')}</h2>
             <p className="automations-section__sub">
-              Turn connector, repo, artifact, or chat context into reviewable evolution proposals.
+              {t('routines.ingestSourceDescription')}
             </p>
           </div>
-          <span className="automations-section__meta">{sourcePackets.length} recent</span>
+          <span className="automations-section__meta">{sourcePackets.length} {t('routines.ingestSourceRecent')}</span>
         </div>
         <div className="automation-ingest-panel">
           <div className="automation-ingest-controls">
             <label className="automation-ingest-field">
-              <span>Template</span>
+              <span>{t('routines.ingestTemplate')}</span>
               <select
                 value={sourceForm.templateId}
                 onChange={(event) => patchSourceForm({ templateId: event.currentTarget.value })}
@@ -932,7 +934,7 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
               </select>
             </label>
             <label className="automation-ingest-field">
-              <span>Source</span>
+              <span>{t('routines.ingestSource')}</span>
               <select
                 value={sourceForm.sourceKind}
                 onChange={(event) =>
@@ -947,7 +949,7 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
               </select>
             </label>
             <label className="automation-ingest-field">
-              <span>Compression</span>
+              <span>{t('routines.ingestCompression')}</span>
               <select
                 value={sourceForm.tokenCompression}
                 onChange={(event) =>
@@ -1035,10 +1037,10 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
         </div>
       </section>
 
-      <section className="automations-templates" aria-label="Automation templates">
-        <div className="automations-templates__head">
-          <div className="automations-templates__head-copy">
-            <h2 className="automations-section__label">Templates</h2>
+      <section className="automations-templates" aria-label={t('routines.templatesTitle')}>
+        <div className="automations-section-head">
+          <div>
+            <h2 className="automations-section__label">{t('routines.templatesTitle')}</h2>
             <p className="automations-section__sub">
               Orbit and live artifacts are templates inside the same automation flow.
             </p>
