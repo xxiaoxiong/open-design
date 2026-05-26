@@ -1283,10 +1283,10 @@
 .home-hero__footer-option--select[data-field-name='designSystem'] .home-hero__footer-select-menu {
   left: 0;
   bottom: calc(100% + 9px);
-  width: min(340px, calc(100vw - 32px));
-  max-width: min(340px, calc(100vw - 32px));
-  max-height: min(280px, calc(100vh - 240px));
-  padding: 7px;
+  width: min(400px, calc(100vw - 32px));
+  max-width: min(400px, calc(100vw - 32px));
+  max-height: min(320px, calc(100vh - 240px));
+  padding: 10px;
   border-color: color-mix(in srgb, var(--border) 70%, transparent);
   border-radius: 13px;
   background: color-mix(in srgb, var(--bg-panel) 98%, white);
@@ -1303,7 +1303,7 @@
 }
 .home-hero__footer-option--select[data-field-name='designSystem'] .home-hero__footer-select-search {
   margin: 0;
-  padding: 0 0 6px;
+  padding: 0 0 8px;
   background: color-mix(in srgb, var(--bg-panel) 98%, white);
 }
 .home-hero__footer-select-search input {
@@ -1321,13 +1321,13 @@
   padding: 0 12px;
 }
 .home-hero__footer-option--select[data-field-name='designSystem'] .home-hero__footer-select-search input {
-  height: 34px;
+  height: 38px;
   border-color: color-mix(in srgb, var(--border) 74%, transparent);
   border-radius: 9px;
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
-  padding: 0 10px;
+  padding: 0 12px;
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, white 70%, transparent),
     0 1px 2px rgba(15, 23, 42, 0.04);
@@ -1350,7 +1350,7 @@
   font-weight: 650;
 }
 .home-hero__footer-option--select[data-field-name='designSystem'] .home-hero__footer-select-count {
-  padding: 7px 3px 0;
+  padding: 8px 3px 0;
   color: var(--text-muted);
   font-size: 11.5px;
   font-weight: 700;
@@ -1361,8 +1361,8 @@
   border-top: 1px solid color-mix(in srgb, var(--border) 68%, transparent);
 }
 .home-hero__footer-option--select[data-field-name='designSystem'] .home-hero__footer-select-group + .home-hero__footer-select-group {
-  margin-top: 6px;
-  padding-top: 7px;
+  margin-top: 8px;
+  padding-top: 8px;
 }
 .home-hero__footer-select-group-label {
   padding: 7px 4px 6px;
@@ -1373,7 +1373,7 @@
   text-transform: uppercase;
 }
 .home-hero__footer-option--select[data-field-name='designSystem'] .home-hero__footer-select-group-label {
-  padding: 3px 3px 5px;
+  padding: 4px 3px 6px;
   color: color-mix(in srgb, var(--text-muted) 82%, transparent);
   font-size: 9.5px;
   font-weight: 800;
