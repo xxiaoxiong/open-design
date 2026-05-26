@@ -2307,6 +2307,7 @@ export const fr: Dict = {
   'settings.memoryExtractionWritten': 'écrite',
   'settings.memoryExtractionDuration': 'en',
   'settings.memoryExtractionDelete': 'Supprimer',
+  'settings.memoryExtractionDeleteConfirm': 'Delete this extraction history item? This cannot be undone.',
   'settings.memoryExtractionsClear': 'Effacer',
   'settings.memoryExtractionsClearTitle': 'Effacer tout l’historique d’extraction',
   'settings.memoryExtractionsClearConfirm': 'Effacer tout l’historique des extractions ? Cette action est irréversible.',

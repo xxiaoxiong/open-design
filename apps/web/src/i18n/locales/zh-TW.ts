@@ -1925,6 +1925,7 @@ export const zhTW: Dict = {
   'settings.memoryNoProviderBannerBody': '未找到可用的 API key，LLM 抽取已跳過。可以在媒體提供者裡填入 OpenAI key，或設定環境變數 ANTHROPIC_API_KEY / OPENAI_API_KEY 來啟用。啟發式抽取仍在執行。',
   'settings.memoryExtractionProviderOverride': '記憶設定',
   'settings.memoryExtractionDelete': '刪除',
+  'settings.memoryExtractionDeleteConfirm': 'Delete this extraction history item? This cannot be undone.',
   'settings.memoryExtractionsClear': '清空',
   'settings.memoryExtractionsClearTitle': '清空整個抽取歷史',
   'settings.libraryInstall': '安裝',

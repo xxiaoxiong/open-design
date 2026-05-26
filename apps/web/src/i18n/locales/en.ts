@@ -2409,6 +2409,7 @@ export const en: Dict = {
   'settings.memoryExtractionWritten': 'written',
   'settings.memoryExtractionDuration': 'in',
   'settings.memoryExtractionDelete': 'Delete',
+  'settings.memoryExtractionDeleteConfirm': 'Delete this extraction history item? This cannot be undone.',
   'settings.memoryExtractionsClear': 'Clear',
   'settings.memoryExtractionsClearTitle': 'Clear all extraction history',
   'settings.memoryExtractionsClearConfirm':
