@@ -1519,6 +1519,7 @@ export const it: Dict = {
   'settings.memoryNoProviderBannerBody': 'Nessuna chiave API trovata per l\'estrattore di memoria. Aggiungi una chiave OpenAI sotto Provider di media, o imposta ANTHROPIC_API_KEY / OPENAI_API_KEY nell\'ambiente, per abilitare l\'estrazione guidata da LLM. L\'estrazione euristica regex è ancora attiva.',
   'settings.memoryExtractionProviderOverride': 'impostazioni memoria',
   'settings.memoryExtractionDelete': 'Elimina',
+  'settings.memoryExtractionDeleteConfirm': 'Delete this extraction history item? This cannot be undone.',
   'settings.memoryExtractionsClear': 'Cancella',
   'settings.memoryExtractionsClearTitle': 'Cancella tutta la cronologia di estrazione',
   'settings.libraryInstall': 'Installa',

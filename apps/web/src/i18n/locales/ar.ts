@@ -1645,6 +1645,7 @@ export const ar: Dict = {
   'settings.memoryNoProviderBannerBody': 'No API key found for the memory extractor. Add an OpenAI key under Media providers, or set ANTHROPIC_API_KEY / OPENAI_API_KEY in the environment, to enable LLM-driven extraction. Heuristic regex extraction is still active.',
   'settings.memoryExtractionProviderOverride': 'memory settings',
   'settings.memoryExtractionDelete': 'Delete',
+  'settings.memoryExtractionDeleteConfirm': 'Delete this extraction history item? This cannot be undone.',
   'settings.memoryExtractionsClear': 'Clear',
   'settings.memoryExtractionsClearTitle': 'Clear all extraction history',
   'settings.libraryInstall': 'تثبيت',

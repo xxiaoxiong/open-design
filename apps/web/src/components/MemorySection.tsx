@@ -1364,6 +1364,7 @@ export function MemorySection({
   }, [indexDraft, fireFlash]);
 
   const onDeleteExtraction = useCallback(async (id: string) => {
+    if (!window.confirm(t('settings.memoryExtractionDeleteConfirm'))) return;
     // Optimistic removal: drop the row immediately so the click feels
     // instant. The SSE 'deleted' event will arrive moments later and is
     // a no-op against an already-removed id; if the request fails we
@@ -1373,7 +1374,7 @@ export function MemorySection({
     if (!ok) {
       void reloadExtractions();
     }
-  }, [reloadExtractions]);
+  }, [reloadExtractions, t]);
 
   const onClearExtractions = useCallback(async () => {
     if (!window.confirm(t('settings.memoryExtractionsClearConfirm'))) return;
