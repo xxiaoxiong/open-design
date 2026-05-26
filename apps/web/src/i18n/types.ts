@@ -324,6 +324,36 @@ export interface Dict {
   'settings.mediaProviderReloadSuccess': string;
   'settings.mediaProviderLoadError': string;
   'settings.mediaProviderComingSoonHint': string;
+
+  // xAI OAuth (XaiOAuthControl component)
+  'settings.xaiOAuthSignedIn': string;
+  'settings.xaiOAuthTokenExpiresHint': string;
+  'settings.xaiOAuthConnectedHint': string;
+  'settings.xaiOAuthWaitingAuth': string;
+  'settings.xaiOAuthWaitingAuthHint': string;
+  'settings.xaiOAuthNotSignedIn': string;
+  'settings.xaiOAuthNotSignedInHint': string;
+  'settings.xaiOAuthWarningTitle': string;
+  'settings.xaiOAuthWarningCannotConnect': string;
+  'settings.xaiOAuthWarningUxBug': string;
+  'settings.xaiOAuthWarningDetail': string;
+  'settings.xaiOAuthConnecting': string;
+  'settings.xaiOAuthReconnect': string;
+  'settings.xaiOAuthDisconnecting': string;
+  'settings.xaiOAuthDisconnect': string;
+  'settings.xaiOAuthOpeningBrowser': string;
+  'settings.xaiOAuthSignIn': string;
+  'settings.xaiOAuthChecking': string;
+  'settings.xaiOAuthRefreshStatus': string;
+  'settings.xaiOAuthBrowserNotOpen': string;
+  'settings.xaiOAuthOpenManually': string;
+  'settings.xaiOAuthPasteHint': string;
+  'settings.xaiOAuthPastePlaceholder': string;
+  'settings.xaiOAuthSubmitting': string;
+  'settings.xaiOAuthSubmitCode': string;
+  'settings.xaiOAuthReauthTitle': string;
+  'settings.xaiOAuthGrantedScopes': string;
+
   'settings.privacy': string;
   'settings.privacyHint': string;
   'settings.privacyConsentKicker': string;
