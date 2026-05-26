@@ -748,7 +748,10 @@ export const HomeHero = forwardRef<HTMLTextAreaElement, Props>(function HomeHero
                 <button
                   type="button"
                   className="home-hero__active-clear"
-                  onClick={() => setSelectedPromptExample(null)}
+                  onClick={() => {
+                    setSelectedPromptExample(null);
+                    onPromptChange('');
+                  }}
                   aria-label={t('common.close')}
                   title={t('common.close')}
                 >
