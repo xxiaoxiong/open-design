@@ -30,6 +30,7 @@ import {
   type AutomationTemplate,
   type AutomationTemplateKind,
 } from './NewAutomationModal';
+import { useT } from '../i18n';
 
 type ProjectSummary = { id: string; name: string };
 type TemplateFilter =
@@ -197,16 +198,16 @@ const DEFAULT_SOURCE_FORM: SourceIngestionForm = {
   tokenCompression: 'balanced',
 };
 
-function scheduleStatusLabel(routine: Routine): string {
-  if (!routine.enabled) return 'Paused';
+function scheduleStatusLabel(routine: Routine, t: ReturnType<typeof useT>): string {
+  if (!routine.enabled) return t('routines.tagPaused');
   return describeScheduleSummary(routine.schedule);
 }
 
-function nextRunLabel(routine: Routine): string {
-  if (!routine.enabled) return 'Manual only';
-  if (!routine.nextRunAt) return 'Scheduled';
+function nextRunLabel(routine: Routine, t: ReturnType<typeof useT>): string {
+  if (!routine.enabled) return t('routines.triggerManual');
+  if (!routine.nextRunAt) return t('routines.triggerScheduled');
   const date = new Date(routine.nextRunAt);
-  return `Next ${date.toLocaleString(undefined, {
+  return `${t('routines.metaNext')} ${date.toLocaleString(undefined, {
     dateStyle: 'medium',
     timeStyle: 'short',
   })}`;
@@ -229,16 +230,16 @@ function formatRunDuration(run: RoutineRun): string {
   return remainder > 0 ? `${minutes}m ${remainder}s` : `${minutes}m`;
 }
 
-function statusLabel(status: RoutineRun['status']): string {
-  if (status === 'succeeded') return 'Succeeded';
-  if (status === 'failed') return 'Failed';
-  if (status === 'running') return 'Running';
-  if (status === 'queued') return 'Queued';
-  return 'Canceled';
+function statusLabel(status: RoutineRun['status'], t: ReturnType<typeof useT>): string {
+  if (status === 'succeeded') return t('routines.status.succeeded');
+  if (status === 'failed') return t('routines.status.failed');
+  if (status === 'running') return t('routines.status.running');
+  if (status === 'queued') return t('routines.status.queued');
+  return t('routines.status.canceled');
 }
 
-function StatusPill({ status }: { status: RoutineRun['status'] }) {
-  return <span className={`automation-status is-${status}`}>{statusLabel(status)}</span>;
+function StatusPill({ status, t }: { status: RoutineRun['status']; t: ReturnType<typeof useT> }) {
+  return <span className={`automation-status is-${status}`}>{statusLabel(status, t)}</span>;
 }
 
 function templateFromSkill(skill: SkillSummary, kind: AutomationTemplateKind): AutomationTemplate {
@@ -387,6 +388,7 @@ function proposalActionLabel(action: AutomationEvolutionProposal['action']): str
 }
 
 export function TasksView({ skills = [], designTemplates = [], connectors = [] }: Props) {
+  const t = useT();
   const analytics = useAnalytics();
   // P2 page_view page_name=automations. Ref-keyed so re-renders don't
   // double-fire while the user is on the page.
@@ -644,7 +646,7 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
   };
 
   const remove = async (id: string) => {
-    if (!window.confirm('Delete this automation? Past runs and their projects are kept.'))
+    if (!window.confirm(t('routines.confirmDelete')))
       return;
     setBusyId(id);
     try {
@@ -666,19 +668,19 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
     <section className="automations-view" aria-labelledby="automations-title" data-testid="tasks-view">
       <header className="automations-hero">
         <div className="automations-hero__copy">
-          <span className="automations-hero__eyebrow">Scheduled agent sessions</span>
+          <span className="automations-hero__eyebrow">{t('tasks.kicker')}</span>
           <h1 id="automations-title" className="automations-hero__title">
-            Automations
+            {t('routines.title')}
           </h1>
           <p className="automations-hero__lede">
-            Plan recurring conversations for project work, Orbit digests, and live artifacts.
+            {t('routines.subtitle')}
           </p>
         </div>
         <div className="automations-hero__actions">
-          <div className="automations-metrics" aria-label="Automation summary">
-            <Metric label="Active" value={activeCount} />
-            <Metric label="Paused" value={pausedCount} />
-            <Metric label="Templates" value={templates.length} />
+          <div className="automations-metrics" aria-label={t('routines.title')}>
+            <Metric label={t('tasks.primitive.orbit.enabled')} value={activeCount} />
+            <Metric label={t('routines.tagPaused')} value={pausedCount} />
+            <Metric label={t('tasks.primitive.routines.title')} value={templates.length} />
           </div>
           <button
             type="button"
@@ -687,7 +689,7 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
             data-testid="automations-new"
           >
             <Icon name="plus" size={14} />
-            <span>New automation</span>
+            <span>{t('routines.newAutomation')}</span>
           </button>
         </div>
       </header>
@@ -698,10 +700,10 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
         </div>
       ) : null}
 
-      <section className="automations-saved" aria-label="Your automations">
+      <section className="automations-saved" aria-label={t('routines.title')}>
         <div className="automations-section-head">
-          <h2 className="automations-section__label">Your automations</h2>
-          {loading ? <span className="automations-section__meta">Loading</span> : null}
+          <h2 className="automations-section__label">{t('routines.title')}</h2>
+          {loading ? <span className="automations-section__meta">{t('routines.loading')}</span> : null}
         </div>
         {!loading && sortedRoutines.length === 0 ? (
           <button
@@ -713,8 +715,8 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
               <Icon name="plus" size={16} />
             </span>
             <span className="automation-empty__body">
-              <strong>No automations yet</strong>
-              <span>Create one from a template or start with a blank schedule.</span>
+              <strong>{t('routines.empty')}</strong>
+              <span>{t('routines.emptyHint')}</span>
             </span>
           </button>
         ) : null}
@@ -725,7 +727,7 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
               const targetLabel =
                 r.target.mode === 'reuse'
                   ? projectsById.get(r.target.projectId) ?? r.target.projectId
-                  : 'New project each run';
+                  : t('routines.targetCreate');
               const isExpanded = expandedId === r.id;
               return (
                 <li
@@ -739,19 +741,19 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
                     <span className="automation-row__content">
                       <span className="automation-row__title">{r.name}</span>
                       <span className="automation-row__meta">
-                        <span>{scheduleStatusLabel(r)}</span>
+                        <span>{scheduleStatusLabel(r, t)}</span>
                         <span aria-hidden="true">·</span>
                         <span>{targetLabel}</span>
                         <span aria-hidden="true">·</span>
-                        <span>{nextRunLabel(r)}</span>
+                        <span>{nextRunLabel(r, t)}</span>
                       </span>
                       {r.prompt ? (
                         <span className="automation-row__prompt">{r.prompt}</span>
                       ) : null}
                       {r.lastRun ? (
                         <span className="automation-row__last-run">
-                          <StatusPill status={r.lastRun.status} />
-                          <span>Last run {formatAutomationTimestamp(r.lastRun.startedAt)}</span>
+                          <StatusPill status={r.lastRun.status} t={t} />
+                          <span>{t('routines.metaLast')} {formatAutomationTimestamp(r.lastRun.startedAt)}</span>
                           <span aria-hidden="true">·</span>
                           <button
                             type="button"
@@ -765,7 +767,7 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
                               })
                             }
                           >
-                            Open result
+                            {t('routines.openProject')}
                           </button>
                         </span>
                       ) : null}
@@ -780,7 +782,7 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
                       title="Run now and open the conversation"
                     >
                       <Icon name="play" size={12} />
-                      <span>Run</span>
+                      <span>{t('routines.runNow')}</span>
                     </button>
                     <button
                       type="button"
@@ -792,7 +794,7 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
                       aria-expanded={isExpanded}
                     >
                       <Icon name="history" size={12} />
-                      <span>{isExpanded ? 'Hide history' : 'History'}</span>
+                      <span>{isExpanded ? t('routines.hideHistory') : t('routines.history')}</span>
                     </button>
                     <button
                       type="button"
@@ -801,7 +803,7 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
                       disabled={isBusy}
                     >
                       <Icon name="edit" size={12} />
-                      <span>Edit</span>
+                      <span>{t('routines.edit')}</span>
                     </button>
                     <button
                       type="button"
@@ -809,7 +811,7 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
                       onClick={() => togglePaused(r)}
                       disabled={isBusy}
                     >
-                      {r.enabled ? 'Pause' : 'Resume'}
+                      {r.enabled ? t('routines.pause') : t('routines.resume')}
                     </button>
                     <button
                       type="button"
@@ -842,6 +844,7 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
           <div className="automations-section-head">
             <div>
               <h2 className="automations-section__label">Evolution proposals</h2>
+              {/* TODO: Add i18n key for "Review automation output before it changes memory, skills, or design systems." */}
               <p className="automations-section__sub">
                 Review automation output before it changes memory, skills, or design systems.
               </p>
@@ -907,6 +910,7 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
         <div className="automations-section-head">
           <div>
             <h2 className="automations-section__label">Ingest source</h2>
+            {/* TODO: Add i18n key for "Turn connector, repo, artifact, or chat context into reviewable evolution proposals." */}
             <p className="automations-section__sub">
               Turn connector, repo, artifact, or chat context into reviewable evolution proposals.
             </p>
@@ -1038,7 +1042,8 @@ export function TasksView({ skills = [], designTemplates = [], connectors = [] }
       <section className="automations-templates" aria-label="Automation templates">
         <div className="automations-templates__head">
           <div className="automations-templates__head-copy">
-            <h2 className="automations-section__label">Templates</h2>
+            <h2 className="automations-section__label">{t('tasks.primitive.routines.title')}</h2>
+            {/* TODO: Add i18n key for "Orbit and live artifacts are templates inside the same automation flow." */}
             <p className="automations-section__sub">
               Orbit and live artifacts are templates inside the same automation flow.
             </p>
@@ -1152,6 +1157,7 @@ function AutomationRunHistory({
   crystallizingRunId: string | null;
   onCrystallizeRun: (routineId: string, runId: string) => void;
 }) {
+  const t = useT();
   const [runs, setRuns] = useState<RoutineRun[] | null>(null);
 
   useEffect(() => {
@@ -1173,24 +1179,24 @@ function AutomationRunHistory({
   }, [refreshKey, routineId]);
 
   if (runs === null) {
-    return <div className="automation-history automation-history--empty">Loading run history...</div>;
+    return <div className="automation-history automation-history--empty">{t('routines.runHistoryLoading')}</div>;
   }
 
   if (runs.length === 0) {
-    return <div className="automation-history automation-history--empty">No runs yet.</div>;
+    return <div className="automation-history automation-history--empty">{t('routines.runHistoryEmpty')}</div>;
   }
 
   return (
     <div className="automation-history" aria-label="Automation run history">
       <div className="automation-history__head">
-        <span>Run history</span>
+        <span>{t('routines.history')}</span>
         <span>Latest 10</span>
       </div>
       <ul className="automation-history__list">
         {runs.map((run) => (
           <li key={run.id} className="automation-history__row">
             <div className="automation-history__status">
-              <StatusPill status={run.status} />
+              <StatusPill status={run.status} t={t} />
               <span>{run.trigger}</span>
             </div>
             <div className="automation-history__meta">
