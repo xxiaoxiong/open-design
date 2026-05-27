@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useT } from '../i18n';
 import { copyToClipboard } from '../lib/copy-to-clipboard';
 import { exportAsHtml, exportAsPdf, exportAsZip, openSandboxedPreviewInNewTab } from '../runtime/exports';
@@ -456,7 +457,7 @@ export function PreviewModal({
   const showTemplateShareMenu = !isCustomView || Boolean(shareTarget?.url);
   const canOpenTemplateShareMenu = canExportFiles || Boolean(previewShareUrl);
 
-  return (
+  const modalContent = (
     <div className="ds-modal-backdrop" role="dialog" aria-modal="true" aria-label={`${title} preview`}>
       <div className={`ds-modal ${fullscreen ? 'ds-modal-fullscreen' : ''}`}>
         <header className="ds-modal-header">
@@ -864,4 +865,6 @@ export function PreviewModal({
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 }
