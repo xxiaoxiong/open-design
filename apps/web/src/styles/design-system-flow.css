@@ -1730,7 +1730,7 @@
   z-index: 1;
 }
 
-.ws-tabs-actions { display: inline-flex; gap: 4px; align-items: center; }
+.ws-tabs-actions { display: inline-flex; gap: 4px; align-items: center; flex-shrink: 0; }
 .ws-focus-toggle {
   display: inline-flex;
   align-items: center;
