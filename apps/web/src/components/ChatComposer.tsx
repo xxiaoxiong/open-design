@@ -774,8 +774,12 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
                   // does when it detects a fresh @ in the typed input.
                   const pos = cursor + 1;
                   const textBefore = next.slice(0, pos);
-                  const m = /(^|\s)@([^\s@]*)$/.exec(textBefore);
-                  if (m) setMention({ q: m[2] ?? '', cursor: pos });
+                  const m = /(^|\\s)@([^\\s@]*)$/.exec(textBefore);
+                  if (m) {
+                    setMention({ q: m[2] ?? '', cursor: pos });
+                  } else {
+                    setMention(null);
+                  }
                   requestAnimationFrame(() => {
                     ta.focus();
                     ta.setSelectionRange(pos, pos);
