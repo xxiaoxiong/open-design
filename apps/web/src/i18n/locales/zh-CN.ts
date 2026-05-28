@@ -1476,6 +1476,7 @@ export const zhCN: Dict = {
   'chat.example3Tag': '编辑',
   'chat.example3Prompt':
     '为一家关注气候议题的非营利机构制作互动式年度报告 —— 长滚动编辑式布局，混合大段引言区块、数据可视化（堆叠柱状图、动态计数器、项目地点分布的等值线地图）、摄影分隔页、捐赠者墙，以及最终行动号召。现代衬线正文、无衬线图表标签、大地纸张配色。',
+  'chat.mentionSearchPrompt': '输入以搜索文件…',
 
   'preview.shareMenu': '分享',
   'preview.exportMenu': '导出',

@@ -2576,7 +2576,7 @@ function MentionPopover({
             {query ? (
               <>{t('homeHero.noResults', { query })}</>
             ) : (
-              <>{t('homeHero.searchPrompt')}</>
+              <>{t('chat.mentionSearchPrompt')}</>
             )}
           </div>
         ) : null}

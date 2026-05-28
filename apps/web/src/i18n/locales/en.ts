@@ -1485,6 +1485,7 @@ export const en: Dict = {
   'chat.example3Tag': 'Editorial',
   'chat.example3Prompt':
     'An interactive annual report for a climate non-profit — long-scroll editorial layout mixing big pull-quote blocks, data visualizations (stacked bars, animated counters, a choropleth map of project sites), photography breakers, donor wall, and a final call-to-action. Modern serif body, sans-serif chart labels, earthy paper palette.',
+  'chat.mentionSearchPrompt': 'Type to search files…',
 
   'preview.shareMenu': 'Share',
   'preview.exportMenu': 'Export',

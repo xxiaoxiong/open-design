@@ -1793,6 +1793,7 @@ export interface Dict {
   'chat.example3Title': string;
   'chat.example3Tag': string;
   'chat.example3Prompt': string;
+  'chat.mentionSearchPrompt': string;
 
   // Preview modal
   'preview.shareMenu': string;
