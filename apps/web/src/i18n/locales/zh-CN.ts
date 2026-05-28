@@ -483,7 +483,7 @@ export const zhCN: Dict = {
   'homeHero.contextSurfaces': '上下文来源',
   'homeHero.loadingContext': '正在加载上下文…',
   'homeHero.noResults': '没有找到"{query}"的结果。',
-  'homeHero.searchPrompt': '搜索插件、技能、MCP 服务器、连接器和设计文件。',
+  'homeHero.searchPrompt': '搜索插件、技能、MCP 服务器和连接器。',
   'homeHero.mentionTabAll': '全部',
   'homeHero.mentionTabPlugins': '插件',
   'homeHero.mentionTabSkills': '技能',
@@ -1476,7 +1476,7 @@ export const zhCN: Dict = {
   'chat.example3Tag': '编辑',
   'chat.example3Prompt':
     '为一家关注气候议题的非营利机构制作互动式年度报告 —— 长滚动编辑式布局，混合大段引言区块、数据可视化（堆叠柱状图、动态计数器、项目地点分布的等值线地图）、摄影分隔页、捐赠者墙，以及最终行动号召。现代衬线正文、无衬线图表标签、大地纸张配色。',
-  'chat.mentionSearchPrompt': '输入以搜索文件…',
+  'chat.mentionSearchPrompt': '搜索插件、技能、MCP 服务器、连接器和设计文件。',
 
   'preview.shareMenu': '分享',
   'preview.exportMenu': '导出',

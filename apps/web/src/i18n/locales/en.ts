@@ -483,7 +483,7 @@ export const en: Dict = {
   'homeHero.contextSurfaces': 'Context surfaces',
   'homeHero.loadingContext': 'Loading context…',
   'homeHero.noResults': 'No results for "{query}".',
-  'homeHero.searchPrompt': 'Search plugins, skills, MCP servers, connectors, and Design Files.',
+  'homeHero.searchPrompt': 'Search plugins, skills, MCP servers, and connectors.',
   'homeHero.mentionTabAll': 'All',
   'homeHero.mentionTabPlugins': 'Plugins',
   'homeHero.mentionTabSkills': 'Skills',
@@ -1485,7 +1485,7 @@ export const en: Dict = {
   'chat.example3Tag': 'Editorial',
   'chat.example3Prompt':
     'An interactive annual report for a climate non-profit — long-scroll editorial layout mixing big pull-quote blocks, data visualizations (stacked bars, animated counters, a choropleth map of project sites), photography breakers, donor wall, and a final call-to-action. Modern serif body, sans-serif chart labels, earthy paper palette.',
-  'chat.mentionSearchPrompt': 'Type to search files…',
+  'chat.mentionSearchPrompt': 'Search plugins, skills, MCP servers, connectors, and Design Files.',
 
   'preview.shareMenu': 'Share',
   'preview.exportMenu': 'Export',
