@@ -949,7 +949,7 @@ export function wellKnownUserToolchainBins(
   // version directory's bin folder. Best-effort — missing roots simply
   // contribute nothing.
   dirs.push(...existingMiseNpmPackageBinDirs(join(home, ".local", "share", "mise", "installs")));
-  for (const installRoot of [
+  const installRoots = [
     {
       root: join(home, ".local", "share", "mise", "installs", "node"),
       segments: ["bin"],
@@ -966,7 +966,24 @@ export function wellKnownUserToolchainBins(
       root: join(home, ".fnm", "node-versions"),
       segments: ["installation", "bin"],
     },
-  ]) {
+  ];
+  // On Windows, fnm also installs to %LOCALAPPDATA%\fnm (AppData\Local\fnm)
+  // and npm global packages go to node-versions\<version>\installation\node_modules\.bin
+  if (process.platform === "win32") {
+    const localAppData = env.LOCALAPPDATA;
+    if (typeof localAppData === "string" && localAppData.trim().length > 0) {
+      installRoots.push({
+        root: join(localAppData.trim(), "fnm", "node-versions"),
+        segments: ["installation", "bin"],
+      });
+      // npm global packages installed via fnm-managed Node
+      installRoots.push({
+        root: join(localAppData.trim(), "fnm", "node-versions"),
+        segments: ["installation", "node_modules", ".bin"],
+      });
+    }
+  }
+  for (const installRoot of installRoots) {
     for (const dir of existingChildBinDirs(installRoot.root, installRoot.segments)) {
       dirs.push(dir);
     }
