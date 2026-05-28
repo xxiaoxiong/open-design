@@ -1964,9 +1964,7 @@ body.sub-page {
 }
 
 .tpl-actions {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 10px;
+  display: block;
 }
 .tpl-cta {
   display: flex;
