@@ -284,6 +284,11 @@
   font-size: 12px;
 }
 
+.plugins-view__filter > span {
+  white-space: nowrap;
+  min-width: fit-content;
+}
+
 .plugins-view__filter select {
   min-height: 32px;
   min-width: 180px;
@@ -377,9 +382,11 @@
   justify-content: center;
   gap: 6px;
   min-height: 32px;
+  min-width: 64px;
   padding: 0 11px;
   border-radius: var(--radius-sm);
   font-size: 12px;
+  white-space: nowrap;
   cursor: pointer;
   transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
