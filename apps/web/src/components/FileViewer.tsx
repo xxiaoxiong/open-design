@@ -516,8 +516,8 @@ function previewScaleShellStyle(
 ): CSSProperties & Record<string, string | number> {
   if (viewport === 'desktop') {
     return {
-      width: `${100 / previewScale}%`,
-      height: `${100 / previewScale}%`,
+      width: '100%',
+      height: '100%',
       transform: `scale(${previewScale})`,
       transformOrigin: '0 0',
     };
@@ -537,8 +537,8 @@ function manualEditPreviewShellStyle(
 ): CSSProperties & Record<string, string | number> {
   if (viewport === 'desktop' && frozenWidth) {
     return {
-      width: `${frozenWidth / previewScale}px`,
-      height: `${100 / previewScale}%`,
+      width: `${frozenWidth}px`,
+      height: '100%',
       transform: `scale(${previewScale})`,
       transformOrigin: '0 0',
     };
