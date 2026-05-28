@@ -1331,7 +1331,14 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
       const prevEntries = pluginInsertedTokensRef.current;
       const prevActiveId = activePluginIdRef.current;
 
-      const result = replaceMentionWithText(`${inlineMentionToken(record.title)} `);
+      // Capture mention state before async operation to prevent cursor
+      // position issues if state changes during apply.
+      const mentionSnapshot = mention;
+
+      const result = replaceMentionWithText(
+        `${inlineMentionToken(record.title)} `,
+        mentionSnapshot,
+      );
       if (!result) return;
       // Capture the post-insert draft *snapshot* — the value the
       // composer is in immediately after our optimistic write.
@@ -1468,10 +1475,12 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
 
     function replaceMentionWithText(
       text: string,
+      mentionSnapshot?: typeof mention,
     ): { insertStart: number } | null {
-      if (!mention) return null;
+      const activeMention = mentionSnapshot ?? mention;
+      if (!activeMention) return null;
       const ta = textareaRef.current;
-      const cursor = mention.cursor;
+      const cursor = activeMention.cursor;
       const before = draft.slice(0, cursor);
       const after = draft.slice(cursor);
       const replaced = before.replace(/(^|\s)@([^\s@]*)$/, `$1${text}`);
