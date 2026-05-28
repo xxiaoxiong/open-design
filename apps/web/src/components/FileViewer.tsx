@@ -4062,11 +4062,12 @@ function HtmlViewer({
   const [inspectSavedAt, setInspectSavedAt] = useState<number | null>(null);
   const [inspectError, setInspectError] = useState<string | null>(null);
   const [queuedBoardNotes, setQueuedBoardNotes] = useState<string[]>([]);
-  const [sendingBoardBatch, setSendingBoardBatch] = useState(false);
+  const [screenshotToast, setScreenshotToast] = useState(false);
   const [commentSavedToast, setCommentSavedToast] = useState<string | null>(null);
   const [templateSavedToast, setTemplateSavedToast] = useState<string | null>(null);
   const [deploySavedToast, setDeploySavedToast] = useState<{ message: string; details: string } | null>(null);
   const [exportToast, setExportToast] = useState<string | null>(null);
+  const [manualEditSavedToast, setManualEditSavedToast] = useState<string | null>(null);
   const [selectedSideCommentIds, setSelectedSideCommentIds] = useState<Set<string>>(() => new Set());
   const [commentSidePanelCollapsed, setCommentSidePanelCollapsed] = useState(false);
   const [strokePoints, setStrokePoints] = useState<StrokePoint[]>([]);
@@ -5137,6 +5138,8 @@ function HtmlViewer({
         reconcileManualEditStyleSave(patch.id, patch.styles, result.source);
       }
       setManualEditError(null);
+      // Show success feedback
+      setManualEditSavedToast(label);
       await onFileSaved?.();
       return true;
     } finally {
@@ -6871,6 +6874,15 @@ function HtmlViewer({
                   message={templateSavedToast}
                   ttlMs={2200}
                   onDismiss={() => setTemplateSavedToast(null)}
+                />
+              </div>
+            ) : null}
+            {manualEditSavedToast ? (
+              <div className="comment-toast-anchor">
+                <Toast
+                  message={manualEditSavedToast}
+                  ttlMs={2200}
+                  onDismiss={() => setManualEditSavedToast(null)}
                 />
               </div>
             ) : null}
