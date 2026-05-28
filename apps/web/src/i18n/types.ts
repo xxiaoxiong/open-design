@@ -784,6 +784,12 @@ export interface Dict {
   'homeHero.loadingContext': string;
   'homeHero.noResults': string;
   'homeHero.searchPrompt': string;
+  'homeHero.mentionTabAll': string;
+  'homeHero.mentionTabPlugins': string;
+  'homeHero.mentionTabSkills': string;
+  'homeHero.mentionTabMcp': string;
+  'homeHero.mentionTabConnectors': string;
+  'homeHero.mentionTabFiles': string;
   'homeHero.parameters': string;
   'homeHero.details': string;
   'homeHero.toRun': string;

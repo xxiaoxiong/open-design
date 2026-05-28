@@ -2528,16 +2528,16 @@ function MentionPopover({
   onPickMcp: (server: McpServerConfig) => void;
   onPickConnector: (connector: ConnectorDetail) => void;
 }) {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const ref = useRef<HTMLDivElement | null>(null);
   const [tab, setTab] = useState<MentionTab>('all');
   const tabs: Array<{ id: MentionTab; label: string }> = [
-    { id: 'all', label: 'All' },
-    { id: 'plugins', label: 'Plugins' },
-    { id: 'skills', label: 'Skills' },
-    { id: 'mcp', label: 'MCP' },
-    { id: 'connectors', label: 'Connectors' },
-    { id: 'files', label: 'Design files' },
+    { id: 'all', label: t('homeHero.mentionTabAll') },
+    { id: 'plugins', label: t('homeHero.mentionTabPlugins') },
+    { id: 'skills', label: t('homeHero.mentionTabSkills') },
+    { id: 'mcp', label: t('homeHero.mentionTabMcp') },
+    { id: 'connectors', label: t('homeHero.mentionTabConnectors') },
+    { id: 'files', label: t('homeHero.mentionTabFiles') },
   ];
   const showPlugins = tab === 'all' || tab === 'plugins';
   const showSkills = tab === 'all' || tab === 'skills';
@@ -2574,9 +2574,9 @@ function MentionPopover({
         {!hasVisibleResults ? (
           <div className="mention-empty">
             {query ? (
-              <>No results for “{query}”.</>
+              <>{t('homeHero.noResults', { query })}</>
             ) : (
-              <>Search plugins, skills, MCP servers, connectors, and Design Files.</>
+              <>{t('homeHero.searchPrompt')}</>
             )}
           </div>
         ) : null}
