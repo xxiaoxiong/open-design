@@ -2,11 +2,12 @@ import net from 'node:net';
 
 import type { Express, Request, RequestHandler, Response } from 'express';
 
-import type { ToolTokenGrant } from '../tool-tokens.js';
+import { checkConnectorAccess, type ToolTokenGrant } from '../tool-tokens.js';
 import { validateBoundedJsonObject } from '../live-artifacts/schema.js';
 import { executeConnectorTool, listConnectorTools } from '../tools/connectors.js';
+import { readComposioConfig, readPublicComposioConfig, writeComposioConfig } from './composio-config.js';
 import type { ConnectorToolUseCase } from './catalog.js';
-import { connectorService, ConnectorService, ConnectorServiceError } from './service.js';
+import { connectorService, ConnectorService, ConnectorServiceError, deleteConnectorCredentialsByProvider } from './service.js';
 
 type ConnectorApiErrorCode =
   | 'BAD_REQUEST'
@@ -14,6 +15,7 @@ type ConnectorApiErrorCode =
   | 'VALIDATION_FAILED'
   | 'CONNECTOR_NOT_FOUND'
   | 'CONNECTOR_NOT_CONNECTED'
+  | 'CONNECTOR_NOT_GRANTED'
   | 'CONNECTOR_DISABLED'
   | 'CONNECTOR_TOOL_NOT_FOUND'
   | 'CONNECTOR_SAFETY_DENIED'
@@ -53,6 +55,9 @@ export interface RegisterConnectorRoutesOptions {
   projectsRoot?: string;
   authorizeToolRequest?: (req: Request, res: Response, operation: string) => ToolTokenGrant | null;
   requireLocalDaemonRequest?: RequestHandler;
+  composio?: {
+    clearDiscoveryCache: () => void;
+  };
 }
 
 function sendConnectorRouteError(res: Response, err: unknown, sendApiError: ConnectorApiErrorSender): Response {
@@ -476,17 +481,34 @@ function renderConnectorConnectedHtml(connectorId: string): string {
           closeButton.textContent = 'Close this tab manually';
           hint.textContent = 'Your browser blocked automatic closing. You can close this tab and return to Open Design.';
         }
+        function hasLiveOpener() {
+          try {
+            return Boolean(window.opener) && !window.opener.closed;
+          } catch {
+            return false;
+          }
+        }
         function requestClose() {
+          // window.close() is silently rejected by browsers when the tab
+          // was not opened by a script (no opener), so trying it from a
+          // direct navigation always looks like the button "did nothing".
+          // Skip the no-op call and surface the manual-close instructions
+          // immediately so the click visibly produces feedback. Issue #669.
+          if (!hasLiveOpener()) {
+            showManualCloseHint();
+            return;
+          }
           try {
             window.close();
           } finally {
-            window.setTimeout(() => {
-              if (document.visibilityState === 'visible') showManualCloseHint();
-            }, 250);
+            // If the page is still alive after the close attempt, the
+            // browser blocked it. Update the hint unconditionally; if
+            // close did succeed the page is unloading and this never runs.
+            window.setTimeout(showManualCloseHint, 400);
           }
         }
         try {
-          if (window.opener && !window.opener.closed) {
+          if (hasLiveOpener()) {
             window.opener.postMessage(message, '*');
             window.setTimeout(requestClose, 900);
           } else {
@@ -544,7 +566,30 @@ export function registerConnectorRoutes(app: Express, options: RegisterConnector
     }
   });
 
-  app.get('/api/connectors/:connectorId', async (req: Request, res: Response) => {
+  app.get('/api/connectors/composio/config', (_req: Request, res: Response) => {
+    try {
+      res.json(readPublicComposioConfig());
+    } catch (err) {
+      res.status(500).json({ error: String(err instanceof Error ? err.message : err) });
+    }
+  });
+
+  app.put('/api/connectors/composio/config', requireLocalDaemonRequest, (req: Request, res: Response) => {
+    try {
+      const before = readComposioConfig();
+      const cfg = writeComposioConfig(req.body);
+      const after = readComposioConfig();
+      options.composio?.clearDiscoveryCache();
+      if (!cfg.configured || (before.apiKey && before.apiKey !== after.apiKey)) {
+        deleteConnectorCredentialsByProvider('composio');
+      }
+      res.json(cfg);
+    } catch (err) {
+      res.status(400).json({ error: String(err instanceof Error ? err.message : err) });
+    }
+  });
+
+  app.get('/api/connectors/:connectorId', async (req: Request<{ connectorId: string }>, res: Response) => {
     try {
       const connectorId = req.params.connectorId;
       if (!connectorId) return options.sendApiError(res, 400, 'CONNECTOR_NOT_FOUND', 'connectorId is required');
@@ -580,7 +625,7 @@ export function registerConnectorRoutes(app: Express, options: RegisterConnector
     }
   });
 
-  app.post('/api/connectors/:connectorId/connect', requireLocalDaemonRequest, async (req: Request, res: Response) => {
+  app.post('/api/connectors/:connectorId/connect', requireLocalDaemonRequest, async (req: Request<{ connectorId: string }>, res: Response) => {
     try {
       const connectorId = req.params.connectorId;
       if (!connectorId) return options.sendApiError(res, 400, 'CONNECTOR_NOT_FOUND', 'connectorId is required');
@@ -608,7 +653,7 @@ export function registerConnectorRoutes(app: Express, options: RegisterConnector
     }
   });
 
-  app.get('/api/connectors/oauth/callback/:connectorId', async (req: Request, res: Response) => {
+  app.get('/api/connectors/oauth/callback/:connectorId', async (req: Request<{ connectorId: string }>, res: Response) => {
     try {
       const connectorId = req.params.connectorId;
       if (!connectorId) return options.sendApiError(res, 400, 'CONNECTOR_NOT_FOUND', 'connectorId is required');
@@ -629,7 +674,7 @@ export function registerConnectorRoutes(app: Express, options: RegisterConnector
     }
   });
 
-  app.post('/api/connectors/:connectorId/authorization/cancel', requireLocalDaemonRequest, async (req: Request, res: Response) => {
+  app.post('/api/connectors/:connectorId/authorization/cancel', requireLocalDaemonRequest, async (req: Request<{ connectorId: string }>, res: Response) => {
     try {
       const connectorId = req.params.connectorId;
       if (!connectorId) return options.sendApiError(res, 400, 'CONNECTOR_NOT_FOUND', 'connectorId is required');
@@ -639,7 +684,7 @@ export function registerConnectorRoutes(app: Express, options: RegisterConnector
     }
   });
 
-  app.delete('/api/connectors/:connectorId/connection', requireLocalDaemonRequest, async (req: Request, res: Response) => {
+  app.delete('/api/connectors/:connectorId/connection', requireLocalDaemonRequest, async (req: Request<{ connectorId: string }>, res: Response) => {
     try {
       const connectorId = req.params.connectorId;
       if (!connectorId) return options.sendApiError(res, 400, 'CONNECTOR_NOT_FOUND', 'connectorId is required');
@@ -712,6 +757,18 @@ export function registerConnectorRoutes(app: Express, options: RegisterConnector
       }
       if (typeof toolName !== 'string' || toolName.length === 0) {
         options.sendApiError(res, 400, 'BAD_REQUEST', 'toolName is required');
+        return;
+      }
+
+      // Plan §3.A3 / spec §9: re-validate the plugin connector capability
+      // gate on every call so a token replacement attack never bypasses
+      // the §5.3 rule. When the grant has no plugin context the gate is
+      // a no-op.
+      const connectorGate = checkConnectorAccess(grant, connectorId);
+      if (!connectorGate.ok) {
+        options.sendApiError(res, 403, 'CONNECTOR_NOT_GRANTED', connectorGate.reason, {
+          details: { connectorId },
+        });
         return;
       }
       const inputValidation = validateBoundedJsonObject(input ?? {}, 'input');

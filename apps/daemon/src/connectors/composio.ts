@@ -17,6 +17,16 @@ const DISCOVERY_CACHE_TTL_MS = 60_000;
 const CUSTOM_AUTH_REQUIRED_MESSAGE = 'Composio does not have managed credentials for this toolkit.';
 const PERSISTED_CATALOG_REFRESH_MS = 24 * 60 * 60 * 1000;
 
+const COMPOSIO_READ_ONLY_TOOL_SAFETY_OVERRIDES = new Set([
+  'notion:notion_search_notion_page',
+]);
+
+const COMPOSIO_READ_ONLY_TOOL_SAFETY = {
+  sideEffect: 'read',
+  approval: 'auto',
+  reason: 'Provider-specific override: this Composio tool is a read-only search/list operation.',
+} as const;
+
 interface ComposioToolkitCatalogEntry {
   name: string;
   slug: string;
@@ -1034,6 +1044,14 @@ export class ComposioConnectorProvider {
       .filter((tool) => tool.refreshEligible)
       .map((tool) => tool.name);
     const allowedToolNames = [...new Set([...staticDefinition.allowedToolNames, ...autoAllowedLiveToolNames])];
+    // `curatedToolNames` mirrors the static catalog ONLY — it
+    // intentionally never picks up `autoAllowedLiveToolNames`. It
+    // preserves the static catalog baseline, while summary badges use
+    // `toolCount` when present to reflect the advertised provider
+    // inventory. The execution-time gate keeps using
+    // `allowedToolNames`, so the dynamic auto-allow behavior is
+    // preserved end-to-end.
+    const curatedToolNames = [...staticDefinition.allowedToolNames];
     const name = getString(toolkit?.name) ?? staticDefinition.name;
     const category = firstCategoryName(toolkit?.meta?.categories) ?? firstCategoryName(toolkit?.categories) ?? staticDefinition.category;
     const liveDescription = getComposioToolkitDescription(toolkit);
@@ -1052,6 +1070,7 @@ export class ComposioConnectorProvider {
       ...(toolPage?.nextCursor === undefined ? {} : { toolsNextCursor: toolPage.nextCursor }),
       ...(toolPage === undefined ? {} : { toolsHasMore: toolPage.nextCursor !== undefined }),
       allowedToolNames,
+      curatedToolNames,
       ...(staticDefinition.featuredToolNames === undefined
         ? tools.length > 0 ? { featuredToolNames: tools.slice(0, 3).map((tool) => tool.name) } : {}
         : { featuredToolNames: staticDefinition.featuredToolNames }),
@@ -1412,7 +1431,19 @@ function applyComposioToolCuration(
   const overlay = COMPOSIO_CURATION_OVERLAY[connectorKey];
   const toolKey = providerToolId ? normalizeProviderToolId(providerToolId) : undefined;
   const curation = toolKey ? overlay?.[toolKey] : undefined;
-  return curation === undefined ? tool : { ...tool, curation: { ...(tool.curation ?? {}), ...curation } };
+  const safetyOverride = toolKey
+    ? COMPOSIO_READ_ONLY_TOOL_SAFETY_OVERRIDES.has(`${connectorKey}:${toolKey}`)
+    : false;
+  const curated = curation === undefined
+    ? tool
+    : { ...tool, curation: { ...(tool.curation ?? {}), ...curation } };
+  return safetyOverride
+    ? {
+        ...curated,
+        safety: { ...COMPOSIO_READ_ONLY_TOOL_SAFETY },
+        refreshEligible: true,
+      }
+    : curated;
 }
 
 function titleFromSlug(value: string): string {

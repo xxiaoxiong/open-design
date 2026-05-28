@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ANNOTATION_EVENT } from '../../src/components/PreviewDrawOverlay';
 
 const { saveTemplateMock } = vi.hoisted(() => ({
   saveTemplateMock: vi.fn(),
@@ -19,16 +23,22 @@ vi.mock('../../src/state/projects', async () => {
 });
 
 import {
+  CommentSidePanel,
   FileViewer,
+  LiveArtifactViewer,
   LiveArtifactRefreshHistoryPanel,
   SvgViewer,
   applyInspectOverridesToSource,
+  effectivePreviewScale,
   parseInspectOverridesFromSource,
   serializeInspectOverrides,
   updateInspectOverride,
 } from '../../src/components/FileViewer';
 import type { InspectOverrideMap } from '../../src/components/FileViewer';
-import type { LiveArtifact, ProjectFile } from '../../src/types';
+import type { LiveArtifact, LiveArtifactWorkspaceEntry, PreviewComment, ProjectFile } from '../../src/types';
+import { I18nProvider } from '../../src/i18n';
+import type { Dict } from '../../src/i18n/types';
+import { readExpandedIndexCss } from '../helpers/read-expanded-css';
 
 afterEach(() => {
   cleanup();
@@ -58,6 +68,193 @@ function deferredResponse() {
   return { promise, resolve };
 }
 
+function srcDocActivationMessages(calls: readonly (readonly unknown[])[]) {
+  return calls
+    .map(([message]) => message)
+    .filter((message): message is { type: 'od:srcdoc-transport-activate'; html: string } => {
+      if (typeof message !== 'object' || message === null) return false;
+      const data = message as { type?: unknown; html?: unknown };
+      return data.type === 'od:srcdoc-transport-activate' && typeof data.html === 'string';
+    });
+}
+
+function clickAgentTool(testId: string) {
+  fireEvent.click(screen.getByTestId(testId));
+}
+
+describe('FileViewer preview scale', () => {
+  it('keeps file viewer selectors in the effective global stylesheet', () => {
+    const css = readExpandedIndexCss();
+
+    expect(css).toContain('.viewer');
+    expect(css).toContain('.viewer-toolbar');
+    expect(css).toContain('.viewer-action');
+  });
+
+  it('keeps manual edit canvas layout aligned with comment preview on device viewports (#2960)', () => {
+    const css = readExpandedIndexCss();
+
+    expect(css).toContain(
+      '.preview-viewport:not(.preview-viewport-desktop).manual-edit-workspace .manual-edit-canvas',
+    );
+    expect(css).toMatch(
+      /\.preview-viewport:not\(\.preview-viewport-desktop\) \.preview-frame-clip,\s*\n\.preview-viewport:not\(\.preview-viewport-desktop\) \.comment-frame-clip,\s*\n\.preview-viewport:not\(\.preview-viewport-desktop\)\.manual-edit-workspace \.manual-edit-canvas \{\s*\n\s*position: relative;/,
+    );
+  });
+
+  it('keeps the manual edit titlebar from overlapping the close button', () => {
+    const css = readExpandedIndexCss();
+
+    expect(css).toContain('.manual-edit-titlebar');
+    expect(css).toContain('justify-content: space-between;');
+    expect(css).toContain('.manual-edit-titlebar > span');
+    expect(css).toContain('text-overflow: ellipsis;');
+    expect(css).toContain('.manual-edit-titlebar-close');
+    expect(css).toContain('flex: 0 0 auto;');
+    expect(css).toContain('width: 38px;');
+    expect(css).toContain('height: 38px;');
+  });
+
+  it('uses the requested zoom for desktop preview overlays', () => {
+    expect(effectivePreviewScale('desktop', 1.5, { width: 320, height: 480 })).toBe(1.5);
+  });
+
+  it('clamps mobile and tablet overlay scale to the iframe auto-fit scale', () => {
+    expect(effectivePreviewScale('mobile', 1, { width: 390, height: 844 })).toBeLessThan(1);
+    expect(effectivePreviewScale('tablet', 1.25, { width: 820, height: 700 })).toBeLessThan(1);
+  });
+});
+
+describe('FileViewer JSON artifacts', () => {
+  it('pretty-prints valid JSON in the text viewer', async () => {
+    const file = baseFile({
+      name: 'data.json',
+      path: 'data.json',
+      kind: 'code',
+      mime: 'application/json',
+    });
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      if (url === '/api/projects/project-1/raw/data.json') {
+        return new Response('{"title":"Launch Metrics","stats":{"views":42,"active":true}}');
+      }
+      return new Response('', { status: 404 });
+    }));
+
+    const { container } = render(<FileViewer projectId="project-1" projectKind="prototype" file={file} />);
+
+    await waitFor(() => {
+      expect(container.querySelector('.lines')?.textContent).toBe(
+        '{\n  "title": "Launch Metrics",\n  "stats": {\n    "views": 42,\n    "active": true\n  }\n}',
+      );
+    });
+  });
+
+  it('keeps raw JSON when pretty-printing would round an unsafe integer', async () => {
+    const file = baseFile({
+      name: 'data.json',
+      path: 'data.json',
+      kind: 'code',
+      mime: 'application/json',
+    });
+    const rawJson = '{"id":9007199254740993,"name":"large"}';
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      if (url === '/api/projects/project-1/raw/data.json') {
+        return new Response(rawJson);
+      }
+      return new Response('', { status: 404 });
+    }));
+
+    const { container } = render(<FileViewer projectId="project-1" projectKind="prototype" file={file} />);
+
+    await waitFor(() => {
+      const displayedText = container.querySelector('.lines')?.textContent ?? '';
+      expect(displayedText).toBe(rawJson);
+      expect(displayedText).toContain('9007199254740993');
+      expect(displayedText).not.toContain('9007199254740992');
+    });
+  });
+
+  it('keeps raw JSON when pretty-printing would round a high-precision decimal', async () => {
+    const file = baseFile({
+      name: 'data.json',
+      path: 'data.json',
+      kind: 'code',
+      mime: 'application/json',
+    });
+    const rawJson = '{"ratio":0.1234567890123456789,"name":"precise"}';
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      if (url === '/api/projects/project-1/raw/data.json') {
+        return new Response(rawJson);
+      }
+      return new Response('', { status: 404 });
+    }));
+
+    const { container } = render(<FileViewer projectId="project-1" projectKind="prototype" file={file} />);
+
+    await waitFor(() => {
+      const displayedText = container.querySelector('.lines')?.textContent ?? '';
+      expect(displayedText).toBe(rawJson);
+      expect(displayedText).toContain('0.1234567890123456789');
+      expect(displayedText).not.toContain('0.12345678901234568');
+    });
+  });
+
+  it('keeps raw JSON when pretty-printing would round a high-precision exponent', async () => {
+    const file = baseFile({
+      name: 'data.json',
+      path: 'data.json',
+      kind: 'code',
+      mime: 'application/json',
+    });
+    const rawJson = '{"ratio":1.234567890123456789e2,"name":"precise"}';
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      if (url === '/api/projects/project-1/raw/data.json') {
+        return new Response(rawJson);
+      }
+      return new Response('', { status: 404 });
+    }));
+
+    const { container } = render(<FileViewer projectId="project-1" projectKind="prototype" file={file} />);
+
+    await waitFor(() => {
+      const displayedText = container.querySelector('.lines')?.textContent ?? '';
+      expect(displayedText).toBe(rawJson);
+      expect(displayedText).toContain('1.234567890123456789e2');
+      expect(displayedText).not.toContain('123.45678901234568');
+    });
+  });
+
+  it('keeps raw JSON when pretty-printing would erase signed negative zero', async () => {
+    const file = baseFile({
+      name: 'data.json',
+      path: 'data.json',
+      kind: 'code',
+      mime: 'application/json',
+    });
+    const rawJson = '{"delta":-0}';
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      if (url === '/api/projects/project-1/raw/data.json') {
+        return new Response(rawJson);
+      }
+      return new Response('', { status: 404 });
+    }));
+
+    const { container } = render(<FileViewer projectId="project-1" projectKind="prototype" file={file} />);
+
+    await waitFor(() => {
+      const displayedText = container.querySelector('.lines')?.textContent ?? '';
+      expect(displayedText).toBe(rawJson);
+      expect(displayedText).toContain('-0');
+      expect(displayedText).not.toContain('{"delta":0}');
+    });
+  });
+});
+
 describe('FileViewer SVG artifacts', () => {
   it('routes SVG artifacts to the SVG viewer instead of the generic image viewer', () => {
     const file = baseFile({
@@ -74,23 +271,93 @@ describe('FileViewer SVG artifacts', () => {
       },
     });
 
-    const markup = renderToStaticMarkup(<FileViewer projectId="project-1" file={file} />);
+    const markup = renderToStaticMarkup(<FileViewer projectId="project-1" projectKind="prototype" file={file} />);
 
     expect(markup).toContain('class="viewer svg-viewer"');
     expect(markup).not.toContain('class="viewer image-viewer"');
     expect(markup).toContain('Preview');
-    expect(markup).toContain('Source');
+    expect(markup).toContain('Code');
     expect(markup).toContain('src="/api/projects/project-1/raw/diagram.svg?v=1710000000&amp;r=0"');
   });
 
   it('keeps normal image artifacts on the existing image viewer path', () => {
     const file = baseFile({ name: 'photo.png', path: 'photo.png' });
 
-    const markup = renderToStaticMarkup(<FileViewer projectId="project-1" file={file} />);
+    const markup = renderToStaticMarkup(<FileViewer projectId="project-1" projectKind="prototype" file={file} />);
 
     expect(markup).toContain('class="viewer image-viewer"');
     expect(markup).not.toContain('class="viewer svg-viewer"');
     expect(markup).not.toContain('class="viewer-tabs"');
+  });
+
+  it('renders sketch json files through the static sketch preview instead of the image viewer', async () => {
+    const file = baseFile({
+      name: 'board.sketch.json',
+      path: 'board.sketch.json',
+      kind: 'sketch',
+      mime: 'application/json; charset=utf-8',
+    });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      version: 1,
+      items: [
+        {
+          kind: 'arrow',
+          x1: 16,
+          y1: 24,
+          x2: 180,
+          y2: 108,
+          color: '#1c1b1a',
+          size: 3,
+        },
+      ],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { container } = render(<FileViewer projectId="project-1" projectKind="prototype" file={file} />);
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-testid="sketch-preview-svg"]')).toBeTruthy();
+    });
+    expect(container.querySelector('.viewer.image-viewer img')).toBeNull();
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/project-1/raw/board.sketch.json', { cache: 'no-store' });
+  });
+
+  it('expands the sketch preview viewBox for off-origin sketches outside the default frame', async () => {
+    const file = baseFile({
+      name: 'offset-board.sketch.json',
+      path: 'offset-board.sketch.json',
+      kind: 'sketch',
+      mime: 'application/json; charset=utf-8',
+    });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      version: 1,
+      items: [
+        {
+          kind: 'rect',
+          x: 500,
+          y: 300,
+          w: 20,
+          h: 10,
+          color: '#1c1b1a',
+          size: 2,
+        },
+      ],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { container } = render(<FileViewer projectId="project-1" projectKind="prototype" file={file} />);
+
+    await waitFor(() => {
+      const svg = container.querySelector<SVGSVGElement>('[data-testid="sketch-preview-svg"] svg');
+      expect(svg).toBeTruthy();
+      expect(svg?.getAttribute('viewBox')).toBe('0 0 545 335');
+    });
   });
 
   it('marks preview and source modes through the SVG viewer toggle controls', () => {
@@ -109,11 +376,11 @@ describe('FileViewer SVG artifacts', () => {
     );
 
     expect(previewMarkup).toContain('class="viewer-tab active" aria-pressed="true">Preview</button>');
-    expect(previewMarkup).toContain('aria-pressed="false">Source</button>');
+    expect(previewMarkup).toContain('aria-pressed="false">Code</button>');
     expect(previewMarkup).toContain('<img');
 
     expect(sourceMarkup).toContain('aria-pressed="false">Preview</button>');
-    expect(sourceMarkup).toContain('class="viewer-tab active" aria-pressed="true">Source</button>');
+    expect(sourceMarkup).toContain('class="viewer-tab active" aria-pressed="true">Code</button>');
     expect(sourceMarkup).toContain('class="viewer-source"');
     expect(sourceMarkup).not.toContain('<img');
   });
@@ -135,13 +402,329 @@ describe('FileViewer SVG artifacts', () => {
     });
 
     const markup = renderToStaticMarkup(
-      <FileViewer projectId="project-1" file={file} liveHtml="<html><body>hi</body></html>" />,
+      <FileViewer projectId="project-1" projectKind="prototype" file={file} liveHtml="<html><body>hi</body></html>" />,
     );
 
     expect(markup).toContain('data-testid="artifact-preview-frame"');
     expect(markup).toContain('data-od-render-mode="url-load"');
+    expect(markup).toContain('data-od-render-mode="url-load" data-od-active="true"');
+    expect(markup).toContain('data-od-render-mode="srcdoc" data-od-active="false"');
     expect(markup).toContain('src="/api/projects/project-1/raw/page.html?v=1710000000&amp;r=0"');
-    expect(markup).not.toContain('data-od-render-mode="srcdoc"');
+    expect(markup).toContain('sandbox="allow-scripts allow-downloads"');
+  });
+
+  it('keeps inactive HTML preview transports mounted without booting the artifact', async () => {
+    const file = baseFile({
+      name: 'page.html',
+      path: 'page.html',
+      mime: 'text/html',
+      kind: 'html',
+      artifactManifest: {
+        version: 1,
+        kind: 'html',
+        title: 'Page',
+        entry: 'page.html',
+        renderer: 'html',
+        exports: ['html'],
+      },
+    });
+
+    const { container } = render(
+      <FileViewer
+        projectId="project-1"
+        projectKind="prototype"
+        file={file}
+        liveHtml='<html><body><script>window.__odArtifactBootCount = (window.__odArtifactBootCount || 0) + 1;</script><main data-od-id="hero">Hero</main></body></html>'
+      />,
+    );
+
+    const urlFrame = container.querySelector('iframe[data-od-render-mode="url-load"]') as HTMLIFrameElement | null;
+    const srcDocFrame = container.querySelector('iframe[data-od-render-mode="srcdoc"]') as HTMLIFrameElement | null;
+
+    expect(urlFrame).toBeTruthy();
+    expect(srcDocFrame).toBeTruthy();
+    expect(urlFrame?.getAttribute('data-od-active')).toBe('true');
+    expect(srcDocFrame?.getAttribute('data-od-active')).toBe('false');
+    expect(srcDocFrame?.srcdoc).toContain('data-od-lazy-srcdoc-transport');
+    expect(srcDocFrame?.srcdoc).not.toContain('__odArtifactBootCount');
+
+    fireEvent.click(screen.getByTestId('manual-edit-mode-toggle'));
+
+    const urlFrameAfter = container.querySelector('iframe[data-od-render-mode="url-load"]') as HTMLIFrameElement | null;
+    const srcDocFrameAfter = container.querySelector('iframe[data-od-render-mode="srcdoc"]') as HTMLIFrameElement | null;
+
+    expect(urlFrameAfter).toBe(urlFrame);
+    expect(urlFrameAfter?.getAttribute('data-od-active')).toBe('false');
+    expect(urlFrameAfter?.getAttribute('src')).toBe('about:blank');
+    expect(srcDocFrameAfter?.getAttribute('data-od-active')).toBe('true');
+    expect(srcDocFrameAfter?.srcdoc).toContain('__odArtifactBootCount');
+    expect(srcDocFrameAfter?.srcdoc).toContain('data-od-edit-bridge');
+  });
+
+  it('renders sandbox-shim artifacts on the srcdoc transport without entering edit mode (#2791)', () => {
+    const file = baseFile({
+      name: 'search.html',
+      path: 'search.html',
+      mime: 'text/html',
+      kind: 'html',
+      artifactManifest: {
+        version: 1,
+        kind: 'html',
+        title: 'Search',
+        entry: 'search.html',
+        renderer: 'html',
+        exports: ['html'],
+      },
+    });
+
+    const { container } = render(
+      <FileViewer
+        projectId="project-1"
+        projectKind="prototype"
+        file={file}
+        liveHtml='<html><body><script src="app.js"></script><main data-od-id="results">Results</main></body></html>'
+      />,
+    );
+
+    const srcDocFrame = container.querySelector('iframe[data-od-render-mode="srcdoc"]') as HTMLIFrameElement | null;
+    expect(srcDocFrame?.getAttribute('data-od-active')).toBe('true');
+    expect(srcDocFrame?.srcdoc).toContain('data-od-id="results"');
+    expect(srcDocFrame?.srcdoc).not.toContain('data-od-lazy-srcdoc-transport');
+    expect(srcDocFrame?.srcdoc).toContain('data-od-sandbox-shim');
+  });
+
+  it('reactivates the srcDoc transport after switching source back to preview', async () => {
+    const file = baseFile({
+      name: 'page.html',
+      path: 'page.html',
+      mime: 'text/html',
+      kind: 'html',
+      artifactManifest: {
+        version: 1,
+        kind: 'html',
+        title: 'Page',
+        entry: 'page.html',
+        renderer: 'html',
+        exports: ['html'],
+      },
+    });
+
+    render(
+      <FileViewer
+        projectId="project-1"
+        projectKind="prototype"
+        file={file}
+        liveHtml='<html><body><main data-od-id="hero">Hero</main></body></html>'
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('manual-edit-mode-toggle'));
+
+    await waitFor(() => {
+      const activeFrame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
+      expect(activeFrame.getAttribute('data-od-render-mode')).toBe('srcdoc');
+    });
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Code' }));
+    expect(screen.queryByTestId('artifact-preview-frame')).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Preview' }));
+
+    await waitFor(() => {
+      const activeFrame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
+      expect(activeFrame.getAttribute('data-od-render-mode')).toBe('srcdoc');
+      expect(activeFrame.srcdoc).toContain('data-od-edit-bridge');
+      expect(activeFrame.srcdoc).toContain('Hero');
+    });
+  });
+
+  it('uses the next file URL immediately when switching URL-loaded HTML previews', () => {
+    const first = baseFile({
+      name: 'first.html',
+      path: 'first.html',
+      mime: 'text/html',
+      kind: 'html',
+      artifactManifest: {
+        version: 1,
+        kind: 'html',
+        title: 'First',
+        entry: 'first.html',
+        renderer: 'html',
+        exports: ['html'],
+      },
+    });
+    const second = {
+      ...first,
+      name: 'second.html',
+      path: 'second.html',
+      artifactManifest: {
+        ...first.artifactManifest!,
+        title: 'Second',
+        entry: 'second.html',
+      },
+    };
+    const observedCommittedSrcs: Array<string | null> = [];
+
+    function Switcher() {
+      const [file, setFile] = useState<ProjectFile>(first);
+      const hostRef = useRef<HTMLDivElement | null>(null);
+      useLayoutEffect(() => {
+        observedCommittedSrcs.push(
+          hostRef.current
+            ?.querySelector<HTMLIFrameElement>('[data-testid="artifact-preview-frame"]')
+            ?.getAttribute('src') ?? null,
+        );
+      });
+      return (
+        <div ref={hostRef}>
+          <button type="button" onClick={() => setFile(second)}>Switch file</button>
+          <FileViewer projectId="project-1" projectKind="prototype" file={file}
+            liveHtml="<html><body>preview</body></html>"
+          />
+        </div>
+      );
+    }
+
+    const { container } = render(<Switcher />);
+    const getFrame = () => container.querySelector<HTMLIFrameElement>('[data-testid="artifact-preview-frame"]');
+    const initialFrame = getFrame();
+    expect(initialFrame?.getAttribute('src')).toBe('/api/projects/project-1/raw/first.html?v=1710000000&r=0');
+
+    const observationsBeforeSwitch = observedCommittedSrcs.length;
+    fireEvent.click(screen.getByRole('button', { name: 'Switch file' }));
+
+    const nextFrame = getFrame();
+    expect(nextFrame).toBe(initialFrame);
+    expect(observedCommittedSrcs[observationsBeforeSwitch]).toBe(
+      '/api/projects/project-1/raw/second.html?v=1710000000&r=0',
+    );
+    expect(nextFrame?.getAttribute('src')).toBe('/api/projects/project-1/raw/second.html?v=1710000000&r=0');
+  });
+
+  it('allows downloads in the in-tab HTML presentation iframe', async () => {
+    const file = baseFile({
+      name: 'page.html',
+      path: 'page.html',
+      mime: 'text/html',
+      kind: 'html',
+      artifactManifest: {
+        version: 1,
+        kind: 'html',
+        title: 'Page',
+        entry: 'page.html',
+        renderer: 'html',
+        exports: ['html'],
+      },
+    });
+
+    const { container } = render(
+      <FileViewer projectId="project-1" projectKind="prototype" file={file} liveHtml="<html><body>hi</body></html>" />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /present/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /in this tab/i }));
+
+    await waitFor(() => {
+      const frame = container.querySelector('.present-overlay iframe');
+      expect(frame?.getAttribute('sandbox')).toBe('allow-scripts allow-downloads');
+      expect(frame?.getAttribute('data-od-render-mode')).toBe('url-load');
+    });
+  });
+
+  it('allows downloads in React component preview iframes', async () => {
+    const file = baseFile({
+      name: 'Card.jsx',
+      path: 'Card.jsx',
+      mime: 'text/jsx',
+      kind: 'code',
+      artifactManifest: {
+        version: 1,
+        kind: 'react-component',
+        title: 'Card',
+        entry: 'Card.jsx',
+        renderer: 'react-component',
+        exports: ['jsx', 'html', 'zip'],
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      if (url === '/api/projects/project-1/raw/Card.jsx') {
+        return new Response('export default function Card() { return <button>Download</button>; }');
+      }
+      return new Response('', { status: 404 });
+    }));
+
+    render(<FileViewer projectId="project-1" projectKind="prototype" file={file} />);
+
+    const frame = await screen.findByTestId('react-component-preview-frame');
+    expect(frame.getAttribute('sandbox')).toBe('allow-scripts allow-downloads');
+  });
+
+  it('points a .jsx module loaded by a sibling HTML to that entry, not the React error (issue #2744)', async () => {
+    const file = baseFile({
+      name: 'icons.jsx',
+      path: 'icons.jsx',
+      mime: 'text/jsx',
+      kind: 'code',
+      artifactManifest: {
+        version: 1,
+        kind: 'react-component',
+        title: 'icons',
+        entry: 'icons.jsx',
+        renderer: 'react-component',
+        exports: ['jsx'],
+      },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request) => {
+        const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+        if (url === '/api/projects/project-1/files') {
+          return new Response(
+            JSON.stringify({
+              files: [
+                { name: 'icons.jsx', path: 'icons.jsx' },
+                { name: 'backups.html', path: 'backups.html' },
+              ],
+            }),
+          );
+        }
+        if (url === '/api/projects/project-1/raw/backups.html') {
+          return new Response('<script type="text/babel" src="icons.jsx"></script>');
+        }
+        if (url === '/api/projects/project-1/raw/icons.jsx') {
+          return new Response('window.I = { star: null };');
+        }
+        return new Response('', { status: 404 });
+      }),
+    );
+
+    const onOpenFileReplacing = vi.fn();
+    const { container } = render(
+      <FileViewer
+        projectId="project-1"
+        projectKind="prototype"
+        file={file}
+        onOpenFileReplacing={onOpenFileReplacing}
+      />,
+    );
+
+    // The module points at its HTML entry instead of rendering the React
+    // runtime (which would throw "No React component export found").
+    const link = await screen.findByRole('button', { name: /backups\.html/ });
+    expect(screen.queryByTestId('react-component-preview-frame')).toBeNull();
+
+    // The toolbar still offers a way to read the raw code: clicking the Code
+    // tab swaps the pointer for the file's source. Issue #2744 follow-up.
+    fireEvent.click(screen.getByRole('button', { name: /^code$/i }));
+    expect(container.textContent).toContain('window.I');
+    expect(screen.queryByRole('button', { name: /backups\.html/ })).toBeNull();
+
+    // Back on Preview, clicking the entry opens the HTML page and closes the
+    // dead-end module tab (icons.jsx) in one move.
+    fireEvent.click(screen.getByRole('button', { name: /^preview$/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /backups\.html/ }));
+    expect(onOpenFileReplacing).toHaveBeenCalledWith('backups.html', 'icons.jsx');
   });
 
   it('keeps decks on the srcDoc path so the deck postMessage bridge can run', () => {
@@ -161,9 +744,7 @@ describe('FileViewer SVG artifacts', () => {
     });
 
     const markup = renderToStaticMarkup(
-      <FileViewer
-        projectId="project-1"
-        file={file}
+      <FileViewer projectId="project-1" projectKind="prototype" file={file}
         isDeck
         liveHtml={'<html><body><section class="slide">one</section></body></html>'}
       />,
@@ -171,7 +752,9 @@ describe('FileViewer SVG artifacts', () => {
 
     expect(markup).toContain('data-testid="artifact-preview-frame"');
     expect(markup).toContain('data-od-render-mode="srcdoc"');
-    expect(markup).not.toContain('data-od-render-mode="url-load"');
+    expect(markup).toContain('data-od-render-mode="srcdoc" data-od-active="true"');
+    expect(markup).toContain('data-od-render-mode="url-load" data-od-active="false"');
+    expect(markup).toContain('sandbox="allow-scripts allow-downloads"');
   });
 
   it('falls back to srcDoc when the HTML body looks deck-shaped even without an isDeck hint', () => {
@@ -191,15 +774,59 @@ describe('FileViewer SVG artifacts', () => {
     });
 
     const markup = renderToStaticMarkup(
-      <FileViewer
-        projectId="project-1"
-        file={file}
+      <FileViewer projectId="project-1" projectKind="prototype" file={file}
         liveHtml={'<html><body><section class="slide">one</section><section class="slide">two</section></body></html>'}
       />,
     );
 
     expect(markup).toContain('data-od-render-mode="srcdoc"');
-    expect(markup).not.toContain('data-od-render-mode="url-load"');
+    expect(markup).toContain('data-od-render-mode="srcdoc" data-od-active="true"');
+    expect(markup).toContain('data-od-render-mode="url-load" data-od-active="false"');
+  });
+
+  it('hides preview-only toolbar controls when switching an HTML deck to source view', async () => {
+    const file = baseFile({
+      name: 'deck.html',
+      path: 'deck.html',
+      mime: 'text/html',
+      kind: 'html',
+      artifactManifest: {
+        version: 1,
+        kind: 'html',
+        title: 'Deck',
+        entry: 'deck.html',
+        renderer: 'html',
+        exports: ['html'],
+      },
+    });
+
+    const { container } = render(
+      <FileViewer
+        projectId="project-1"
+        projectKind="prototype"
+        file={file}
+        isDeck
+        liveHtml={'<html><body><section class="slide">one</section><section class="slide">two</section></body></html>'}
+      />,
+    );
+
+    expect(container.querySelector('.deck-nav')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Manual' })).toBeNull();
+    expect(container.querySelector('.viewer-viewport-switcher')).toBeTruthy();
+    expect(screen.queryByTestId('palette-tweaks-toggle')).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Code' }));
+
+    await waitFor(() => {
+      expect(container.querySelector('.deck-nav')).toBeNull();
+      expect(container.querySelector('.viewer-viewport-switcher')).toBeNull();
+      expect(screen.queryByTestId('manual-edit-mode-toggle')).toBeNull();
+      expect(screen.queryByTestId('draw-overlay-toggle')).toBeNull();
+      expect(screen.queryByTestId('palette-tweaks-toggle')).toBeNull();
+      expect(screen.queryByRole('button', { name: /100%/ })).toBeNull();
+      expect(screen.queryByRole('button', { name: /zoom out/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /zoom in/i })).toBeNull();
+    });
   });
 
   it('shows Cloudflare Pages as a deploy action without requiring a project name input', async () => {
@@ -219,9 +846,7 @@ describe('FileViewer SVG artifacts', () => {
     });
 
     render(
-      <FileViewer
-        projectId="project-1"
-        file={file}
+      <FileViewer projectId="project-1" projectKind="prototype" file={file}
         liveHtml="<html><body><h1>Hello</h1></body></html>"
       />,
     );
@@ -244,6 +869,102 @@ describe('FileViewer SVG artifacts', () => {
     expect(screen.queryByText(/generates a Pages project name automatically/i)).toBeNull();
     expect(screen.queryByText(/project name is selected automatically/i)).toBeNull();
     expect(screen.queryByLabelText('Pages project name')).toBeNull();
+  });
+
+  it('nudges the export button once when an artifact becomes exportable', async () => {
+    const file = baseFile({
+      name: 'nudge.html',
+      path: 'nudge.html',
+      mime: 'text/html',
+      kind: 'html',
+      artifactManifest: {
+        version: 1,
+        kind: 'html',
+        title: 'Nudge',
+        entry: 'nudge.html',
+        renderer: 'html',
+        exports: ['html'],
+      },
+    });
+
+    render(
+      <FileViewer
+        projectId="project-nudge"
+        projectKind="prototype"
+        file={file}
+        liveHtml="<html><body><h1>Ready</h1></body></html>"
+      />,
+    );
+
+    const exportButton = screen.getByRole('button', { name: /share/i });
+    await waitFor(() => {
+      expect(exportButton.classList.contains('export-ready-nudge')).toBe(true);
+    });
+
+    fireEvent.click(exportButton);
+
+    expect(exportButton.classList.contains('export-ready-nudge')).toBe(false);
+  });
+
+  it('nudges each exportable artifact once when the mounted viewer switches files', async () => {
+    const firstFile = baseFile({
+      name: 'nudge-first.html',
+      path: 'nudge-first.html',
+      mime: 'text/html',
+      kind: 'html',
+      artifactManifest: {
+        version: 1,
+        kind: 'html',
+        title: 'First',
+        entry: 'nudge-first.html',
+        renderer: 'html',
+        exports: ['html'],
+      },
+    });
+    const secondFile = baseFile({
+      name: 'nudge-second.html',
+      path: 'nudge-second.html',
+      mime: 'text/html',
+      kind: 'html',
+      artifactManifest: {
+        version: 1,
+        kind: 'html',
+        title: 'Second',
+        entry: 'nudge-second.html',
+        renderer: 'html',
+        exports: ['html'],
+      },
+    });
+
+    const { rerender } = render(
+      <FileViewer
+        projectId="project-nudge-switch"
+        projectKind="prototype"
+        file={firstFile}
+        liveHtml="<html><body><h1>First</h1></body></html>"
+      />,
+    );
+
+    const firstExportButton = screen.getByRole('button', { name: /share/i });
+    await waitFor(() => {
+      expect(firstExportButton.classList.contains('export-ready-nudge')).toBe(true);
+    });
+    fireEvent.click(firstExportButton);
+    expect(firstExportButton.classList.contains('export-ready-nudge')).toBe(false);
+
+    rerender(
+      <FileViewer
+        projectId="project-nudge-switch"
+        projectKind="prototype"
+        file={secondFile}
+        liveHtml="<html><body><h1>Second</h1></body></html>"
+      />,
+    );
+
+    const secondExportButton = screen.getByRole('button', { name: /share/i });
+    await waitFor(() => {
+      expect(secondExportButton.classList.contains('export-ready-nudge')).toBe(true);
+    });
   });
 
   it('keeps the explicitly selected deploy provider when another provider already has a deployment', async () => {
@@ -301,9 +1022,7 @@ describe('FileViewer SVG artifacts', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(
-      <FileViewer
-        projectId="project-1"
-        file={file}
+      <FileViewer projectId="project-1" projectKind="prototype" file={file}
         liveHtml="<html><body><h1>Hello</h1></body></html>"
       />,
     );
@@ -365,9 +1084,7 @@ describe('FileViewer SVG artifacts', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(
-      <FileViewer
-        projectId="project-1"
-        file={file}
+      <FileViewer projectId="project-1" projectKind="prototype" file={file}
         liveHtml="<html><body><h1>Hello</h1></body></html>"
       />,
     );
@@ -493,9 +1210,7 @@ describe('FileViewer SVG artifacts', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(
-      <FileViewer
-        projectId="project-1"
-        file={file}
+      <FileViewer projectId="project-1" projectKind="prototype" file={file}
         liveHtml="<html><body><h1>Hello</h1></body></html>"
       />,
     );
@@ -586,9 +1301,7 @@ describe('FileViewer SVG artifacts', () => {
     });
 
     render(
-      <FileViewer
-        projectId="project-1"
-        file={file}
+      <FileViewer projectId="project-1" projectKind="prototype" file={file}
         liveHtml="<html><body><h1>Hello</h1></body></html>"
       />,
     );
@@ -635,9 +1348,7 @@ describe('FileViewer SVG artifacts', () => {
     }), { status: 200 })));
 
     render(
-      <FileViewer
-        projectId="project-1"
-        file={file}
+      <FileViewer projectId="project-1" projectKind="prototype" file={file}
         liveHtml="<html><body><h1>Hello</h1></body></html>"
       />,
     );
@@ -699,9 +1410,7 @@ describe('FileViewer SVG artifacts', () => {
     });
 
     render(
-      <FileViewer
-        projectId="project-1"
-        file={file}
+      <FileViewer projectId="project-1" projectKind="prototype" file={file}
         liveHtml="<html><body><h1>Hello</h1></body></html>"
       />,
     );
@@ -724,6 +1433,642 @@ describe('FileViewer SVG artifacts', () => {
     );
     expect(promptSpy).not.toHaveBeenCalled();
     promptSpy.mockRestore();
+  });
+});
+
+describe('FileViewer tweaks toolbar', () => {
+  const t = (key: keyof Dict) => {
+    const labels: Partial<Record<keyof Dict, string>> = {
+      'chat.tabComments': 'Comments',
+      'chat.comments.emptySaved': 'No saved comments.',
+      'common.close': 'Close',
+      'preview.showSidebar': 'Show Comments',
+      'preview.hideSidebar': 'Hide Comments',
+    };
+    return labels[key] ?? key;
+  };
+
+  function htmlPreviewFile(): ProjectFile {
+    return baseFile({
+      name: 'preview.html',
+      path: 'preview.html',
+      mime: 'text/html',
+      kind: 'html',
+      artifactManifest: {
+        version: 1,
+        kind: 'html',
+        title: 'Preview',
+        entry: 'preview.html',
+        renderer: 'html',
+        exports: ['html'],
+      },
+    });
+  }
+
+  it('renders Annotation, Edit, and Draw as the primary preview tools', async () => {
+    render(
+      <FileViewer projectId="project-1" projectKind="prototype" file={htmlPreviewFile()}
+        liveHtml='<html><body><main data-od-id="hero">Hero</main></body></html>'
+      />,
+    );
+
+    expect(screen.queryByTestId('palette-tweaks-toggle')).toBeNull();
+    expect(screen.queryByTestId('inspect-mode-toggle')).toBeNull();
+    expect(screen.getByTestId('board-mode-toggle')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'More annotation tools' })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: 'Pick element' })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: 'Region' })).toBeNull();
+    expect(screen.getByTestId('draw-overlay-toggle')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Draw' })).toBeTruthy();
+    expect(screen.getByTestId('screenshot-capture-toggle')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Screenshot' })).toBeTruthy();
+    expect(screen.queryByPlaceholderText('Add a note for this annotation')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Pods' })).toBeNull();
+
+    fireEvent.click(screen.getByTestId('draw-overlay-toggle'));
+    expect(screen.getByPlaceholderText('Add a note for this annotation')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Click' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Redo' })).toBeTruthy();
+
+    clickAgentTool('draw-overlay-toggle');
+    expect(screen.queryByPlaceholderText('Add a note for this annotation')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('screenshot-capture-toggle'));
+    expect(screen.getByPlaceholderText('Add a note for this annotation')).toBeTruthy();
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.getByTestId('screenshot-capture-toggle').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('draw-overlay-toggle').getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByRole('button', { name: 'Send' })).toHaveProperty('disabled', false);
+  });
+
+  it('keeps the Draw bar open after queueing an annotation', () => {
+    render(
+      <FileViewer projectId="project-1" projectKind="prototype" file={htmlPreviewFile()}
+        liveHtml='<html><body><main data-od-id="hero">Hero</main></body></html>'
+      />,
+    );
+
+    clickAgentTool('draw-overlay-toggle');
+    const note = screen.getByPlaceholderText('Add a note for this annotation');
+    fireEvent.change(note, { target: { value: 'mark this' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Queue' }));
+
+    expect(screen.getByPlaceholderText('Add a note for this annotation')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Click' })).toBeNull();
+
+    clickAgentTool('draw-overlay-toggle');
+    expect(screen.queryByPlaceholderText('Add a note for this annotation')).toBeNull();
+  });
+
+  it('keeps the preloaded selection bridge mounted while the Draw bar is open', async () => {
+    render(
+      <FileViewer projectId="project-1" projectKind="prototype" file={htmlPreviewFile()}
+        liveHtml='<html><body><main data-od-id="hero">Hero</main></body></html>'
+      />,
+    );
+
+    expect((screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement).getAttribute('data-od-render-mode')).toBe('url-load');
+    clickAgentTool('draw-overlay-toggle');
+
+    const frame = await waitFor(() => {
+      const activeFrame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
+      expect(activeFrame.getAttribute('data-od-render-mode')).toBe('srcdoc');
+      expect(activeFrame.srcdoc).toContain('data-od-selection-bridge');
+      expect(activeFrame.srcdoc).not.toContain('data-od-lazy-srcdoc-transport');
+      return activeFrame;
+    });
+    await waitFor(() => {
+      expect(frame.srcdoc).toContain('data-od-id="hero"');
+    });
+    expect(screen.queryByRole('button', { name: 'Click' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Redo' })).toBeTruthy();
+    expect((screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement).srcdoc).toBe(frame.srcdoc);
+  });
+
+  it('lets Draw direct send emit a queued annotation while a task is running', async () => {
+    const annotationSpy = vi.fn();
+    window.addEventListener(ANNOTATION_EVENT, annotationSpy);
+
+    render(
+      <FileViewer projectId="project-1" projectKind="prototype" file={htmlPreviewFile()}
+        liveHtml='<html><body><main data-od-id="hero">Hero</main></body></html>'
+        streaming
+      />,
+    );
+
+    clickAgentTool('draw-overlay-toggle');
+    fireEvent.change(screen.getByPlaceholderText('Add a note for this annotation'), {
+      target: { value: 'mark this' },
+    });
+
+    const queue = screen.getByRole('button', { name: 'Queue' }) as HTMLButtonElement;
+    expect(queue.disabled).toBe(false);
+    const send = screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement;
+    expect(send.disabled).toBe(false);
+
+    fireEvent.click(send);
+
+    await waitFor(() => expect(annotationSpy).toHaveBeenCalledTimes(1));
+    expect(annotationSpy.mock.calls[0]?.[0]).toMatchObject({
+      detail: {
+        action: 'send',
+        note: 'mark this',
+        filePath: 'preview.html',
+      },
+    });
+    window.removeEventListener(ANNOTATION_EVENT, annotationSpy);
+  });
+
+  it('hides non-open saved comments from preview markers when the side panel is empty', () => {
+    const resolvedComment: PreviewComment = {
+      id: 'comment-applying',
+      projectId: 'project-1',
+      conversationId: 'conversation-1',
+      filePath: 'preview.html',
+      elementId: 'pin-applying',
+      selector: '[data-od-pin="pin-applying"]',
+      label: 'pin-applying',
+      text: '',
+      htmlHint: '',
+      position: { x: 24, y: 32, width: 18, height: 18 },
+      note: 'Already sent to Claude',
+      status: 'applying',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    render(
+      <FileViewer
+        projectId="project-1"
+        projectKind="prototype"
+        file={htmlPreviewFile()}
+        liveHtml='<html><body><main data-od-id="hero">Hero</main></body></html>'
+        previewComments={[resolvedComment]}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('comment-panel-toggle'));
+
+    expect(screen.getByTestId('comment-side-panel')).toBeTruthy();
+    expect(screen.queryByTestId('comment-saved-marker-pin-applying')).toBeNull();
+    expect(screen.queryByText('Already sent to Claude')).toBeNull();
+  });
+
+  it('keeps comments and annotation picker mutually exclusive', () => {
+    const { container } = render(
+      <FileViewer
+        projectId="project-1"
+        projectKind="prototype"
+        file={htmlPreviewFile()}
+        liveHtml='<html><body><main data-od-id="hero">Hero</main></body></html>'
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('comment-panel-toggle'));
+    expect(container.querySelector('.comment-preview-layer')?.className).not.toContain('comment-preview-layer-comments-open');
+    expect(screen.getByTestId('comment-side-panel')).toBeTruthy();
+    expect(screen.getByTestId('comment-panel-toggle').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('board-mode-toggle').getAttribute('aria-pressed')).toBe('false');
+
+    clickAgentTool('board-mode-toggle');
+
+    expect(screen.queryByTestId('comment-side-panel')).toBeNull();
+    expect(container.querySelector('.comment-preview-layer')?.className).not.toContain('comment-preview-layer-comments-open');
+    expect(screen.getByTestId('comment-panel-toggle').getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByTestId('board-mode-toggle').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByTestId('inspect-empty-hint-container')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('comment-panel-toggle'));
+
+    expect(screen.getByTestId('comment-side-panel')).toBeTruthy();
+    expect(screen.getByTestId('comment-panel-toggle').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('board-mode-toggle').getAttribute('aria-pressed')).toBe('false');
+    expect(screen.queryByTestId('inspect-empty-hint-container')).toBeNull();
+  });
+
+  it('keeps saved comment pins visible while adding another comment', async () => {
+    const olderComment: PreviewComment = {
+      id: 'comment-older',
+      projectId: 'project-1',
+      conversationId: 'conversation-1',
+      filePath: 'preview.html',
+      elementId: 'pin-older',
+      selector: '[data-od-pin="pin-older"]',
+      label: 'pin-older',
+      text: '',
+      htmlHint: '',
+      position: { x: 24, y: 32, width: 18, height: 18 },
+      note: 'Older comment',
+      status: 'open',
+      createdAt: 10,
+      updatedAt: 10,
+    };
+    const newerComment: PreviewComment = {
+      ...olderComment,
+      id: 'comment-newer',
+      elementId: 'pin-newer',
+      selector: '[data-od-pin="pin-newer"]',
+      label: 'pin-newer',
+      position: { x: 72, y: 32, width: 18, height: 18 },
+      note: 'Newer comment',
+      createdAt: 20,
+      updatedAt: 20,
+    };
+
+    render(
+      <FileViewer
+        projectId="project-1"
+        projectKind="prototype"
+        file={htmlPreviewFile()}
+        liveHtml='<html><body><main data-od-id="hero">Hero</main></body></html>'
+        previewComments={[olderComment, newerComment]}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('comment-panel-toggle'));
+
+    expect(screen.getByTestId('comment-side-panel')).toBeTruthy();
+    expect(screen.getByTestId('comment-saved-marker-pin-newer').textContent).toBe('C');
+    expect(screen.getByTestId('comment-saved-marker-pin-older').textContent).toBe('C');
+
+    clickAgentTool('board-mode-toggle');
+
+    expect(screen.queryByTestId('comment-side-panel')).toBeNull();
+    expect(screen.queryByTestId('comment-saved-marker-pin-newer')).toBeNull();
+    expect(screen.queryByTestId('comment-saved-marker-pin-older')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('comment-panel-toggle'));
+
+    const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
+    window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+      data: {
+        type: 'od:comment-target',
+        elementId: 'hero',
+        selector: '[data-od-id="hero"]',
+        label: 'Hero',
+        text: 'Hero',
+        position: { x: 8, y: 12, width: 120, height: 48 },
+        hoverPoint: { x: 12, y: 16 },
+        htmlHint: '<main data-od-id="hero">Hero</main>',
+      },
+    }));
+
+    expect((await screen.findByTestId('comment-active-pin')).textContent).toBe('C');
+    expect(screen.getByTestId('comment-saved-marker-pin-newer')).toBeTruthy();
+    expect(screen.getByTestId('comment-saved-marker-pin-older')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('comment-saved-marker-pin-newer'));
+    await waitFor(() => {
+      const activeItem = document.querySelector('[data-comment-id="comment-newer"]');
+      expect(activeItem?.className).toContain('active');
+      expect(activeItem?.getAttribute('aria-current')).toBe('true');
+    });
+    expect(document.querySelector('[data-comment-id="comment-older"]')?.className).not.toContain('active');
+  });
+
+  it('does not preload non-open element comments into the picker composer', async () => {
+    const applyingElementComment: PreviewComment = {
+      id: 'comment-element-applying',
+      projectId: 'project-1',
+      conversationId: 'conversation-1',
+      filePath: 'preview.html',
+      elementId: 'hero',
+      selector: '[data-od-id="hero"]',
+      label: 'Hero',
+      text: 'Hero',
+      htmlHint: '<main data-od-id="hero">Hero</main>',
+      position: { x: 8, y: 12, width: 120, height: 48 },
+      note: 'Do not resurrect this note',
+      status: 'applying',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    render(
+      <FileViewer
+        projectId="project-1"
+        projectKind="prototype"
+        file={htmlPreviewFile()}
+        liveHtml='<html><body><main data-od-id="hero">Hero</main></body></html>'
+        previewComments={[applyingElementComment]}
+      />,
+    );
+
+    const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
+    fireEvent.click(screen.getByTestId('comment-panel-toggle'));
+
+    window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+      data: {
+        type: 'od:comment-target',
+        elementId: 'hero',
+        selector: '[data-od-id="hero"]',
+        label: 'Hero',
+        text: 'Hero',
+        position: { x: 8, y: 12, width: 120, height: 48 },
+        htmlHint: '<main data-od-id="hero">Hero</main>',
+      },
+    }));
+
+    const input = await screen.findByTestId('comment-popover-input') as HTMLTextAreaElement;
+    expect(input.value).toBe('');
+    expect(screen.queryByText('Remove')).toBeNull();
+    expect(screen.queryByText('Do not resurrect this note')).toBeNull();
+  });
+
+  it('keeps the comment composer focused on the note after picking an element', async () => {
+    render(
+      <FileViewer
+        projectId="project-1"
+        projectKind="prototype"
+        file={htmlPreviewFile()}
+        liveHtml='<html><body><main data-od-id="hero">Hero</main></body></html>'
+      />,
+    );
+
+    const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
+    fireEvent.click(screen.getByTestId('comment-panel-toggle'));
+
+    window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+      data: {
+        type: 'od:comment-target',
+        elementId: 'hero',
+        selector: '[data-od-id="hero"]',
+        label: 'p',
+        text: 'Hero',
+        position: { x: 8, y: 12, width: 312, height: 63 },
+        htmlHint: '<p data-od-id="hero">Hero</p>',
+        style: {
+          color: 'rgb(26, 25, 22)',
+          fontSize: '13.5px',
+          fontFamily: 'Inter, "PingFang SC", sans-serif',
+          lineHeight: '20px',
+        },
+      },
+    }));
+
+    expect(await screen.findByTestId('comment-popover-input')).toBeTruthy();
+    expect(screen.queryByTestId('annotation-style-summary')).toBeNull();
+  });
+
+  it('switches to the comment panel after saving an annotation comment', async () => {
+    function Harness() {
+      const [comments, setComments] = useState<PreviewComment[]>([]);
+      return (
+        <FileViewer
+          projectId="project-1"
+          projectKind="prototype"
+          file={htmlPreviewFile()}
+          liveHtml='<html><body><main data-od-id="hero">Hero</main></body></html>'
+          previewComments={comments}
+          onSavePreviewComment={async (target, note) => {
+            const saved: PreviewComment = {
+              id: 'comment-saved',
+              projectId: 'project-1',
+              conversationId: 'conversation-1',
+              filePath: target.filePath,
+              elementId: target.elementId,
+              selector: target.selector,
+              label: target.label,
+              text: target.text,
+              htmlHint: target.htmlHint,
+              position: target.position,
+              style: target.style,
+              selectionKind: target.selectionKind,
+              memberCount: target.memberCount,
+              podMembers: target.podMembers,
+              note,
+              status: 'open',
+              createdAt: 20,
+              updatedAt: 20,
+            };
+            setComments([saved]);
+            return saved;
+          }}
+        />
+      );
+    }
+
+    render(<Harness />);
+
+    const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
+    fireEvent.click(screen.getByTestId('comment-panel-toggle'));
+
+    window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+      data: {
+        type: 'od:comment-target',
+        elementId: 'hero',
+        selector: '[data-od-id="hero"]',
+        label: 'Hero',
+        text: 'Hero',
+        position: { x: 8, y: 12, width: 120, height: 48 },
+        htmlHint: '<main data-od-id="hero">Hero</main>',
+      },
+    }));
+
+    const input = await screen.findByTestId('comment-popover-input');
+    fireEvent.change(input, { target: { value: '加大字号' } });
+    fireEvent.click(screen.getByTestId('comment-popover-save'));
+
+    await waitFor(() => expect(screen.queryByTestId('comment-popover')).toBeNull());
+    expect(screen.getByTestId('comment-side-panel')).toBeTruthy();
+    expect(screen.getByTestId('comment-panel-toggle').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByText('加大字号')).toBeTruthy();
+    const activeItem = document.querySelector('[data-comment-id="comment-saved"]');
+    expect(activeItem?.className).toContain('active');
+    expect(activeItem?.getAttribute('aria-current')).toBe('true');
+  });
+
+  it('returns to element picking from the Comment button while another annotation tool is active', async () => {
+    render(
+      <FileViewer
+        projectId="project-1"
+        projectKind="prototype"
+        file={htmlPreviewFile()}
+        liveHtml='<html><body><main data-od-id="hero">Hero</main></body></html>'
+      />,
+    );
+
+    clickAgentTool('draw-overlay-toggle');
+    expect(screen.getByTestId('draw-overlay-toggle').getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(screen.getByTestId('comment-panel-toggle'));
+
+    expect(screen.queryByRole('menuitem', { name: 'Pick element' })).toBeNull();
+    expect(screen.getByTestId('board-mode-toggle').getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByTestId('comment-panel-toggle').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('shows element parameters on annotation hover and opens comments on click', async () => {
+    render(
+      <FileViewer
+        projectId="project-1"
+        projectKind="prototype"
+        file={htmlPreviewFile()}
+        liveHtml='<html><body><main data-od-id="hero">Hero</main></body></html>'
+      />,
+    );
+
+    const frame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
+    clickAgentTool('board-mode-toggle');
+
+    const target = {
+      elementId: 'hero',
+      selector: '[data-od-id="hero"]',
+      label: 'p',
+      text: 'Hero',
+      position: { x: 8, y: 12, width: 312, height: 63 },
+      hoverPoint: { x: 200, y: 100 },
+      htmlHint: '<p data-od-id="hero">Hero</p>',
+      style: {
+        color: 'rgb(26, 25, 22)',
+        fontSize: '13.5px',
+        fontFamily: 'Inter, "PingFang SC", sans-serif',
+      },
+    };
+
+    window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+      data: { ...target, type: 'od:comment-hover' },
+    }));
+
+    const summary = await screen.findByTestId('annotation-hover-style-summary');
+    expect(summary.textContent).toContain('Color');
+    expect(summary.textContent).toContain('#1A1916');
+    expect(summary.textContent).toContain('13.5px');
+    expect(screen.queryByTestId('inspect-panel')).toBeNull();
+    expect(screen.queryByTestId('comment-popover-input')).toBeNull();
+
+    window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+      data: { ...target, type: 'od:comment-target' },
+    }));
+
+    expect(await screen.findByTestId('comment-popover-input')).toBeTruthy();
+    expect(screen.getByTestId('comment-panel-toggle').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('board-mode-toggle').getAttribute('aria-pressed')).toBe('false');
+    expect(screen.queryByTestId('inspect-panel')).toBeNull();
+    await waitFor(() => {
+      expect(screen.queryByTestId('annotation-hover-popover')).toBeNull();
+    });
+  });
+
+  it('closes an open saved-comment composer when that comment leaves the open state', async () => {
+    const openComment: PreviewComment = {
+      id: 'comment-status-transition',
+      projectId: 'project-1',
+      conversationId: 'conversation-1',
+      filePath: 'preview.html',
+      elementId: 'pin-transition',
+      selector: '[data-od-pin="pin-transition"]',
+      label: 'pin-transition',
+      text: '',
+      htmlHint: '',
+      position: { x: 40, y: 52, width: 18, height: 18 },
+      note: 'Do not recreate this stale comment',
+      status: 'open',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    const { rerender } = render(
+      <FileViewer
+        projectId="project-1"
+        projectKind="prototype"
+        file={htmlPreviewFile()}
+        liveHtml='<html><body><main data-od-id="hero">Hero</main></body></html>'
+        previewComments={[openComment]}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('comment-panel-toggle'));
+    fireEvent.click(screen.getByRole('button', { name: 'Open comment for pin-transition' }));
+
+    expect((await screen.findByTestId('comment-popover-input') as HTMLTextAreaElement).value)
+      .toBe('Do not recreate this stale comment');
+
+    rerender(
+      <FileViewer
+        projectId="project-1"
+        projectKind="prototype"
+        file={htmlPreviewFile()}
+        liveHtml='<html><body><main data-od-id="hero">Hero</main></body></html>'
+        previewComments={[{ ...openComment, status: 'applying' }]}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('comment-popover-input')).toBeNull();
+    });
+    expect(screen.queryByTestId('comment-saved-marker-pin-transition')).toBeNull();
+    expect(screen.queryByText('Do not recreate this stale comment')).toBeNull();
+  });
+
+  it('closes the comment side panel from the header close button', () => {
+    const onCollapseChange = vi.fn();
+    const onClose = vi.fn();
+
+    function Harness() {
+      const [collapsed, setCollapsed] = useState(false);
+      const [open, setOpen] = useState(true);
+      return open ? (
+        <CommentSidePanel
+          comments={[
+            {
+              id: 'comment-1',
+              projectId: 'project-1',
+              conversationId: 'conversation-1',
+              filePath: 'preview.html',
+              elementId: 'button.sso-btn',
+              selector: '[data-od-id="button.sso-btn"]',
+              label: 'button.sso-btn',
+              text: 'GitHub',
+              htmlHint: '<button>GitHub</button>',
+              position: { x: 16, y: 24, width: 160, height: 48 },
+              note: '不要github，换成微信',
+              status: 'open',
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            },
+          ]}
+          selectedIds={new Set(['comment-1'])}
+          activeCommentId={null}
+          collapsed={collapsed}
+          onCollapsedChange={(next) => {
+            onCollapseChange(next);
+            setCollapsed(next);
+          }}
+          onClose={() => {
+            onClose();
+            setOpen(false);
+          }}
+          onToggleSelect={() => {}}
+          onClearSelection={() => {}}
+          onReply={() => {}}
+          onSendSelected={() => {}}
+          sending={false}
+          t={t}
+        />
+      ) : null;
+    }
+
+    render(<Harness />);
+
+    expect(screen.getByTestId('comment-side-panel')).toBeTruthy();
+    expect(screen.getByText('不要github，换成微信')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onCollapseChange).not.toHaveBeenCalled();
+    expect(screen.queryByText('不要github，换成微信')).toBeNull();
+    expect(screen.queryByTestId('comment-side-selectbar')).toBeNull();
+    expect(screen.queryByTestId('comment-side-collapsed-rail')).toBeNull();
   });
 });
 
@@ -1255,6 +2600,373 @@ function baseLiveArtifact(overrides: Partial<LiveArtifact> = {}): LiveArtifact {
   return { ...artifact, ...overrides, document: overrides.document ?? artifact.document };
 }
 
+function baseLiveArtifactWorkspaceEntry(
+  overrides: Partial<LiveArtifactWorkspaceEntry> = {},
+): LiveArtifactWorkspaceEntry {
+  const entry: LiveArtifactWorkspaceEntry = {
+    kind: 'live-artifact',
+    tabId: 'live:la_1',
+    artifactId: 'la_1',
+    projectId: 'proj_1',
+    title: 'Launch Metrics',
+    slug: 'launch-metrics',
+    status: 'active',
+    refreshStatus: 'idle',
+    pinned: false,
+    preview: { type: 'html', entry: 'index.html' },
+    hasDocument: true,
+    updatedAt: '2026-04-29T12:00:00.000Z',
+  };
+  return { ...entry, ...overrides };
+}
+
+describe('LiveArtifactViewer', () => {
+  it('hides inactive live previews even when a device viewport sets display', () => {
+    const css = readExpandedIndexCss();
+    const rule = css.match(/\.live-artifact-preview-layer\.preview-viewport\[data-active='false'\]\s*\{[^}]+\}/)?.[0] ?? '';
+
+    expect(rule).toContain('display: none;');
+  });
+
+  it('keeps the presentation exit button aligned with preview chrome spacing', () => {
+    const css = readExpandedIndexCss();
+    const rule = css.match(/\.present-exit\s*\{[^}]+\}/)?.[0] ?? '';
+
+    expect(rule).toContain('top: calc(env(safe-area-inset-top, 0px) + 20px);');
+    expect(rule).toContain('right: calc(env(safe-area-inset-right, 0px) + 20px);');
+    expect(rule).toContain('display: inline-flex;');
+    expect(rule).toContain('align-items: center;');
+  });
+
+  it('enters and exits in-tab presentation from the present menu', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      if (url === '/api/live-artifacts/la_1?projectId=proj_1') {
+        return new Response(JSON.stringify({ artifact: baseLiveArtifact() }), { status: 200 });
+      }
+      if (url === '/api/live-artifacts/la_1/refreshes?projectId=proj_1') {
+        return new Response(JSON.stringify({ refreshes: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({}), { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { container } = render(
+      <LiveArtifactViewer
+        projectId="proj_1"
+        liveArtifact={baseLiveArtifactWorkspaceEntry()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /present/i })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /present/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /in this tab/i }));
+
+    await waitFor(() => {
+      expect(container.querySelector('.live-artifact-viewer.is-tab-present')).toBeTruthy();
+    });
+    expect(screen.getByRole('button', { name: /exit fullscreen/i })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /exit fullscreen/i }));
+    await waitFor(() => {
+      expect(container.querySelector('.live-artifact-viewer.is-tab-present')).toBeNull();
+    });
+  });
+
+  it('keeps in-tab presentation off when fullscreen request fails', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      if (url === '/api/live-artifacts/la_1?projectId=proj_1') {
+        return new Response(JSON.stringify({ artifact: baseLiveArtifact() }), { status: 200 });
+      }
+      if (url === '/api/live-artifacts/la_1/refreshes?projectId=proj_1') {
+        return new Response(JSON.stringify({ refreshes: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({}), { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { container } = render(
+      <LiveArtifactViewer
+        projectId="proj_1"
+        liveArtifact={baseLiveArtifactWorkspaceEntry()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /present/i })).toBeTruthy();
+    });
+
+    const requestFullscreen = vi.fn(() => Promise.reject(new Error('denied')));
+    const previewHost = container.querySelector('.viewer-body');
+    expect(previewHost).toBeTruthy();
+    Object.defineProperty(previewHost!, 'requestFullscreen', {
+      configurable: true,
+      value: requestFullscreen,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /present/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /fullscreen/i }));
+
+    await waitFor(() => {
+      expect(requestFullscreen).toHaveBeenCalled();
+    });
+    expect(container.querySelector('.live-artifact-viewer.is-tab-present')).toBeNull();
+    expect(screen.queryByRole('button', { name: /exit fullscreen/i })).toBeNull();
+  });
+
+  it('requests fullscreen without entering in-tab presentation when fullscreen succeeds', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      if (url === '/api/live-artifacts/la_1?projectId=proj_1') {
+        return new Response(JSON.stringify({ artifact: baseLiveArtifact() }), { status: 200 });
+      }
+      if (url === '/api/live-artifacts/la_1/refreshes?projectId=proj_1') {
+        return new Response(JSON.stringify({ refreshes: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({}), { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { container } = render(
+      <LiveArtifactViewer
+        projectId="proj_1"
+        liveArtifact={baseLiveArtifactWorkspaceEntry()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /present/i })).toBeTruthy();
+    });
+
+    const requestFullscreen = vi.fn(() => Promise.resolve());
+    const previewHost = container.querySelector('.viewer-body');
+    expect(previewHost).toBeTruthy();
+    Object.defineProperty(previewHost!, 'requestFullscreen', {
+      configurable: true,
+      value: requestFullscreen,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /present/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /fullscreen/i }));
+
+    await waitFor(() => {
+      expect(requestFullscreen).toHaveBeenCalled();
+    });
+    expect(container.querySelector('.live-artifact-viewer.is-tab-present')).toBeNull();
+    expect(screen.queryByRole('button', { name: /exit fullscreen/i })).toBeNull();
+  });
+
+  it('opens the rendered preview in a new tab from the present menu', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      if (url === '/api/live-artifacts/la_1?projectId=proj_1') {
+        return new Response(JSON.stringify({ artifact: baseLiveArtifact() }), { status: 200 });
+      }
+      if (url === '/api/live-artifacts/la_1/refreshes?projectId=proj_1') {
+        return new Response(JSON.stringify({ refreshes: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({}), { status: 404 });
+    });
+    const openMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('open', openMock);
+
+    render(
+      <LiveArtifactViewer
+        projectId="proj_1"
+        liveArtifact={baseLiveArtifactWorkspaceEntry()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /present/i })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /present/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /new tab/i }));
+
+    expect(openMock).toHaveBeenCalledWith(
+      '/api/live-artifacts/la_1/preview?projectId=proj_1',
+      '_blank',
+      'noopener,noreferrer',
+    );
+    expect(screen.queryByRole('button', { name: /exit fullscreen/i })).toBeNull();
+  });
+
+  it('renders the toolbar Open link as an external preview link', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      if (url === '/api/live-artifacts/la_1?projectId=proj_1') {
+        return new Response(JSON.stringify({ artifact: baseLiveArtifact() }), { status: 200 });
+      }
+      if (url === '/api/live-artifacts/la_1/refreshes?projectId=proj_1') {
+        return new Response(JSON.stringify({ refreshes: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({}), { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <LiveArtifactViewer
+        projectId="proj_1"
+        liveArtifact={baseLiveArtifactWorkspaceEntry()}
+      />,
+    );
+
+    const openLink = await screen.findByRole('link', { name: /^open$/i });
+    expect(openLink.getAttribute('href')).toBe('/api/live-artifacts/la_1/preview?projectId=proj_1');
+    expect(openLink.getAttribute('target')).toBe('_blank');
+    expect(openLink.getAttribute('rel')).toContain('noreferrer');
+    expect(openLink.getAttribute('rel')).toContain('noopener');
+    expect(openLink.getAttribute('tabindex')).not.toBe('-1');
+  });
+
+  it('takes the toolbar Open link out of the tab order outside preview mode', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      if (url === '/api/live-artifacts/la_1?projectId=proj_1') {
+        return new Response(JSON.stringify({ artifact: baseLiveArtifact() }), { status: 200 });
+      }
+      if (url === '/api/live-artifacts/la_1/refreshes?projectId=proj_1') {
+        return new Response(JSON.stringify({ refreshes: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({}), { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { container } = render(
+      <LiveArtifactViewer
+        projectId="proj_1"
+        liveArtifact={baseLiveArtifactWorkspaceEntry()}
+      />,
+    );
+
+    const openLink = await screen.findByRole('link', { name: /^open$/i });
+    expect(openLink.getAttribute('tabindex')).not.toBe('-1');
+
+    fireEvent.click(screen.getByRole('button', { name: /code/i }));
+
+    await waitFor(() => {
+      expect(container.querySelector('.ghost-link')?.getAttribute('tabindex')).toBe('-1');
+    });
+  });
+
+  it('restores the toolbar Open link to the tab order when returning to preview mode', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      if (url === '/api/live-artifacts/la_1?projectId=proj_1') {
+        return new Response(JSON.stringify({ artifact: baseLiveArtifact() }), { status: 200 });
+      }
+      if (url === '/api/live-artifacts/la_1/refreshes?projectId=proj_1') {
+        return new Response(JSON.stringify({ refreshes: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({}), { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { container } = render(
+      <LiveArtifactViewer
+        projectId="proj_1"
+        liveArtifact={baseLiveArtifactWorkspaceEntry()}
+      />,
+    );
+
+    await screen.findByRole('link', { name: /^open$/i });
+
+    fireEvent.click(screen.getByRole('button', { name: /code/i }));
+
+    await waitFor(() => {
+      expect(container.querySelector('.ghost-link')?.getAttribute('tabindex')).toBe('-1');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: /^open$/i }).getAttribute('tabindex')).not.toBe('-1');
+    });
+  });
+
+  it('preserves the live preview iframe when switching away from preview and back', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      if (url === '/api/live-artifacts/la_1?projectId=proj_1') {
+        return new Response(JSON.stringify({ artifact: baseLiveArtifact() }), { status: 200 });
+      }
+      if (url === '/api/live-artifacts/la_1/refreshes?projectId=proj_1') {
+        return new Response(JSON.stringify({ refreshes: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({}), { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { container } = render(
+      <LiveArtifactViewer
+        projectId="proj_1"
+        liveArtifact={baseLiveArtifactWorkspaceEntry()}
+      />,
+    );
+
+    await screen.findByRole('link', { name: /^open$/i });
+
+    const previewFrame = container.querySelector('[data-testid="live-artifact-preview-frame"]');
+    expect(previewFrame).toBeTruthy();
+    expect(container.querySelector('.live-artifact-preview-layer')?.getAttribute('data-active')).toBe('true');
+
+    fireEvent.click(screen.getByRole('button', { name: /code/i }));
+
+    await waitFor(() => {
+      expect(container.querySelector('.live-artifact-preview-layer')?.getAttribute('data-active')).toBe('false');
+    });
+    expect(container.querySelector('[data-testid="live-artifact-preview-frame"]')).toBe(previewFrame);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+    await waitFor(() => {
+      expect(container.querySelector('.live-artifact-preview-layer')?.getAttribute('data-active')).toBe('true');
+    });
+    expect(container.querySelector('[data-testid="live-artifact-preview-frame"]')).toBe(previewFrame);
+  });
+
+  it('closes the present menu on Escape without tearing down the viewer', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      if (url === '/api/live-artifacts/la_1?projectId=proj_1') {
+        return new Response(JSON.stringify({ artifact: baseLiveArtifact() }), { status: 200 });
+      }
+      if (url === '/api/live-artifacts/la_1/refreshes?projectId=proj_1') {
+        return new Response(JSON.stringify({ refreshes: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({}), { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <LiveArtifactViewer
+        projectId="proj_1"
+        liveArtifact={baseLiveArtifactWorkspaceEntry()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /present/i })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /present/i }));
+    expect(screen.getByRole('menuitem', { name: /new tab/i })).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('menuitem', { name: /new tab/i })).toBeNull();
+    });
+    expect(screen.getByRole('button', { name: /present/i })).toBeTruthy();
+  });
+});
+
 describe('LiveArtifactRefreshHistoryPanel', () => {
   it('renders a human-readable status instead of raw JSON when no history exists', () => {
     const markup = renderToStaticMarkup(
@@ -1313,5 +3025,125 @@ describe('LiveArtifactRefreshHistoryPanel', () => {
     // Source count + duration are humanized (3.8s), not raw ms
     expect(markup).toContain('2 sources updated');
     expect(markup).toContain('3.8s');
+  });
+
+  // Lefarcen review on PR #1300: the existing renderToStaticMarkup
+  // assertions above can't prove that the panel actually routes its
+  // strings through i18n, because the no-provider fallback returns
+  // English no matter what locale the rest of the app is set to. This
+  // test wraps the panel in `I18nProvider initial="zh-CN"` and pins
+  // the Chinese rendering of the strings issue #1254 was filed for:
+  // the badge descriptor, the hero label + empty state, the session
+  // section header + hint, the empty-timeline copy, the persisted
+  // section + its empty copy, started / succeeded event labels, the
+  // pluralised source-count line, the document-source labels, and the
+  // advanced debug summary. If a future change drops `t()` off any
+  // of those callsites, this test catches it before the user sees
+  // the mixed-language regression.
+  it('renders Chinese strings end-to-end when wrapped in I18nProvider initial="zh-CN"', () => {
+    const now = Date.now();
+    const markup = renderToStaticMarkup(
+      <I18nProvider initial="zh-CN">
+        <LiveArtifactRefreshHistoryPanel
+          liveArtifact={baseLiveArtifact({
+            refreshStatus: 'succeeded',
+            // Real lastRefreshedAt + non-empty session events so the
+            // relative-time path also runs under zh-CN; the lefarcen
+            // P1 review specifically called out that the formerly
+            // hardcoded `Xs ago` / `Xm ago` strings would still leak
+            // English under a Chinese UI without this.
+            lastRefreshedAt: new Date(now - 45_000).toISOString(),
+            document: {
+              format: 'html_template_v1',
+              templatePath: 'template.html',
+              generatedPreviewPath: 'index.html',
+              dataPath: 'data.json',
+              dataJson: { title: 'Launch Metrics' },
+              sourceJson: {
+                type: 'connector_tool',
+                toolName: 'design-files.list',
+                input: {},
+                refreshPermission: 'none',
+                connector: {
+                  connectorId: 'figma',
+                  toolName: 'design-files.list',
+                  accountLabel: 'figma:acct-1',
+                },
+              },
+            },
+          })}
+          fallbackRefreshStatus="succeeded"
+          isRunning={false}
+          sessionEvents={[
+            { id: 1, phase: 'started', at: now - 5_000 },
+            {
+              id: 2,
+              phase: 'succeeded',
+              at: now - 1_200,
+              durationMs: 3_800,
+              refreshedSourceCount: 1,
+            },
+          ]}
+          persistedEvents={[]}
+        />
+      </I18nProvider>,
+    );
+
+    // Hero
+    expect(markup).toContain('上次刷新');
+    // Session activity section
+    expect(markup).toContain('会话活动');
+    expect(markup).toContain('本标签页打开期间观察到的事件');
+    // Event labels + pluralised source count for n === 1
+    expect(markup).toContain('已开始');
+    expect(markup).toContain('已成功');
+    expect(markup).toContain('已更新 1 个数据源');
+    // Persisted history section + empty copy
+    expect(markup).toContain('持久化刷新记录');
+    expect(markup).toContain('尚无持久化的刷新记录。');
+    // Document source section
+    expect(markup).toContain('文档来源');
+    expect(markup).toContain('已配置的数据源');
+    expect(markup).toContain('类型');
+    expect(markup).toContain('工具');
+    expect(markup).toContain('连接器');
+    // Advanced debug metadata
+    expect(markup).toContain('高级调试元数据');
+    // English label that previously leaked through must NOT appear
+    // (mixed-language is exactly the regression issue #1254 filed for).
+    expect(markup).not.toContain('Last refreshed');
+    expect(markup).not.toContain('Session activity');
+    expect(markup).not.toContain('Persisted refresh history');
+    expect(markup).not.toContain('Document source');
+    expect(markup).not.toContain('Advanced debug metadata');
+    // Relative-time output must be Chinese, not English. The lefarcen
+    // P1 review pointed out that formatRelativeTime was hardcoding
+    // English units (`Xs ago`), so a 45s-old hero metric would still
+    // read `45s ago` even with every label translated. Assert against
+    // the Chinese past-tense suffix `前` and rule out the English
+    // suffixes the legacy function emitted.
+    expect(markup).toContain('前');
+    expect(markup).not.toContain(' ago');
+    expect(markup).not.toContain('from now');
+    expect(markup).not.toMatch(/\b\d+s ago\b/);
+    expect(markup).not.toMatch(/\b\d+m ago\b/);
+  });
+
+  it('renders the zh-CN empty hero ("从未") when lastRefreshedAt is missing', () => {
+    const markup = renderToStaticMarkup(
+      <I18nProvider initial="zh-CN">
+        <LiveArtifactRefreshHistoryPanel
+          liveArtifact={baseLiveArtifact({ refreshStatus: 'never', lastRefreshedAt: undefined })}
+          fallbackRefreshStatus="never"
+          isRunning={false}
+          sessionEvents={[]}
+        />
+      </I18nProvider>,
+    );
+
+    expect(markup).toContain('上次刷新');
+    expect(markup).toContain('从未');
+    expect(markup).not.toContain('Last refreshed');
+    expect(markup).not.toContain('>Never<');
   });
 });

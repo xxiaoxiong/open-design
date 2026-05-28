@@ -1,6 +1,8 @@
 import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { EventEmitter } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ChildProcess } from "node:child_process";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -10,7 +12,13 @@ import { resolveMacPaths } from "../src/mac/paths.js";
 const requestJsonIpc = vi.fn(async () => ({ state: "running" }));
 const resolveAppIpcPath = vi.fn(() => "/tmp/open-design/ipc/test/desktop.sock");
 const createSidecarLaunchEnv = vi.fn(({ extraEnv }: { extraEnv: NodeJS.ProcessEnv }) => extraEnv);
-const spawnBackgroundProcess = vi.fn(async ({ env }: { env: NodeJS.ProcessEnv }) => ({ env, pid: 1234 }));
+const spawnLoggedProcess = vi.fn(async ({ env }: { env: NodeJS.ProcessEnv }) => {
+  return Object.assign(new EventEmitter(), {
+    env,
+    pid: 1234,
+    unref: vi.fn(),
+  }) as unknown as ChildProcess & { env: NodeJS.ProcessEnv };
+});
 
 vi.mock("@open-design/sidecar", () => ({
   createSidecarLaunchEnv,
@@ -21,10 +29,11 @@ vi.mock("@open-design/sidecar", () => ({
 vi.mock("@open-design/platform", () => ({
   collectProcessTreePids: vi.fn(),
   createProcessStampArgs: vi.fn(() => []),
+  isProcessAlive: vi.fn(() => true),
   listProcessSnapshots: vi.fn(async () => []),
   matchesStampedProcess: vi.fn(() => false),
   readLogTail: vi.fn(async () => []),
-  spawnBackgroundProcess,
+  spawnLoggedProcess,
   stopProcesses: vi.fn(async () => []),
 }));
 
@@ -44,6 +53,7 @@ function makeConfig(root: string, overrides: Partial<ToolPackConfig> = {}): Tool
     removeLogs: false,
     removeProductUserData: false,
     removeSidecars: false,
+    requireVelaCli: false,
     roots: {
       output: {
         appBuilderRoot: join(root, ".tmp", "tools-pack", "out", "mac", "namespaces", "local-test", "builder"),
@@ -73,7 +83,7 @@ afterEach(() => {
 });
 
 describe("startPackedMacApp", () => {
-  it("skips the launch override when the bundled config is missing", async () => {
+  it("writes a launch override when the bundled config is missing", async () => {
     const root = await mkdtemp(join(tmpdir(), "open-design-tools-pack-mac-lifecycle-"));
     try {
       const config = makeConfig(root);
@@ -85,13 +95,15 @@ describe("startPackedMacApp", () => {
       await chmod(executablePath, 0o755);
 
       const result = await startPackedMacApp(config);
-      const launchConfigPath = join(config.roots.runtime.namespaceRoot, "open-design-config.json");
-      const launchEnv = spawnBackgroundProcess.mock.calls[0]?.[0]?.env as NodeJS.ProcessEnv | undefined;
+      const launchConfigPath = join(config.roots.runtime.namespaceRoot, "runtime", "open-design-config.json");
+      const launchEnv = spawnLoggedProcess.mock.calls[0]?.[0]?.env as NodeJS.ProcessEnv | undefined;
 
       expect(result.source).toBe("installed");
       expect(result.status?.state).toBe("running");
-      expect(launchEnv?.OD_PACKAGED_CONFIG_PATH).toBeUndefined();
-      await expect(readFile(launchConfigPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      expect(launchEnv?.OD_PACKAGED_CONFIG_PATH).toBe(launchConfigPath);
+      await expect(readFile(launchConfigPath, "utf8")).resolves.toContain(
+        `"namespaceBaseRoot": ${JSON.stringify(config.roots.runtime.namespaceBaseRoot)}`,
+      );
     } finally {
       await rm(root, { force: true, recursive: true });
     }
@@ -121,8 +133,8 @@ describe("startPackedMacApp", () => {
       );
 
       const result = await startPackedMacApp(config);
-      const launchConfigPath = join(config.roots.runtime.namespaceRoot, "open-design-config.json");
-      const launchEnv = spawnBackgroundProcess.mock.calls[0]?.[0]?.env as NodeJS.ProcessEnv | undefined;
+      const launchConfigPath = join(config.roots.runtime.namespaceRoot, "runtime", "open-design-config.json");
+      const launchEnv = spawnLoggedProcess.mock.calls[0]?.[0]?.env as NodeJS.ProcessEnv | undefined;
 
       expect(result.source).toBe("installed");
       expect(result.status?.state).toBe("running");
@@ -131,6 +143,27 @@ describe("startPackedMacApp", () => {
         `"namespaceBaseRoot": ${JSON.stringify(config.roots.runtime.namespaceBaseRoot)}`,
       );
       await expect(readFile(launchConfigPath, "utf8")).resolves.toContain('"appVersion": "1.2.3"');
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  it("uses the preview executable name for preview release namespaces", async () => {
+    const root = await mkdtemp(join(tmpdir(), "open-design-tools-pack-mac-lifecycle-"));
+    try {
+      const config = makeConfig(root, { namespace: "release-preview" });
+      const paths = resolveMacPaths(config);
+      const executablePath = join(paths.installedAppPath, "Contents", "MacOS", "Open Design Preview");
+
+      await mkdir(join(paths.installedAppPath, "Contents", "MacOS"), { recursive: true });
+      await writeFile(executablePath, "#!/bin/sh\nexit 0\n", "utf8");
+      await chmod(executablePath, 0o755);
+
+      const result = await startPackedMacApp(config);
+
+      expect(result.source).toBe("installed");
+      expect(result.executablePath).toBe(executablePath);
+      expect(result.status?.state).toBe("running");
     } finally {
       await rm(root, { force: true, recursive: true });
     }

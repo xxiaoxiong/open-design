@@ -17,6 +17,11 @@
  *   }
  *   </question-form>
  *
+ * `<ask-question>...</ask-question>` is accepted as an alias for
+ * `<question-form>`, so a model that drifts to the colloquial tag
+ * name still renders correctly instead of leaking raw markup into
+ * prose (see issue #1194).
+ *
  * Splits a final assistant text payload into ordered segments — prose +
  * forms — so AssistantMessage can render the form inline.
  */
@@ -52,11 +57,17 @@ export interface DirectionCard {
   bodyFont: string;
 }
 
+export interface FormOption {
+  label: string;
+  value: string;
+  description?: string;
+}
+
 export interface FormQuestion {
   id: string;
   label: string;
   type: QuestionType;
-  options?: string[];
+  options?: FormOption[];
   placeholder?: string;
   required?: boolean;
   help?: string;
@@ -79,15 +90,19 @@ export type FormSegment =
   | { kind: 'text'; text: string }
   | { kind: 'form'; form: QuestionForm; raw: string };
 
-const OPEN_RE = /<question-form\b([^>]*)>/i;
-const CLOSE_TAG = '</question-form>';
+// `question-form` is the canonical tag; `ask-question` is an alias the
+// model occasionally drifts to (issue #1194). The close tag must match
+// the open tag name, so each match captures the name and computes its
+// own close-tag string. Treat the lookup case-insensitively at scan
+// time so `<Question-Form>` and `<ASK-QUESTION>` still parse.
+const OPEN_RE = /<(question-form|ask-question)\b([^>]*)>/i;
 
 export function splitOnQuestionForms(input: string): FormSegment[] {
   const out: FormSegment[] = [];
   let cursor = 0;
-  // Scan repeatedly for <question-form> opens; for each, locate the
-  // matching close tag and try to parse the JSON body. Anything that
-  // doesn't parse cleanly stays in the prose stream.
+  // Scan repeatedly for question-form / ask-question opens; for each,
+  // locate the matching close tag and try to parse the JSON body.
+  // Anything that doesn't parse cleanly stays in the prose stream.
   while (cursor < input.length) {
     const slice = input.slice(cursor);
     const m = OPEN_RE.exec(slice);
@@ -95,9 +110,11 @@ export function splitOnQuestionForms(input: string): FormSegment[] {
       out.push({ kind: 'text', text: slice });
       break;
     }
+    const tagName = (m[1] ?? 'question-form').toLowerCase();
+    const closeTag = `</${tagName}>`;
     const openStart = cursor + m.index;
     const openEnd = openStart + m[0].length;
-    const closeIdx = input.indexOf(CLOSE_TAG, openEnd);
+    const closeIdx = findCloseTag(input, openEnd, closeTag);
     if (closeIdx === -1) {
       // Unterminated — leave the rest as prose so we don't swallow it.
       out.push({ kind: 'text', text: slice });
@@ -107,17 +124,30 @@ export function splitOnQuestionForms(input: string): FormSegment[] {
       out.push({ kind: 'text', text: input.slice(cursor, openStart) });
     }
     const body = input.slice(openEnd, closeIdx);
-    const attrs = parseAttrs(m[1] ?? '');
+    const attrs = parseAttrs(m[2] ?? '');
     const form = tryParseForm(body, attrs);
+    const blockEnd = closeIdx + closeTag.length;
     if (form) {
-      out.push({ kind: 'form', form, raw: input.slice(openStart, closeIdx + CLOSE_TAG.length) });
+      out.push({ kind: 'form', form, raw: input.slice(openStart, blockEnd) });
     } else {
       // Malformed — keep raw text so the user can still see it.
-      out.push({ kind: 'text', text: input.slice(openStart, closeIdx + CLOSE_TAG.length) });
+      out.push({ kind: 'text', text: input.slice(openStart, blockEnd) });
     }
-    cursor = closeIdx + CLOSE_TAG.length;
+    cursor = blockEnd;
   }
   return out;
+}
+
+function findCloseTag(input: string, from: number, closeTag: string): number {
+  const closeLower = closeTag.toLowerCase();
+  const tagLen = closeTag.length;
+  const maxStart = input.length - tagLen;
+  for (let i = from; i <= maxStart; i++) {
+    if (input.slice(i, i + tagLen).toLowerCase() === closeLower) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 function parseAttrs(raw: string): Record<string, string> {
@@ -159,9 +189,7 @@ function tryParseForm(body: string, attrs: Record<string, string>): QuestionForm
         : `q${i + 1}`;
     const label = typeof qo.label === 'string' ? qo.label : id;
     const type = normalizeType(qo.type);
-    const options = Array.isArray(qo.options)
-      ? qo.options.filter((o): o is string => typeof o === 'string')
-      : undefined;
+    const options = parseOptions(qo.options);
     const placeholder = typeof qo.placeholder === 'string' ? qo.placeholder : undefined;
     const help = typeof qo.help === 'string' ? qo.help : undefined;
     const required = qo.required === true;
@@ -172,14 +200,7 @@ function tryParseForm(body: string, attrs: Record<string, string>): QuestionForm
         ? qo.maxSelections
         : undefined;
     const cards = parseDirectionCards(qo.cards);
-    const defaultValue =
-      typeof qo.defaultValue === 'string'
-        ? qo.defaultValue
-        : Array.isArray(qo.defaultValue)
-          ? qo.defaultValue.filter((v): v is string => typeof v === 'string')
-          : typeof qo.default === 'string'
-            ? qo.default
-            : undefined;
+    const defaultValue = parseDefaultValue(qo, options);
     questions.push({
       id,
       label,
@@ -225,6 +246,57 @@ function normalizeType(raw: unknown): QuestionType {
   return 'text';
 }
 
+function parseOptions(raw: unknown): FormOption[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const options = raw
+    .map(parseOption)
+    .filter((option): option is FormOption => option !== null);
+  return options.length > 0 ? options : undefined;
+}
+
+function parseOption(raw: unknown): FormOption | null {
+  if (typeof raw === 'string') {
+    const label = raw.trim();
+    return label.length > 0 ? { label, value: label } : null;
+  }
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  const label = typeof obj.label === 'string' ? obj.label.trim() : '';
+  if (label.length === 0) return null;
+  const value =
+    typeof obj.value === 'string' && obj.value.trim().length > 0
+      ? obj.value.trim()
+      : label;
+  const description =
+    typeof obj.description === 'string' && obj.description.trim().length > 0
+      ? obj.description.trim()
+      : undefined;
+  return {
+    label,
+    value,
+    ...(description ? { description } : {}),
+  };
+}
+
+function parseDefaultValue(
+  question: Record<string, unknown>,
+  options: FormOption[] | undefined,
+): string | string[] | undefined {
+  const raw =
+    typeof question.defaultValue === 'string' || Array.isArray(question.defaultValue)
+      ? question.defaultValue
+      : typeof question.default === 'string'
+        ? question.default
+        : undefined;
+  if (typeof raw === 'string') return formOptionValueForLabel({ options }, raw);
+  if (Array.isArray(raw)) {
+    return raw
+      .filter((value): value is string => typeof value === 'string')
+      .map((value) => formOptionValueForLabel({ options }, value));
+  }
+  return undefined;
+}
+
 function parseDirectionCards(raw: unknown): DirectionCard[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const out: DirectionCard[] = [];
@@ -266,10 +338,41 @@ export function formatFormAnswers(
   for (const q of form.questions) {
     const v = answers[q.id];
     let display: string;
-    if (Array.isArray(v)) display = v.length > 0 ? v.join(', ') : '(skipped)';
-    else if (typeof v === 'string') display = v.trim().length > 0 ? v.trim() : '(skipped)';
+    if (Array.isArray(v)) {
+      display = v.length > 0 ? v.map((value) => formOptionDisplayForValue(q, value)).join(', ') : '(skipped)';
+    } else if (typeof v === 'string') {
+      display = v.trim().length > 0 ? formOptionDisplayForValue(q, v.trim()) : '(skipped)';
+    }
     else display = '(skipped)';
     lines.push(`- ${q.label}: ${display}`);
   }
   return lines.join('\n');
+}
+
+function formOptionDisplayForValue(
+  question: Pick<FormQuestion, 'options'>,
+  value: string,
+): string {
+  const match = question.options?.find((option) => option.value === value || option.label === value);
+  if (!match) return value;
+  if (match.value === match.label) return match.label;
+  return `${match.label} [value: ${match.value}]`;
+}
+
+export function formOptionLabelForValue(
+  question: Pick<FormQuestion, 'options'>,
+  value: string,
+): string {
+  const match = question.options?.find((option) => option.value === value || option.label === value);
+  return match?.label ?? value;
+}
+
+export function formOptionValueForLabel(
+  question: Pick<FormQuestion, 'options'>,
+  labelOrValue: string,
+): string {
+  const match = question.options?.find(
+    (option) => option.value === labelOrValue || option.label === labelOrValue,
+  );
+  return match?.value ?? labelOrValue;
 }

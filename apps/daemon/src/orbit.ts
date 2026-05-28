@@ -2,7 +2,10 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { randomBytes, randomUUID } from 'node:crypto';
 import path from 'node:path';
 
+import type { OrbitRunSummary, OrbitStatusResponse } from '@open-design/contracts/api/orbit';
+
 import type { OrbitConfigPrefs } from './app-config.js';
+import { skillCwdAliasSegment } from './cwd-aliases.js';
 
 export interface OrbitConnectorRunResult {
   connectorId: string;
@@ -15,11 +18,12 @@ export interface OrbitConnectorRunResult {
   error?: string;
 }
 
-export interface OrbitActivitySummary {
+export interface OrbitActivitySummary extends OrbitRunSummary {
   id: string;
   startedAt: string;
   completedAt: string;
   trigger: 'manual' | 'scheduled';
+  templateSkillId?: string | null;
   connectorsChecked: number;
   connectorsSucceeded: number;
   connectorsFailed: number;
@@ -63,6 +67,57 @@ export type OrbitRunHandler = (request: {
   template: OrbitTemplateSelection | null;
 }) => Promise<OrbitRunHandlerStart>;
 
+type OrbitOutputLocale = 'en' | 'zh-CN' | 'zh-TW';
+
+function normalizeOrbitOutputLocale(locale?: string | null): OrbitOutputLocale {
+  const normalized = locale?.trim().toLowerCase();
+  if (!normalized) return 'en';
+  const localeParts = normalized.split('-').filter(Boolean);
+  const hasTraditionalChineseScript = localeParts.includes('hant');
+  const hasTraditionalChineseRegion = localeParts.some((part) => part === 'tw' || part === 'hk' || part === 'mo');
+  if (normalized === 'zh-tw' || normalized === 'zh-hk' || normalized === 'zh-mo' || normalized === 'zh-hant' || hasTraditionalChineseScript || hasTraditionalChineseRegion) {
+    return 'zh-TW';
+  }
+  if (normalized.startsWith('zh')) return 'zh-CN';
+  return 'en';
+}
+
+function localizeOrbitTemplateExamplePrompt(
+  template: OrbitTemplateSelection | null,
+  locale: OrbitOutputLocale,
+): OrbitTemplateSelection | null {
+  if (!template || locale === 'en') return template;
+  const localizedExamplePrompt = locale === 'zh-TW'
+    ? {
+        'orbit-general': '生成今天的 Open Orbit 晨間簡報。我已連接約 10 個整合（GitHub、Linear、Notion、Calendar、飛書、Sentry、Vercel、Slack、Gmail、Drive）。請拉取昨天各來源的活動，並將其渲染為編輯感 bento 儀表板。',
+        'orbit-github': '生成今天的 Open Orbit GitHub 簡報。GitHub 是我唯一已連接的整合——請拉取昨天的 PR、審查請求、Issue、CI 執行與合併記錄，並將其渲染為 GitHub Notifications + PR diff 風格頁面。',
+      }[template.id]
+    : {
+        'orbit-general': '生成今天的 Open Orbit 早间简报。我已连接约 10 个集成（GitHub、Linear、Notion、Calendar、飞书、Sentry、Vercel、Slack、Gmail、Drive）。请拉取昨天各来源的活动，并将其渲染为编辑感 bento 仪表板。',
+        'orbit-github': '生成今天的 Open Orbit GitHub 简报。GitHub 是我唯一已连接的集成——请拉取昨天的 PR、审查请求、Issue、CI 运行与合并记录，并将其渲染为 GitHub Notifications + PR diff 风格页面。',
+      }[template.id];
+  if (!localizedExamplePrompt) return template;
+  return { ...template, examplePrompt: localizedExamplePrompt };
+}
+
+function buildOrbitOutputLanguageDirective(locale: OrbitOutputLocale): string[] {
+  if (locale === 'zh-TW') {
+    return [
+      'App language: Traditional Chinese (zh-TW).',
+      'Write all user-facing artifact copy, labels, headings, summaries, timestamps, and recommendations in Traditional Chinese unless a proper noun or source identifier must remain unchanged.',
+      'If the selected template guidance or examples are written in another language, treat them as structural and visual guidance only. The final Orbit artifact itself must stay in Traditional Chinese.',
+    ];
+  }
+  if (locale === 'zh-CN') {
+    return [
+      'App language: Simplified Chinese (zh-CN).',
+      'Write all user-facing artifact copy, labels, headings, summaries, timestamps, and recommendations in Simplified Chinese unless a proper noun or source identifier must remain unchanged.',
+      'If the selected template guidance or examples are written in another language, treat them as structural and visual guidance only. The final Orbit artifact itself must stay in Simplified Chinese.',
+    ];
+  }
+  return [];
+}
+
 export function formatLocalProjectTimestamp(iso: string): string {
   const d = new Date(iso);
   const yyyy = d.getFullYear();
@@ -87,11 +142,12 @@ function formatLocalOrbitPromptTimestamp(date: Date): string {
 
 export type OrbitTemplateResolver = (skillId: string) => Promise<OrbitTemplateSelection | null>;
 
-export interface OrbitStatus {
+export interface OrbitStatus extends OrbitStatusResponse {
   config: OrbitConfigPrefs;
   running: boolean;
   nextRunAt: string | null;
   lastRun: OrbitActivitySummary | null;
+  lastRunsByTemplate: Record<string, OrbitActivitySummary>;
 }
 
 export const DEFAULT_ORBIT_CONFIG: OrbitConfigPrefs = {
@@ -105,6 +161,11 @@ export const DEFAULT_ORBIT_CONFIG: OrbitConfigPrefs = {
 };
 
 const SUMMARY_FILE = 'activity-summary.json';
+
+interface OrbitSummaryStore {
+  lastRun: OrbitActivitySummary | null;
+  lastRunsByTemplate: Record<string, OrbitActivitySummary>;
+}
 
 function isValidOrbitTime(time: string): boolean {
   const match = /^(\d{2}):(\d{2})$/.exec(time);
@@ -140,28 +201,97 @@ function summaryFile(dataDir: string): string {
 }
 
 async function readLastSummary(dataDir: string): Promise<OrbitActivitySummary | null> {
+  return (await readSummaryStore(dataDir)).lastRun;
+}
+
+function isOrbitRunSummary(value: unknown): value is OrbitActivitySummary {
+  if (!value || typeof value !== 'object') return false;
+  const obj = value as Partial<OrbitActivitySummary>;
+  return (
+    typeof obj.completedAt === 'string' &&
+    typeof obj.connectorsChecked === 'number' &&
+    typeof obj.connectorsSucceeded === 'number' &&
+    typeof obj.connectorsFailed === 'number' &&
+    typeof obj.connectorsSkipped === 'number' &&
+    typeof obj.markdown === 'string'
+  );
+}
+
+function normalizeSummaryStore(raw: unknown): OrbitSummaryStore {
+  if (isOrbitRunSummary(raw)) {
+    const templateSkillId = typeof raw.templateSkillId === 'string' && raw.templateSkillId.trim()
+      ? raw.templateSkillId.trim()
+      : null;
+    return {
+      lastRun: templateSkillId ? { ...raw, templateSkillId } : raw,
+      lastRunsByTemplate: templateSkillId ? { [templateSkillId]: { ...raw, templateSkillId } } : {},
+    };
+  }
+  if (!raw || typeof raw !== 'object') {
+    return { lastRun: null, lastRunsByTemplate: {} };
+  }
+  const obj = raw as {
+    lastRun?: unknown;
+    lastRunsByTemplate?: Record<string, unknown>;
+  };
+  const lastRun = isOrbitRunSummary(obj.lastRun) ? obj.lastRun : null;
+  const lastRunsByTemplate: Record<string, OrbitActivitySummary> = {};
+  for (const [templateSkillId, summary] of Object.entries(obj.lastRunsByTemplate ?? {})) {
+    if (!templateSkillId || !isOrbitRunSummary(summary)) continue;
+    lastRunsByTemplate[templateSkillId] = {
+      ...summary,
+      templateSkillId,
+    };
+  }
+  if (lastRun && typeof lastRun.templateSkillId === 'string' && lastRun.templateSkillId.trim()) {
+    const templateSkillId = lastRun.templateSkillId.trim();
+    if (!lastRunsByTemplate[templateSkillId]) {
+      lastRunsByTemplate[templateSkillId] = { ...lastRun, templateSkillId };
+    }
+  }
+  return { lastRun, lastRunsByTemplate };
+}
+
+async function readSummaryStore(dataDir: string): Promise<OrbitSummaryStore> {
   let raw: string;
   try {
     raw = await readFile(summaryFile(dataDir), 'utf8');
   } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return null;
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return { lastRun: null, lastRunsByTemplate: {} };
+    }
     throw error;
   }
 
   try {
-    const parsed = JSON.parse(raw) as OrbitActivitySummary;
-    return parsed && typeof parsed === 'object' ? parsed : null;
+    return normalizeSummaryStore(JSON.parse(raw) as unknown);
   } catch {
-    return null;
+    return { lastRun: null, lastRunsByTemplate: {} };
   }
 }
 
 async function writeLastSummary(dataDir: string, summary: OrbitActivitySummary): Promise<void> {
+  const store = await readSummaryStore(dataDir);
   const dir = orbitDir(dataDir);
   await mkdir(dir, { recursive: true });
   const target = summaryFile(dataDir);
   const tmp = `${target}.${randomBytes(4).toString('hex')}.tmp`;
-  await writeFile(tmp, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
+  const templateSkillId = typeof summary.templateSkillId === 'string' && summary.templateSkillId.trim()
+    ? summary.templateSkillId.trim()
+    : null;
+  const nextStore: OrbitSummaryStore = {
+    lastRun: summary,
+    lastRunsByTemplate: templateSkillId
+      ? {
+          ...store.lastRunsByTemplate,
+          [templateSkillId]: {
+            ...summary,
+            templateSkillId,
+          },
+        }
+      : store.lastRunsByTemplate,
+  };
+  await writeFile(tmp, `${JSON.stringify(nextStore, null, 2)}\n`, 'utf8');
   await rename(tmp, target);
 }
 
@@ -197,21 +327,50 @@ function renderMarkdown(summary: Omit<OrbitActivitySummary, 'markdown'>): string
   return lines.join('\n').trimEnd();
 }
 
-export function buildOrbitPrompt(now = new Date(), template?: OrbitTemplateSelection | null): string {
+export function buildOrbitPrompt(
+  now = new Date(),
+  template?: OrbitTemplateSelection | null,
+  locale?: string | null,
+): string {
+  const outputLocale = normalizeOrbitOutputLocale(locale);
   const end = formatLocalOrbitPromptTimestamp(now);
   const start = formatLocalOrbitPromptTimestamp(new Date(now.getTime() - 24 * 60 * 60_000));
-  const lines = [
-    'Create today\'s Orbit daily digest as a Live Artifact.',
-    '',
-    `Use my connected work data from ${start} through ${end}.`,
-  ];
+  const lines = outputLocale === 'zh-TW'
+    ? [
+        '請將今天的 Orbit 每日摘要製作成 Live Artifact。',
+        '',
+        `使用我從 ${start} 到 ${end} 的已連接工作資料。`,
+      ]
+    : outputLocale === 'zh-CN'
+      ? [
+          '请将今天的 Orbit 每日摘要制作成 Live Artifact。',
+          '',
+          `使用我从 ${start} 到 ${end} 的已连接工作数据。`,
+        ]
+      : [
+          'Create today\'s Orbit daily digest as a Live Artifact.',
+          '',
+          `Use my connected work data from ${start} through ${end}.`,
+        ];
   if (template) {
-    lines.push('', `Use the selected Orbit template: ${template.name}.`);
+    lines.push(
+      '',
+      outputLocale === 'zh-TW'
+        ? `使用已選取的 Orbit 範本：${template.name}。`
+        : outputLocale === 'zh-CN'
+          ? `使用已选中的 Orbit 模板：${template.name}。`
+          : `Use the selected Orbit template: ${template.name}.`,
+    );
   }
   return lines.join('\n');
 }
 
-export function buildOrbitSystemPrompt(now = new Date(), template?: OrbitTemplateSelection | null): string {
+export function buildOrbitSystemPrompt(
+  now = new Date(),
+  template?: OrbitTemplateSelection | null,
+  locale?: string | null,
+): string {
+  const outputLocale = normalizeOrbitOutputLocale(locale);
   const end = now.toISOString();
   const start = new Date(now.getTime() - 24 * 60 * 60_000).toISOString();
   const lines = [
@@ -219,6 +378,8 @@ export function buildOrbitSystemPrompt(now = new Date(), template?: OrbitTemplat
     '',
     `Time window: ${start} through ${end}.`,
     '',
+    ...buildOrbitOutputLanguageDirective(outputLocale),
+    ...(outputLocale === 'en' ? [] : ['']),
     'Work autonomously. Do not ask follow-up questions, do not emit a question form, and do not wait for user input. Use sensible defaults and proceed.',
     'Optimize for fast completion: sample at most 3 relevant data sources. DAILY DIGEST CONNECTOR CURATION IS REQUIRED WHEN SUPPORTED: first run `tools connectors list --use-case personal_daily_digest --format compact` with a 120s timeout, and if that curated list command times out or returns no output, retry it once with another 120s timeout. If the curated command is unsupported, rejected, or succeeds but returns no usable tools, immediately fall back to the unfiltered read-only list via `tools connectors list --format compact`; do not stop just because `--use-case` is unsupported. If connector discovery still fails, or if both the curated and fallback lists yield zero usable connected read-only data tools, do not create an empty-state artifact; send one concise final message explaining that data loading failed and stop. For individual source calls after discovery succeeds, if a source fails because of auth, permissions, timeout, malformed output, empty output, oversized output, or any other data-loading problem, do not get stuck trying to fix it; drop that source and continue with the others. After the artifact is registered successfully, send one concise final message with the artifact id and stop.',
     '',
@@ -258,9 +419,9 @@ export function buildOrbitSystemPrompt(now = new Date(), template?: OrbitTemplat
       'Selected example template:',
       `- Skill id: ${template.id}`,
       `- Skill name: ${template.name}`,
-      `- Staged root: .od-skills/${path.basename(template.dir)}/`,
+      `- Staged root: .od-skills/${skillCwdAliasSegment(template.dir)}/`,
       '',
-      `Before writing the artifact, read ".od-skills/${path.basename(template.dir)}/SKILL.md" and, if present, ".od-skills/${path.basename(template.dir)}/example.html". Follow that staged template's structure, layout, tokens, domain rules, and visual language as the source of truth. The staged template is for visual/domain guidance; still use the live-artifact workflow to register the final artifact.`,
+      `Before writing the artifact, read ".od-skills/${skillCwdAliasSegment(template.dir)}/SKILL.md" and, if present, ".od-skills/${skillCwdAliasSegment(template.dir)}/example.html". Follow that staged template's structure, layout, tokens, domain rules, and visual language as the source of truth. The staged template is for visual/domain guidance; still use the live-artifact workflow to register the final artifact.`,
       '',
       'Selected template example prompt:',
       '',
@@ -314,45 +475,58 @@ export class OrbitService {
   }
 
   async status(): Promise<OrbitStatus> {
+    const summaryStore = await readSummaryStore(this.dataDir);
     return {
       config: this.config,
       running: this.starting !== null || this.inflight !== null,
       nextRunAt: this.nextRunAtValue?.toISOString() ?? null,
-      lastRun: await readLastSummary(this.dataDir),
+      lastRun: summaryStore.lastRun,
+      lastRunsByTemplate: summaryStore.lastRunsByTemplate,
     };
   }
 
-  async start(trigger: 'manual' | 'scheduled'): Promise<{ projectId: string; agentRunId: string }> {
+  async start(
+    trigger: 'manual' | 'scheduled',
+    options?: { locale?: string | null },
+  ): Promise<{ projectId: string; agentRunId: string }> {
     if (this.inflight && this.inflightProjectId && this.inflightAgentRunId) {
       return { projectId: this.inflightProjectId, agentRunId: this.inflightAgentRunId };
     }
     if (this.starting) return this.starting;
     if (!this.runHandler) throw new Error('Orbit agent runner is not configured');
 
-    this.starting = this.startRun(trigger).finally(() => {
+    this.starting = this.startRun(trigger, options).finally(() => {
       this.starting = null;
     });
     return this.starting;
   }
 
-  private async startRun(trigger: 'manual' | 'scheduled'): Promise<{ projectId: string; agentRunId: string }> {
+  private async startRun(
+    trigger: 'manual' | 'scheduled',
+    options?: { locale?: string | null },
+  ): Promise<{ projectId: string; agentRunId: string }> {
     if (!this.runHandler) throw new Error('Orbit agent runner is not configured');
 
     const startedAt = new Date().toISOString();
     const runId = `orbit-${randomUUID()}`;
-    const template = this.config.templateSkillId && this.templateResolver
-      ? await this.templateResolver(this.config.templateSkillId).catch(() => null)
+    const configuredTemplateSkillId = this.config.templateSkillId ?? null;
+    const template = configuredTemplateSkillId && this.templateResolver
+      ? await this.templateResolver(configuredTemplateSkillId).catch(() => null)
       : null;
+    const localizedTemplate = localizeOrbitTemplateExamplePrompt(
+      template,
+      normalizeOrbitOutputLocale(options?.locale),
+    );
     const now = new Date(startedAt);
-    const prompt = buildOrbitPrompt(now, template);
-    const systemPrompt = buildOrbitSystemPrompt(now, template);
+    const prompt = buildOrbitPrompt(now, localizedTemplate, options?.locale);
+    const systemPrompt = buildOrbitSystemPrompt(now, localizedTemplate, options?.locale);
     const handlerStart = await this.runHandler({
       runId,
       trigger,
       startedAt,
       prompt,
       systemPrompt,
-      template,
+      template: localizedTemplate,
     });
 
     this.inflightProjectId = handlerStart.projectId;
@@ -369,6 +543,7 @@ export class OrbitService {
           startedAt,
           completedAt,
           trigger,
+          templateSkillId: template?.id ?? configuredTemplateSkillId,
           connectorsChecked: connectorsSucceeded + connectorsFailed + connectorsSkipped,
           connectorsSucceeded,
           connectorsFailed,

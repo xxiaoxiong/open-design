@@ -1,6 +1,7 @@
-// @ts-nocheck
 import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import express from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   allowedBrowserPorts,
@@ -9,10 +10,41 @@ import {
   isLocalSameOrigin,
 } from '../src/origin-validation.js';
 
-function createOriginMiddleware(resolvedPort, host = '127.0.0.1') {
+type TestRequestOptions = {
+  origin?: string;
+  headers?: http.OutgoingHttpHeaders;
+};
+
+type TestResponse = {
+  status: number | undefined;
+  body: string;
+  headers: http.IncomingHttpHeaders;
+};
+
+function getListeningPort(server: http.Server): number {
+  const address = server.address();
+  if (address == null || typeof address === 'string') {
+    throw new Error('Expected HTTP server to listen on a TCP port');
+  }
+  return (address as AddressInfo).port;
+}
+
+function closeServer(server: http.Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error != null) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+function createOriginMiddleware(resolvedPort: number, host = '127.0.0.1') {
   const _NULL_ORIGIN_SAFE_GET_RE =
     /^\/projects\/[^/]+\/raw\/|^\/codex-pets\/[^/]+\/spritesheet$/;
-  return (req, res, next) => {
+  return (req: Request, res: Response, next: NextFunction) => {
     const origin = req.headers.origin;
     if (origin == null || origin === '') return next();
     if (origin === 'null') {
@@ -35,7 +67,7 @@ function createOriginMiddleware(resolvedPort, host = '127.0.0.1') {
   };
 }
 
-function makeTestApp(port, host = '127.0.0.1') {
+function makeTestApp(port: number, host = '127.0.0.1') {
   const app = express();
   app.use(express.json());
   app.use('/api', createOriginMiddleware(port, host));
@@ -66,9 +98,14 @@ function makeTestApp(port, host = '127.0.0.1') {
   return app;
 }
 
-function request(port, method, path, { origin, headers = {} } = {}) {
-  return new Promise((resolve) => {
-    const opts = {
+function request(
+  port: number,
+  method: string,
+  path: string,
+  { origin, headers = {} }: TestRequestOptions = {},
+): Promise<TestResponse> {
+  return new Promise((resolve, reject) => {
+    const opts: http.RequestOptions = {
       hostname: '127.0.0.1',
       port,
       path,
@@ -80,37 +117,39 @@ function request(port, method, path, { origin, headers = {} } = {}) {
     };
     const req = http.request(opts, (res) => {
       let body = '';
-      res.on('data', (chunk) => (body += chunk));
+      res.setEncoding('utf8');
+      res.on('data', (chunk: string) => (body += chunk));
       res.on('end', () => resolve({ status: res.statusCode, body, headers: res.headers }));
     });
+    req.on('error', reject);
     req.end();
   });
 }
 
 describe('daemon origin validation middleware', () => {
-  let server;
-  let port;
+  let server: http.Server;
+  let port: number;
 
   beforeAll(
     () =>
-      new Promise((resolve) => {
+      new Promise<void>((resolve, reject) => {
         // Start on port 0 to get a dynamic port, then rebuild with real port
         const tempApp = makeTestApp(0);
         const tempServer = tempApp.listen(0, '127.0.0.1', () => {
-          port = tempServer.address().port;
+          port = getListeningPort(tempServer);
           tempServer.close(() => {
             const realApp = makeTestApp(port);
-            server = realApp.listen(port, '127.0.0.1', () => resolve());
+            server = realApp.listen(port, '127.0.0.1', (err?: Error) => {
+              if (err) reject(err);
+              else resolve();
+            });
           });
         });
       }),
   );
 
   afterAll(
-    () =>
-      new Promise((resolve) => {
-        server.close(() => resolve());
-      }),
+    () => closeServer(server),
   );
 
   // --- Non-browser clients (no Origin) ---
@@ -253,6 +292,22 @@ describe('daemon origin validation middleware', () => {
     }
   });
 
+  it('allows local guarded routes without Origin when Host matches a configured non-loopback IP origin', async () => {
+    const lanHost = `100.86.154.169:${port}`;
+    process.env.OD_ALLOWED_ORIGINS = `http://${lanHost}`;
+    try {
+      const res = await request(port, 'POST', '/api/active', {
+        headers: {
+          Host: lanHost,
+          'content-type': 'application/json',
+        },
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      delete process.env.OD_ALLOWED_ORIGINS;
+    }
+  });
+
   // --- Origin: null (sandboxed iframe previews) ---
 
   it('allows Origin: null for GET raw-file preview routes', async () => {
@@ -358,25 +413,22 @@ describe('daemon origin validation middleware', () => {
 });
 
 describe('origin validation: fail-closed before port resolution', () => {
-  let server;
-  let port;
+  let server: http.Server;
+  let port: number;
 
   beforeAll(
     () =>
-      new Promise((resolve) => {
+      new Promise<void>((resolve) => {
         const app = makeTestApp(0); // port=0 → not resolved
         server = app.listen(0, '127.0.0.1', () => {
-          port = server.address().port;
+          port = getListeningPort(server);
           resolve();
         });
       }),
   );
 
   afterAll(
-    () =>
-      new Promise((resolve) => {
-        server.close(() => resolve());
-      }),
+    () => closeServer(server),
   );
 
   it('blocks browser origins when port is not resolved (fail-closed)', async () => {
@@ -393,30 +445,30 @@ describe('origin validation: fail-closed before port resolution', () => {
 });
 
 describe('origin validation: non-loopback bind host', () => {
-  let server;
-  let port;
+  let server: http.Server;
+  let port: number;
   const nonLoopbackHost = '100.64.1.2'; // Tailscale-like address
 
   beforeAll(
     () =>
-      new Promise((resolve) => {
+      new Promise<void>((resolve, reject) => {
         // Start on port 0 to get a dynamic port, then rebuild with real port
         const tempApp = makeTestApp(0, nonLoopbackHost);
         const tempServer = tempApp.listen(0, '127.0.0.1', () => {
-          port = tempServer.address().port;
+          port = getListeningPort(tempServer);
           tempServer.close(() => {
             const realApp = makeTestApp(port, nonLoopbackHost);
-            server = realApp.listen(port, '127.0.0.1', () => resolve());
+            server = realApp.listen(port, '127.0.0.1', (err?: Error) => {
+              if (err) reject(err);
+              else resolve();
+            });
           });
         });
       }),
   );
 
   afterAll(
-    () =>
-      new Promise((resolve) => {
-        server.close(() => resolve());
-      }),
+    () => closeServer(server),
   );
 
   it('allows browser requests from the non-loopback bind host', async () => {
@@ -438,5 +490,155 @@ describe('origin validation: non-loopback bind host', () => {
       origin: `http://evil.com:${port}`,
     });
     expect(res.status).toBe(403);
+  });
+});
+
+// Regression coverage for #1868. When the daemon runs behind a reverse
+// proxy (Nginx, Caddy, Traefik, …), the Host header the daemon observes
+// is the proxy upstream's address, not the browser-visible origin. The
+// host check inside isLocalSameOrigin therefore rejects requests whose
+// browser origin is explicitly listed in OD_ALLOWED_ORIGINS, because
+// the Host header doesn't carry that origin's host. Trusting the Origin
+// header when it matches an explicit allow-list entry restores the
+// documented escape-hatch behavior of OD_ALLOWED_ORIGINS.
+describe('isLocalSameOrigin: OD_ALLOWED_ORIGINS bypass for reverse-proxy deployments', () => {
+  const ALLOWED = 'http://192.168.8.168:7457';
+  const previousAllowedOrigins = process.env.OD_ALLOWED_ORIGINS;
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    OD_ALLOWED_ORIGINS: ALLOWED,
+    OD_BIND_HOST: '0.0.0.0',
+  };
+
+  beforeAll(() => {
+    process.env.OD_ALLOWED_ORIGINS = ALLOWED;
+  });
+  afterAll(() => {
+    if (previousAllowedOrigins === undefined) delete process.env.OD_ALLOWED_ORIGINS;
+    else process.env.OD_ALLOWED_ORIGINS = previousAllowedOrigins;
+  });
+
+  it('accepts a request whose Origin matches OD_ALLOWED_ORIGINS even when the Host header is the proxy upstream', () => {
+    const req = {
+      headers: {
+        host: '172.18.0.5:7457', // typical Nginx → daemon upstream (container IP)
+        origin: ALLOWED,
+      },
+    };
+    expect(isLocalSameOrigin(req, 7457, env)).toBe(true);
+  });
+
+  it('still rejects a request whose Origin is not in OD_ALLOWED_ORIGINS', () => {
+    const req = {
+      headers: {
+        host: '172.18.0.5:7457',
+        origin: 'http://evil.example.com',
+      },
+    };
+    expect(isLocalSameOrigin(req, 7457, env)).toBe(false);
+  });
+
+  it('preserves the no-Origin behavior — falls back to loopback host validation', () => {
+    const reqLoopback = {
+      headers: { host: '127.0.0.1:7457' },
+    };
+    expect(isLocalSameOrigin(reqLoopback, 7457, env)).toBe(true);
+
+    const reqNonLoopback = {
+      headers: { host: '172.18.0.5:7457' },
+    };
+    // 172.18.0.0/16 is private, so it actually passes isLoopbackOrPrivateLanHost;
+    // demonstrate the more important invariant: an entirely external host fails.
+    const reqExternal = {
+      headers: { host: 'evil.example.com:7457' },
+    };
+    expect(isLocalSameOrigin(reqExternal, 7457, env)).toBe(false);
+  });
+
+  it('does not accept a partial match (origin must be exact)', () => {
+    const req = {
+      headers: {
+        host: '172.18.0.5:7457',
+        // Same hostname/port but trailing slash → not an exact match for the
+        // allow-list entry, which the URL parser canonicalizes without one.
+        origin: `${ALLOWED}/`,
+      },
+    };
+    expect(isLocalSameOrigin(req, 7457, env)).toBe(false);
+  });
+});
+
+// Firefox and Chrome omit the Origin header on same-origin GET requests per
+// the Fetch spec. When the daemon runs behind a remote-access proxy whose
+// public hostname is listed in OD_ALLOWED_ORIGINS, those legitimate
+// same-origin GETs (e.g. /api/app-config) get rejected by the no-Origin
+// host check because hostname entries in OD_ALLOWED_ORIGINS are only
+// honored via the IP-literal subset in that branch. Sec-Fetch-Site is set
+// by the browser and cannot be modified by JavaScript, so a value of
+// "same-origin" is a trustworthy substitute for the missing Origin header.
+describe('isLocalSameOrigin: Sec-Fetch-Site fallback for no-Origin same-origin GETs', () => {
+  const ALLOWED = 'https://nas.example.ts.net';
+  const previousAllowedOrigins = process.env.OD_ALLOWED_ORIGINS;
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    OD_ALLOWED_ORIGINS: ALLOWED,
+    OD_BIND_HOST: '127.0.0.1',
+  };
+
+  beforeAll(() => {
+    process.env.OD_ALLOWED_ORIGINS = ALLOWED;
+  });
+  afterAll(() => {
+    if (previousAllowedOrigins === undefined) delete process.env.OD_ALLOWED_ORIGINS;
+    else process.env.OD_ALLOWED_ORIGINS = previousAllowedOrigins;
+  });
+
+  it('accepts a no-Origin request whose Host matches OD_ALLOWED_ORIGINS when Sec-Fetch-Site is same-origin', () => {
+    const req = {
+      headers: {
+        host: 'nas.example.ts.net',
+        'sec-fetch-site': 'same-origin',
+      },
+    };
+    expect(isLocalSameOrigin(req, 7456, env)).toBe(true);
+  });
+
+  it('still rejects a no-Origin request whose Host matches the allow-list but Sec-Fetch-Site is cross-site', () => {
+    const req = {
+      headers: {
+        host: 'nas.example.ts.net',
+        'sec-fetch-site': 'cross-site',
+      },
+    };
+    expect(isLocalSameOrigin(req, 7456, env)).toBe(false);
+  });
+
+  it('still rejects a no-Origin request whose Host matches the allow-list but Sec-Fetch-Site is same-site', () => {
+    const req = {
+      headers: {
+        host: 'nas.example.ts.net',
+        'sec-fetch-site': 'same-site',
+      },
+    };
+    expect(isLocalSameOrigin(req, 7456, env)).toBe(false);
+  });
+
+  it('still rejects a no-Origin request whose Host is foreign even with Sec-Fetch-Site: same-origin (Host alone is forgeable)', () => {
+    const req = {
+      headers: {
+        host: 'evil.example.com',
+        'sec-fetch-site': 'same-origin',
+      },
+    };
+    expect(isLocalSameOrigin(req, 7456, env)).toBe(false);
+  });
+
+  it('preserves no-Sec-Fetch-Site rejection (older / non-browser clients fall back to host-only check)', () => {
+    const req = {
+      headers: {
+        host: 'nas.example.ts.net',
+      },
+    };
+    expect(isLocalSameOrigin(req, 7456, env)).toBe(false);
   });
 });

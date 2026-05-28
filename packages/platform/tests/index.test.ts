@@ -1,15 +1,22 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  atomicCopyFile,
   createCommandInvocation,
   createPackageManagerInvocation,
   createProcessStampArgs,
+  mergeProxyAwareEnv,
   matchesStampedProcess,
+  parseMacosScutilProxyOutput,
+  parseWindowsInternetSettingsProxyOutput,
+  pathContains,
   readProcessStampFromCommand,
+  removePathBestEffort,
+  resolveSystemProxyEnv,
   wellKnownUserToolchainBins,
   type ProcessStampContract,
 } from "../src/index.js";
@@ -85,6 +92,372 @@ describe("generic process stamp primitives", () => {
     expect(matchesStampedProcess({ command }, { app: "ui", namespace: stamp.namespace, source: "tool" }, fakeContract)).toBe(true);
     expect(matchesStampedProcess({ command }, { namespace: "stamp-boundary-b" }, fakeContract)).toBe(false);
     expect(matchesStampedProcess({ command }, { source: "pack" }, fakeContract)).toBe(false);
+  });
+});
+
+describe("generic filesystem primitives", () => {
+  it("recognizes paths contained by a resolved root", () => {
+    const root = join(tmpdir(), "platform-path-root");
+
+    expect(pathContains(root, join(root, "child", "file.txt"))).toBe(true);
+    expect(pathContains(root, root)).toBe(true);
+    expect(pathContains(root, join(root, "..", "outside.txt"))).toBe(false);
+  });
+
+  it("copies through a destination-local temporary file", async () => {
+    const root = mkdtempSync(join(tmpdir(), "platform-atomic-copy-"));
+    try {
+      const source = join(root, "source.bin");
+      const destination = join(root, "nested", "destination.bin");
+      writeFileSync(source, "atomic copy payload");
+
+      const result = await atomicCopyFile(source, destination);
+
+      expect(result).toEqual({ bytesCopied: "atomic copy payload".length, replaced: false });
+      expect(readFileSync(destination, "utf8")).toBe("atomic copy payload");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to replace an existing destination unless overwrite is explicit", async () => {
+    const root = mkdtempSync(join(tmpdir(), "platform-atomic-copy-exists-"));
+    try {
+      const source = join(root, "source.bin");
+      const destination = join(root, "destination.bin");
+      writeFileSync(source, "new payload");
+      writeFileSync(destination, "old payload");
+
+      await expect(atomicCopyFile(source, destination)).rejects.toMatchObject({ code: "EEXIST" });
+      expect(readFileSync(destination, "utf8")).toBe("old payload");
+
+      const overwritten = await atomicCopyFile(source, destination, { overwrite: true });
+      expect(overwritten.replaced).toBe(true);
+      expect(readFileSync(destination, "utf8")).toBe("new payload");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("removes paths best-effort without throwing on missing paths", async () => {
+    const root = mkdtempSync(join(tmpdir(), "platform-best-effort-rm-"));
+    const target = join(root, "target");
+    mkdirSync(target);
+    try {
+      expect((await removePathBestEffort(target)).removed).toBe(true);
+      expect(existsSync(target)).toBe(false);
+      expect((await removePathBestEffort(target)).removed).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("system proxy env resolution", () => {
+  it("enables Node env proxy support when merging user proxy variables", () => {
+    const env = mergeProxyAwareEnv("darwin", {
+      http_proxy: "http://user-proxy:7890",
+    });
+
+    expect(env).toMatchObject({
+      HTTP_PROXY: "http://user-proxy:7890",
+      NODE_USE_ENV_PROXY: "1",
+      http_proxy: "http://user-proxy:7890",
+    });
+  });
+
+  it("preserves an explicit NODE_USE_ENV_PROXY value when merging user proxy variables", () => {
+    const env = mergeProxyAwareEnv("darwin", {
+      HTTPS_PROXY: "http://user-proxy:7891",
+      NODE_USE_ENV_PROXY: "0",
+    });
+
+    expect(env.HTTPS_PROXY).toBe("http://user-proxy:7891");
+    expect(env.NODE_USE_ENV_PROXY).toBe("0");
+  });
+
+  it("parses macOS scutil output into standard proxy env vars", () => {
+    const env = parseMacosScutilProxyOutput(`
+<dictionary> {
+  ExceptionsList : <array> {
+    0 : *.local
+    1 : localhost
+  }
+  HTTPEnable : 1
+  HTTPPort : 7890
+  HTTPProxy : 127.0.0.1
+  HTTPSEnable : 1
+  HTTPSPort : 7891
+  HTTPSProxy : corp-proxy.internal
+  SOCKSEnable : 1
+  SOCKSPort : 1080
+  SOCKSProxy : 127.0.0.1
+}
+`);
+
+    expect(env).toMatchObject({
+      HTTP_PROXY: "http://127.0.0.1:7890",
+      HTTPS_PROXY: "http://corp-proxy.internal:7891",
+      ALL_PROXY: "socks5://127.0.0.1:1080",
+      NO_PROXY: ".local,localhost,127.0.0.1,[::1]",
+      NODE_USE_ENV_PROXY: "1",
+      http_proxy: "http://127.0.0.1:7890",
+      https_proxy: "http://corp-proxy.internal:7891",
+      all_proxy: "socks5://127.0.0.1:1080",
+      no_proxy: ".local,localhost,127.0.0.1,[::1]",
+    });
+  });
+
+  it("brackets IPv6 system proxy hosts before composing proxy URLs", () => {
+    const env = parseMacosScutilProxyOutput(`
+<dictionary> {
+  HTTPEnable : 1
+  HTTPPort : 7890
+  HTTPProxy : ::1
+  HTTPSEnable : 1
+  HTTPSPort : 7891
+  HTTPSProxy : 2001:db8::10
+  SOCKSEnable : 1
+  SOCKSPort : 1080
+  SOCKSProxy : fe80::1
+}
+`);
+
+    expect(env).toMatchObject({
+      HTTP_PROXY: "http://[::1]:7890",
+      HTTPS_PROXY: "http://[2001:db8::10]:7891",
+      ALL_PROXY: "socks5://[fe80::1]:1080",
+      http_proxy: "http://[::1]:7890",
+      https_proxy: "http://[2001:db8::10]:7891",
+      all_proxy: "socks5://[fe80::1]:1080",
+    });
+  });
+
+  it("parses Windows Internet Settings proxy registry values", () => {
+    const env = parseWindowsInternetSettingsProxyOutput({
+      proxyEnable: `
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyEnable    REG_DWORD    0x1
+`,
+      proxyServer: `
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyServer    REG_SZ    http=10.0.0.2:8080;https=10.0.0.3:8443;socks=10.0.0.4:1080
+`,
+      proxyOverride: `
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyOverride    REG_SZ    localhost;<local>;*.corp
+`,
+    });
+
+    expect(env).toEqual({
+      HTTP_PROXY: "http://10.0.0.2:8080",
+      HTTPS_PROXY: "http://10.0.0.3:8443",
+      ALL_PROXY: "socks5://10.0.0.4:1080",
+      NO_PROXY: "localhost,<local>,127.0.0.1,[::1],.local,.corp",
+      NODE_USE_ENV_PROXY: "1",
+    });
+  });
+
+  it("brackets Windows IPv6 proxy hosts before composing proxy URLs", () => {
+    const segmented = parseWindowsInternetSettingsProxyOutput({
+      proxyEnable: `
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyEnable    REG_DWORD    0x1
+`,
+      proxyServer: `
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyServer    REG_SZ    http=::1:8080;https=2001:db8::10:8443;socks=fe80::1:1080
+`,
+    });
+    const shared = parseWindowsInternetSettingsProxyOutput({
+      proxyEnable: `
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyEnable    REG_DWORD    0x1
+`,
+      proxyServer: `
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyServer    REG_SZ    ::1:8080
+`,
+    });
+
+    expect(segmented).toMatchObject({
+      HTTP_PROXY: "http://[::1]:8080",
+      HTTPS_PROXY: "http://[2001:db8::10]:8443",
+      ALL_PROXY: "socks5://[fe80::1]:1080",
+    });
+    expect(shared).toMatchObject({
+      HTTP_PROXY: "http://[::1]:8080",
+      HTTPS_PROXY: "http://[::1]:8080",
+    });
+  });
+
+  it("normalizes bare IPv6 loopback bypass entries to bracketed form", () => {
+    const env = parseWindowsInternetSettingsProxyOutput({
+      proxyEnable: `
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyEnable    REG_DWORD    0x1
+`,
+      proxyServer: `
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyServer    REG_SZ    http=10.0.0.2:8080
+`,
+      proxyOverride: `
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyOverride    REG_SZ    ::1;localhost
+`,
+    });
+
+    expect(env.NO_PROXY).toBe("[::1],localhost,127.0.0.1");
+  });
+
+  it("preserves a wildcard macOS bypass list", () => {
+    const env = parseMacosScutilProxyOutput(`
+<dictionary> {
+  ExceptionsList : <array> {
+    0 : *
+  }
+  HTTPEnable : 1
+  HTTPPort : 7890
+  HTTPProxy : 127.0.0.1
+}
+`);
+
+    expect(env.NO_PROXY).toBe("*");
+    expect(env.no_proxy).toBe("*");
+  });
+
+  it("preserves a wildcard macOS bypass list when other entries are present", () => {
+    const env = parseMacosScutilProxyOutput(`
+<dictionary> {
+  ExceptionsList : <array> {
+    0 : *
+    1 : <local>
+  }
+  HTTPEnable : 1
+  HTTPPort : 7890
+  HTTPProxy : 127.0.0.1
+}
+`);
+
+    expect(env.NO_PROXY).toBe("*");
+    expect(env.no_proxy).toBe("*");
+  });
+
+  it("adds <local> to the macOS bypass list when simple hostnames are excluded", () => {
+    const env = parseMacosScutilProxyOutput(`
+<dictionary> {
+  ExcludeSimpleHostnames : 1
+  HTTPEnable : 1
+  HTTPPort : 7890
+  HTTPProxy : 127.0.0.1
+}
+`);
+
+    expect(env.NO_PROXY).toBe("<local>,localhost,127.0.0.1,[::1],.local");
+    expect(env.no_proxy).toBe("<local>,localhost,127.0.0.1,[::1],.local");
+  });
+
+  it("preserves a wildcard Windows bypass list", () => {
+    const env = parseWindowsInternetSettingsProxyOutput({
+      proxyEnable: `
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyEnable    REG_DWORD    0x1
+`,
+      proxyServer: `
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyServer    REG_SZ    http=10.0.0.2:8080
+`,
+      proxyOverride: `
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyOverride    REG_SZ    *
+`,
+    });
+
+    expect(env.NO_PROXY).toBe("*");
+  });
+
+  it("preserves a wildcard Windows bypass list when other entries are present", () => {
+    const env = parseWindowsInternetSettingsProxyOutput({
+      proxyEnable: `
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyEnable    REG_DWORD    0x1
+`,
+      proxyServer: `
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyServer    REG_SZ    http=10.0.0.2:8080
+`,
+      proxyOverride: `
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyOverride    REG_SZ    *;<local>
+`,
+    });
+
+    expect(env.NO_PROXY).toBe("*");
+  });
+
+  it("resolves macOS system proxy env through the command runner", () => {
+    const env = resolveSystemProxyEnv({
+      platform: "darwin",
+      runCommand(command, args) {
+        expect(command).toBe("scutil");
+        expect(args).toEqual(["--proxy"]);
+        return `
+<dictionary> {
+  HTTPEnable : 1
+  HTTPPort : 8888
+  HTTPProxy : 127.0.0.1
+}
+`;
+      },
+    });
+
+    expect(env.HTTP_PROXY).toBe("http://127.0.0.1:8888");
+    expect(env.NODE_USE_ENV_PROXY).toBe("1");
+  });
+
+  it("returns an empty object when the platform has no system proxy adapter", () => {
+    expect(resolveSystemProxyEnv({ platform: "linux" })).toEqual({});
+  });
+
+  it("does not cache system proxy resolution across calls", () => {
+    const values = [
+      "\n<dictionary> {\n  HTTPEnable : 1\n  HTTPPort : 8001\n  HTTPProxy : 127.0.0.1\n}\n",
+      "\n<dictionary> {\n  HTTPEnable : 1\n  HTTPPort : 8002\n  HTTPProxy : 127.0.0.1\n}\n",
+    ];
+    let callCount = 0;
+    const runCommand = () => values[callCount++] ?? values.at(-1) ?? "";
+
+    const first = resolveSystemProxyEnv({ platform: "darwin", runCommand });
+    const second = resolveSystemProxyEnv({ platform: "darwin", runCommand });
+
+    expect(first.HTTP_PROXY).toBe("http://127.0.0.1:8001");
+    expect(second.HTTP_PROXY).toBe("http://127.0.0.1:8002");
+    expect(callCount).toBe(2);
+  });
+
+  it("makes the last proxy env source win case-insensitively", () => {
+    const env = mergeProxyAwareEnv(
+      "linux",
+      { HTTPS_PROXY: "http://system:8443", https_proxy: "http://system:8443" },
+      { https_proxy: "http://user:9443" },
+    );
+
+    expect(env.HTTPS_PROXY).toBe("http://user:9443");
+    expect(env.https_proxy).toBe("http://user:9443");
+  });
+
+  it("makes lowercase proxy vars win within a single POSIX source", () => {
+    const env = mergeProxyAwareEnv("linux", {
+      http_proxy: "http://new:8080",
+      HTTP_PROXY: "http://old:8080",
+      HTTPS_PROXY: "http://older:8443",
+      https_proxy: "http://newer:8443",
+    });
+
+    expect(env.HTTP_PROXY).toBe("http://new:8080");
+    expect(env.http_proxy).toBe("http://new:8080");
+    expect(env.HTTPS_PROXY).toBe("http://newer:8443");
+    expect(env.https_proxy).toBe("http://newer:8443");
   });
 });
 
@@ -271,7 +644,7 @@ describe("createPackageManagerInvocation", () => {
     Object.defineProperty(process, "platform", { configurable: true, value: originalPlatform });
   });
 
-  it("uses npm_execpath via process.execPath when set, regardless of platform", () => {
+  it("uses Node-loadable npm_execpath via process.execPath when set", () => {
     setPlatform("win32");
     const invocation = createPackageManagerInvocation(["install"], {
       npm_execpath: "C:\\Users\\u\\.nvm\\pnpm.cjs",
@@ -280,6 +653,33 @@ describe("createPackageManagerInvocation", () => {
     expect(invocation.args[0]).toBe("C:\\Users\\u\\.nvm\\pnpm.cjs");
     expect(invocation.args.slice(1)).toEqual(["install"]);
     expect(invocation.windowsVerbatimArguments).toBeUndefined();
+  });
+
+  it("uses binary npm_execpath directly on POSIX", () => {
+    setPlatform("linux");
+    const invocation = createPackageManagerInvocation(["install"], {
+      npm_execpath: "/home/runner/setup-pnpm/node_modules/.bin/pnpm",
+    } as NodeJS.ProcessEnv);
+    expect(invocation).toEqual({
+      args: ["install"],
+      command: "/home/runner/setup-pnpm/node_modules/.bin/pnpm",
+    });
+  });
+
+  it("wraps binary npm_execpath shims through cmd.exe on Windows", () => {
+    setPlatform("win32");
+    const invocation = createPackageManagerInvocation(["install"], {
+      ComSpec: "cmd.exe",
+      npm_execpath: "C:\\Users\\u\\setup-pnpm\\pnpm.cmd",
+    } as NodeJS.ProcessEnv);
+    expect(invocation.command).toBe("cmd.exe");
+    expect(invocation.windowsVerbatimArguments).toBe(true);
+    expect(invocation.args).toEqual([
+      "/d",
+      "/s",
+      "/c",
+      '"C:\\Users\\u\\setup-pnpm\\pnpm.cmd install"',
+    ]);
   });
 
   it("returns plain pnpm invocation on POSIX without npm_execpath", () => {
@@ -502,26 +902,67 @@ describe("wellKnownUserToolchainBins", () => {
     }
   });
 
-  it("expands per-version Node toolchains for mise / nvm / fnm", () => {
+  it("surfaces GUI-safe PATH additions and sorts versioned Node bins by highest semver first", () => {
     const home = mkdtempSync(join(tmpdir(), "wkutb-versioned-"));
     try {
       const miseBin = join(home, ".local", "share", "mise", "installs", "node", "24.14.1", "bin");
-      const nvmBin = join(home, ".nvm", "versions", "node", "v22.10.0", "bin");
+      const miseNpmCodexBin = join(
+        home,
+        ".local",
+        "share",
+        "mise",
+        "installs",
+        "npm-openai-codex",
+        "latest",
+        "bin",
+      );
+      const miseNpmCodexVersionBin = join(
+        home,
+        ".local",
+        "share",
+        "mise",
+        "installs",
+        "npm-openai-codex",
+        "0.1.0",
+        "bin",
+      );
+      const newestNvmBin = join(home, ".nvm", "versions", "node", "v24.1.0", "bin");
+      const olderNvmBin = join(home, ".nvm", "versions", "node", "v22.10.0", "bin");
       const fnmBin = join(home, ".local", "share", "fnm", "node-versions", "v20.11.1", "installation", "bin");
       mkdirSync(miseBin, { recursive: true });
-      mkdirSync(nvmBin, { recursive: true });
+      mkdirSync(miseNpmCodexVersionBin, { recursive: true });
+      symlinkSync("0.1.0", join(home, ".local", "share", "mise", "installs", "npm-openai-codex", "latest"), "dir");
+      mkdirSync(newestNvmBin, { recursive: true });
+      mkdirSync(olderNvmBin, { recursive: true });
       mkdirSync(fnmBin, { recursive: true });
       writeFileSync(join(miseBin, "marker"), "");
-      writeFileSync(join(nvmBin, "marker"), "");
+      writeFileSync(join(miseNpmCodexBin, "codex"), "");
+      writeFileSync(join(newestNvmBin, "marker"), "");
+      writeFileSync(join(olderNvmBin, "marker"), "");
       writeFileSync(join(fnmBin, "marker"), "");
       chmodSync(join(miseBin, "marker"), 0o644);
-      chmodSync(join(nvmBin, "marker"), 0o644);
+      chmodSync(join(miseNpmCodexBin, "codex"), 0o755);
+      chmodSync(join(newestNvmBin, "marker"), 0o644);
+      chmodSync(join(olderNvmBin, "marker"), 0o644);
       chmodSync(join(fnmBin, "marker"), 0o644);
 
-      const dirs = wellKnownUserToolchainBins({ home, env: {}, includeSystemBins: false });
+      const dirs = wellKnownUserToolchainBins({
+        home,
+        env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" },
+        includeSystemBins: true,
+      });
+      const newestNvmIdx = dirs.indexOf(newestNvmBin);
+      const olderNvmIdx = dirs.indexOf(olderNvmBin);
+
+      expect(dirs).toContain("/opt/homebrew/bin");
+      expect(dirs).toContain("/usr/local/bin");
       expect(dirs).toContain(miseBin);
-      expect(dirs).toContain(nvmBin);
+      expect(dirs).toContain(miseNpmCodexBin);
+      expect(dirs).toContain(newestNvmBin);
+      expect(dirs).toContain(olderNvmBin);
       expect(dirs).toContain(fnmBin);
+      expect(newestNvmIdx).toBeGreaterThan(-1);
+      expect(olderNvmIdx).toBeGreaterThan(newestNvmIdx);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

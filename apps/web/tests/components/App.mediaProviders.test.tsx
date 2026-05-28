@@ -24,7 +24,7 @@ import {
 import { listProjects, listTemplates } from '../../src/state/projects';
 
 const navigateMock = vi.fn();
-const useRouteMock = vi.fn(() => ({ kind: 'home' as const }));
+const useRouteMock = vi.fn(() => ({ kind: 'home' as const, view: 'home' as const }));
 
 vi.mock('../../src/router', () => ({
   navigate: (...args: unknown[]) => navigateMock(...args),
@@ -209,17 +209,21 @@ describe('App media provider sync flows', () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(mockedSyncMediaProvidersToDaemon).toHaveBeenCalledWith(configuredProviders);
+      expect(mockedSyncMediaProvidersToDaemon).toHaveBeenCalledWith(configuredProviders, {
+        daemonProviders: {},
+      });
     });
   });
 
   it('forces a media provider sync when settings are saved', async () => {
     mockedLoadConfig.mockReturnValue({
       ...baseConfig,
-      onboardingCompleted: false,
+      onboardingCompleted: true,
+      privacyDecisionAt: 1778244000000,
     });
 
     render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open media settings' }));
 
     await waitFor(() => {
       expect(screen.getByRole('dialog', { name: 'Settings dialog' })).toBeTruthy();
@@ -236,13 +240,13 @@ describe('App media provider sync flows', () => {
             model: '',
           },
         },
-        { force: undefined, throwOnError: undefined },
+        { daemonProviders: {}, force: undefined, throwOnError: undefined },
       );
     });
 
     expect(mockedSaveConfig).toHaveBeenCalledWith(
       expect.objectContaining({
-        onboardingCompleted: false,
+        onboardingCompleted: true,
         mediaProviders: {
           openai: {
             apiKey: 'media-key',
@@ -254,7 +258,7 @@ describe('App media provider sync flows', () => {
     );
     expect(mockedSyncConfigToDaemon).toHaveBeenCalledWith(
       expect.objectContaining({
-        onboardingCompleted: false,
+        onboardingCompleted: true,
         mediaProviders: {
           openai: {
             apiKey: 'media-key',

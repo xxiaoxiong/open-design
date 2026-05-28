@@ -43,6 +43,32 @@ export interface ConnectorDetail {
   status: ConnectorStatus;
   accountLabel?: string;
   tools: ConnectorToolDetail[];
+  /**
+   * Runtime execution allowlist. Subset of `tools`. The agent layer
+   * only invokes tools whose names appear here. For Composio
+   * connectors this expands on hydration to include any
+   * provider-discovered tool whose classified safety is
+   * `read + auto-approval` — so the count can grow from the catalog
+   * baseline by tens of read tools after a Composio API key is
+   * configured (issue #748).
+   *
+   * Optional in the type only for fixture brevity; daemon-built
+   * `ConnectorDetail` payloads always carry it.
+   */
+  allowedToolNames?: string[];
+  /**
+   * The hand-curated catalog subset. Stable across hydration: never
+   * extended by provider discovery, only ever the static catalog
+   * names. This preserves the static catalog baseline for consumers
+   * that need that curated subset, but it is not the advertised
+   * provider inventory count. UI summary badges should use `toolCount`
+   * when present; the drawer's rendered tool rows still come from
+   * `tools` directly.
+   *
+   * Optional in the type only for fixture brevity; daemon-built
+   * `ConnectorDetail` payloads always carry it.
+   */
+  curatedToolNames?: string[];
   toolCount?: number;
   toolsNextCursor?: string;
   toolsHasMore?: boolean;
@@ -66,6 +92,15 @@ export interface ConnectorCatalogDefinition {
   tools: ConnectorCatalogToolDefinition[];
   /** The complete allowlist of callable tool names for this connector. */
   allowedToolNames: string[];
+  /**
+   * The hand-curated subset of `allowedToolNames` that is fixed at the
+   * catalog level — never extended by provider discovery (issue #748).
+   * Optional: when omitted, serialized wire details fall back to
+   * `allowedToolNames`, which is the right preview subset for
+   * non-Composio connectors that don't have a dynamic discovery layer
+   * in the first place.
+   */
+  curatedToolNames?: string[];
   /** Display-only count of provider tools. This may be known before tool schemas are hydrated. */
   toolCount?: number;
   /** Preview pagination state for hydrated tool definitions. Execution code must not rely on partial pages. */
@@ -97,6 +132,12 @@ function connectorToolSafetyHaystack(input: ConnectorToolSafetyClassificationInp
     .join(' ');
 }
 
+function connectorToolPrimarySafetyHaystack(input: ConnectorToolSafetyClassificationInput): string {
+  return [input.name, input.title, ...(input.requiredScopes ?? [])]
+    .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    .join(' ');
+}
+
 export function classifyConnectorToolSafety(input: ConnectorToolSafetyClassificationInput): ConnectorToolSafety {
   const haystack = connectorToolSafetyHaystack(input);
   if (destructiveHintPattern.test(haystack)) {
@@ -106,18 +147,33 @@ export function classifyConnectorToolSafety(input: ConnectorToolSafetyClassifica
       reason: 'Tool name, scope, or description contains destructive hints; destructive tools are not refreshable.',
     };
   }
-  if (writeHintPattern.test(haystack)) {
+  const primaryHaystack = connectorToolPrimarySafetyHaystack(input);
+  if (writeHintPattern.test(primaryHaystack)) {
     return {
       sideEffect: 'write',
       approval: 'confirm',
       reason: 'Tool name or required scope indicates write-capable behavior; explicit confirmation is required.',
     };
   }
-  if (readOnlyHintPattern.test(haystack)) {
+  if (readOnlyHintPattern.test(primaryHaystack)) {
     return {
       sideEffect: 'read',
       approval: 'auto',
-      reason: 'Tool name, scope, or description indicates explicit read-only behavior.',
+      reason: 'Tool name or scope indicates explicit read-only behavior.',
+    };
+  }
+  if (writeHintPattern.test(input.description ?? '')) {
+    return {
+      sideEffect: 'write',
+      approval: 'confirm',
+      reason: 'Tool description indicates write-capable behavior; explicit confirmation is required.',
+    };
+  }
+  if (readOnlyHintPattern.test(input.description ?? '')) {
+    return {
+      sideEffect: 'read',
+      approval: 'auto',
+      reason: 'Tool description indicates explicit read-only behavior.',
     };
   }
   return {
@@ -181,6 +237,12 @@ export function connectorDefinitionToDetail(definition: ConnectorCatalogDefiniti
     ...(definition.description === undefined ? {} : { description: definition.description }),
     status: definition.disabled ? 'disabled' : 'available',
     tools: definition.tools.map((tool) => toolDefinitionToDetail(tool)),
+    allowedToolNames: [...definition.allowedToolNames],
+    // Fall back to `allowedToolNames` when `curatedToolNames` isn't
+    // explicitly set — non-Composio connectors don't go through a
+    // dynamic merge, so for them the two are equivalent and the badge
+    // is stable either way (issue #748).
+    curatedToolNames: [...(definition.curatedToolNames ?? definition.allowedToolNames)],
     ...(definition.toolCount === undefined ? {} : { toolCount: definition.toolCount }),
     ...(definition.toolsNextCursor === undefined ? {} : { toolsNextCursor: definition.toolsNextCursor }),
     ...(definition.toolsHasMore === undefined ? {} : { toolsHasMore: definition.toolsHasMore }),

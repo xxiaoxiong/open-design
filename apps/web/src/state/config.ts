@@ -1,4 +1,5 @@
 import type { AppConfigPrefs } from '@open-design/contracts';
+import { MEDIA_PROVIDERS } from '../media/models';
 import { isOpenAICompatible } from '../providers/openai-compatible';
 import type {
   ApiProtocol,
@@ -8,7 +9,10 @@ import type {
   OrbitConfig,
   PetConfig,
 } from '../types';
-import { normalizeAccentColor } from './appearance';
+import {
+  DEFAULT_ACCENT_COLOR,
+  normalizeAccentColor,
+} from './appearance';
 import {
   DEFAULT_FAILURE_SOUND_ID,
   DEFAULT_SUCCESS_SOUND_ID,
@@ -70,6 +74,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   designSystemId: null,
   onboardingCompleted: false,
   theme: 'system',
+  accentColor: DEFAULT_ACCENT_COLOR,
   mediaProviders: {},
   composio: {},
   agentModels: {},
@@ -77,6 +82,17 @@ export const DEFAULT_CONFIG: AppConfig = {
   pet: DEFAULT_PET,
   notifications: DEFAULT_NOTIFICATIONS,
   orbit: DEFAULT_ORBIT,
+  // Telemetry defaults to ON so fresh-install users emit onboarding /
+  // ui_click events from the first frame. The disclosure modal still
+  // appears after `onboardingCompleted` flips, and Settings → Privacy
+  // remains the one-click opt-out. Without these defaults the gate at
+  // `daemon/src/analytics.ts` (`if (telemetry?.metrics !== true) return`)
+  // dropped every event fired during onboarding because no consent
+  // existed yet — observed live on the nightly.10 QA run, which left
+  // zero `page_view pn=onboarding` rows on PostHog despite the user
+  // completing the flow. `artifactManifest` stays off; the existing
+  // PrivacySection lets the user enable it explicitly.
+  telemetry: { metrics: true, content: true, artifactManifest: false },
 };
 
 /** Well-known providers with pre-filled base URLs. */
@@ -88,6 +104,8 @@ export interface KnownProvider {
   model: string;
   /** Optional provider-specific model choices shown in Settings. */
   models?: string[];
+  /** Some local/self-hosted endpoints do not require bearer credentials. */
+  requiresApiKey?: boolean;
 }
 
 // Some providers appear more than once because they expose both
@@ -191,11 +209,82 @@ export const KNOWN_PROVIDERS: KnownProvider[] = [
     models: ['mimo-v2.5-pro'],
   },
   {
+    label: 'Ollama Cloud (managed)',
+    protocol: 'ollama',
+    baseUrl: 'https://ollama.com',
+    model: 'gpt-oss:120b',
+    models: [
+      'cogito-2.1:671b',
+      'deepseek-v3.1:671b',
+      'deepseek-v3.2',
+      'deepseek-v4-flash',
+      'deepseek-v4-pro',
+      'devstral-2:123b',
+      'devstral-small-2:24b',
+      'gemini-3-flash-preview',
+      'gemma3:4b',
+      'gemma3:12b',
+      'gemma3:27b',
+      'gemma4:31b',
+      'glm-4.6',
+      'glm-4.7',
+      'glm-5',
+      'glm-5.1',
+      'gpt-oss:20b',
+      'gpt-oss:120b',
+      'kimi-k2:1t',
+      'kimi-k2-thinking',
+      'kimi-k2.5',
+      'kimi-k2.6',
+      'minimax-m2',
+      'minimax-m2.1',
+      'minimax-m2.5',
+      'minimax-m2.7',
+      'ministral-3:3b',
+      'ministral-3:8b',
+      'ministral-3:14b',
+      'mistral-large-3:675b',
+      'nemotron-3-nano:30b',
+      'nemotron-3-super',
+      'qwen3-coder:480b',
+      'qwen3-coder-next',
+      'qwen3-next:80b',
+      'qwen3-vl:235b',
+      'qwen3-vl:235b-instruct',
+      'qwen3.5:397b',
+      'rnj-1:8b',
+    ],
+  },
+  {
+    label: 'Ollama Self-hosted (local)',
+    protocol: 'ollama',
+    baseUrl: 'http://localhost:11434',
+    model: 'gemma3:4b',
+    models: ['gemma3:4b', 'gemma3:12b', 'gemma3:27b', 'gpt-oss:20b'],
+    requiresApiKey: false,
+  },
+  {
     label: 'MiMo (Xiaomi) — Anthropic',
     protocol: 'anthropic',
     baseUrl: 'https://token-plan-cn.xiaomimimo.com/anthropic',
     model: 'mimo-v2.5-pro',
     models: ['mimo-v2.5-pro'],
+  },
+  {
+    label: 'SenseAudio',
+    protocol: 'senseaudio',
+    baseUrl: 'https://api.senseaudio.cn',
+    model: 'senseaudio-s2',
+    models: [
+      'senseaudio-s2',
+      'senseaudio-s2-flash',
+      'deepseek-v4-flash',
+      'deepseek-v4-pro',
+      'glm-5.1',
+      'kimi-k2.6',
+      'MiniMax-M2.7-highspeed',
+      'MiniMax-M2.7',
+    ],
   },
 ];
 
@@ -233,6 +322,15 @@ function isValidOrbitTime(time: string): boolean {
 
 function inferApiProtocol(model: string, baseUrl: string): ApiProtocol {
   try {
+    const normalized = (baseUrl || '').toLowerCase();
+    // Any config pointing at ollama.com should resolve to the new ollama
+    // protocol so both chat and the connection test hit the native Ollama
+    // proxy instead of the Anthropic or OpenAI paths.
+    if (normalized.includes('ollama.com')) return 'ollama';
+    // SenseAudio host gets routed to its own proxy so the daemon log line
+    // and the BYOK tab UI stay consistent with the protocol the user
+    // picked — even though the on-wire shape is OpenAI-compatible.
+    if (normalized.includes('senseaudio.cn')) return 'senseaudio';
     return isOpenAICompatible(model, baseUrl) ? 'openai' : 'anthropic';
   } catch {
     // Preserve the rest of the user's settings even if an old saved base URL is
@@ -254,6 +352,13 @@ export function loadConfig(): AppConfig {
       };
     }
     const parsed = JSON.parse(raw) as Partial<AppConfig>;
+    // Strip daemon-owned privacy fields if a stale localStorage payload
+    // still carries them. Older builds wrote these to localStorage; we
+    // now treat the daemon as authoritative so the user can rotate /
+    // revoke without leaving residue in browser storage.
+    for (const key of DAEMON_OWNED_KEYS) {
+      delete (parsed as Record<string, unknown>)[key];
+    }
     const parsedHasApiProtocol = Object.prototype.hasOwnProperty.call(
       parsed,
       'apiProtocol',
@@ -279,6 +384,14 @@ export function loadConfig(): AppConfig {
       // legacy config can be migrated when it is loaded.
       if (!parsedHasApiProtocol) {
         merged.apiProtocol = inferApiProtocol(merged.model, merged.baseUrl);
+        // Ollama Cloud legacy configs may carry a base URL that includes
+        // /api or /api/ — normalize to the host root so the daemon's own
+        // /api/chat appending doesn't double up.
+        if (merged.apiProtocol === 'ollama') {
+          merged.baseUrl = merged.baseUrl
+            .replace(/\/api\/?$/, '')
+            .replace(/\/+$/, '');
+        }
         // Also set apiProviderBaseUrl so setApiProtocol() can correctly identify
         // whether the user is on a known provider and switch defaults appropriately.
         // null means "custom/unknown provider" so the protocol switch won't override
@@ -307,6 +420,116 @@ interface PublicComposioConfigResponse {
   apiKeyTail?: string;
 }
 
+interface PublicMediaProviderConfigEntry {
+  configured?: boolean;
+  apiKeyTail?: string;
+  baseUrl?: string;
+  model?: string;
+}
+
+interface PublicMediaProviderConfigResponse {
+  providers?: Record<string, PublicMediaProviderConfigEntry>;
+}
+
+export type DaemonMediaProvidersFetchResult =
+  | {
+    status: 'ok';
+    providers: AppConfig['mediaProviders'];
+  }
+  | {
+    status: 'error';
+  };
+
+interface MediaProviderDaemonWriteEntry {
+  apiKey?: string;
+  preserveApiKey?: boolean;
+  baseUrl?: string;
+  model?: string;
+}
+
+interface MediaProviderDaemonWriteRequest {
+  providers: Record<string, MediaProviderDaemonWriteEntry>;
+  force: boolean;
+}
+
+function hasAnyDaemonManagedMediaProvider(
+  providers: Record<string, MediaProviderCredentials> | null | undefined,
+): boolean {
+  if (!providers) return false;
+  return Object.values(providers).some((entry) => isStoredMediaProviderEntryPresent(entry));
+}
+
+function hasRecoverableLocalMediaProviderFields(
+  entry: MediaProviderCredentials | null | undefined,
+): boolean {
+  return Boolean(
+    entry?.apiKey?.trim()
+    || entry?.baseUrl?.trim()
+    || entry?.model?.trim(),
+  );
+}
+
+function isMarkerOnlyMediaProviderEntry(
+  entry: MediaProviderCredentials | null | undefined,
+): boolean {
+  return isStoredMediaProviderEntryPresent(entry)
+    && !hasRecoverableLocalMediaProviderFields(entry);
+}
+
+export function isStoredMediaProviderEntryPresent(
+  entry: MediaProviderCredentials | null | undefined,
+): boolean {
+  return Boolean(
+    entry?.apiKey?.trim()
+    || entry?.baseUrl?.trim()
+    || entry?.model?.trim()
+    || entry?.apiKeyConfigured
+    || entry?.apiKeyTail?.trim(),
+  );
+}
+
+export function isStoredMediaProviderEntryEmpty(
+  entry: MediaProviderCredentials | null | undefined,
+): boolean {
+  return !isStoredMediaProviderEntryPresent(entry);
+}
+
+function defaultBaseUrlForProvider(providerId: string): string {
+  return MEDIA_PROVIDERS.find((provider) => provider.id === providerId)?.defaultBaseUrl ?? '';
+}
+
+export function buildMediaProvidersForDaemonSave(
+  currentProviders: Record<string, MediaProviderCredentials> | undefined,
+  daemonProviders: Record<string, MediaProviderCredentials> | null | undefined,
+  options?: { force?: boolean },
+): MediaProviderDaemonWriteRequest {
+  const providers: Record<string, MediaProviderDaemonWriteEntry> = {};
+  for (const [providerId, currentEntry] of Object.entries(currentProviders ?? {})) {
+    const daemonEntry = daemonProviders?.[providerId];
+    const apiKey = currentEntry?.apiKey?.trim() ?? '';
+    const preserveApiKey = !apiKey && Boolean(
+      currentEntry?.apiKeyConfigured
+      && (daemonEntry?.apiKeyConfigured || daemonEntry?.apiKeyTail?.trim()),
+    );
+    const baseUrl =
+      currentEntry?.baseUrl?.trim()
+      || daemonEntry?.baseUrl?.trim()
+      || defaultBaseUrlForProvider(providerId);
+    const model = currentEntry?.model?.trim() || daemonEntry?.model?.trim() || '';
+    if (!apiKey && !preserveApiKey && !baseUrl && !model) continue;
+    providers[providerId] = {
+      ...(apiKey ? { apiKey } : {}),
+      ...(preserveApiKey ? { preserveApiKey: true } : {}),
+      ...(baseUrl ? { baseUrl } : {}),
+      ...(model ? { model } : {}),
+    };
+  }
+  return {
+    providers,
+    force: Boolean(options?.force),
+  };
+}
+
 export async function fetchComposioConfigFromDaemon(): Promise<AppConfig['composio'] | null> {
   try {
     const response = await fetch('/api/connectors/composio/config');
@@ -319,6 +542,33 @@ export async function fetchComposioConfigFromDaemon(): Promise<AppConfig['compos
     };
   } catch {
     return null;
+  }
+}
+
+export async function fetchMediaProvidersFromDaemon(): Promise<DaemonMediaProvidersFetchResult> {
+  try {
+    const response = await fetch('/api/media/config');
+    if (!response.ok) return { status: 'error' };
+    const payload = await response.json() as PublicMediaProviderConfigResponse;
+    const rawProviders = payload.providers ?? {};
+    const providers: AppConfig['mediaProviders'] = {};
+    for (const [providerId, entry] of Object.entries(rawProviders)) {
+      providers[providerId] = {
+        apiKey: '',
+        apiKeyConfigured: Boolean(entry?.configured),
+        apiKeyTail: entry?.apiKeyTail ?? '',
+        baseUrl: entry?.baseUrl ?? '',
+        ...(typeof entry?.model === 'string' && entry.model.trim()
+          ? { model: entry.model.trim() }
+          : {}),
+      };
+    }
+    return {
+      status: 'ok',
+      providers,
+    };
+  } catch {
+    return { status: 'error' };
   }
 }
 
@@ -341,8 +591,37 @@ export async function syncComposioConfigToDaemon(
   }
 }
 
+// Privacy-sensitive fields the user can revoke. We deliberately keep
+// these out of localStorage so the daemon remains the single source of
+// truth: clearing app-config.json (or rotating via "Delete my data")
+// fully resets the install identity, with no residual cohort key
+// silently sitting in browser storage where the user can't see it.
+const DAEMON_OWNED_KEYS = new Set<keyof AppConfig>([
+  'installationId',
+  'telemetry',
+  'privacyDecisionAt',
+]);
+
+const AGENT_CLI_SECRET_ENV_KEYS = new Set(['ANTHROPIC_API_KEY', 'CODEX_API_KEY', 'OPENAI_API_KEY']);
+
+function sanitizeAgentCliEnv(agentCliEnv: AppConfig['agentCliEnv']): AppConfig['agentCliEnv'] {
+  if (!agentCliEnv) return agentCliEnv;
+  const sanitized: NonNullable<AppConfig['agentCliEnv']> = {};
+  for (const [agentId, env] of Object.entries(agentCliEnv)) {
+    const safeEnv = Object.fromEntries(
+      Object.entries(env ?? {}).filter(([key]) => !AGENT_CLI_SECRET_ENV_KEYS.has(key)),
+    );
+    sanitized[agentId] = safeEnv;
+  }
+  return sanitized;
+}
+
 export function saveConfig(config: AppConfig): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+  const sanitized: AppConfig = { ...config, agentCliEnv: sanitizeAgentCliEnv(config.agentCliEnv) };
+  for (const key of DAEMON_OWNED_KEYS) {
+    delete (sanitized as unknown as Record<string, unknown>)[key];
+  }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
 }
 
 export function mergeDaemonConfig(
@@ -380,28 +659,103 @@ export function mergeDaemonConfig(
   if (daemonConfig.orbit !== undefined) {
     next.orbit = normalizeOrbit(daemonConfig.orbit);
   }
+  if (daemonConfig.installationId !== undefined) {
+    next.installationId = daemonConfig.installationId;
+  }
+  if (daemonConfig.telemetry !== undefined) {
+    next.telemetry = { ...daemonConfig.telemetry };
+  }
+  if (daemonConfig.privacyDecisionAt !== undefined) {
+    next.privacyDecisionAt = daemonConfig.privacyDecisionAt;
+  } else if (
+    daemonConfig.installationId !== undefined ||
+    daemonConfig.telemetry !== undefined
+  ) {
+    // One-shot migration for configs created before privacyDecisionAt
+    // existed. If the daemon already has an id or telemetry prefs, the user
+    // has resolved the first-run prompt and should not see it again.
+    next.privacyDecisionAt = Date.now();
+  }
+  if (daemonConfig.customInstructions !== undefined) {
+    next.customInstructions = daemonConfig.customInstructions ?? undefined;
+  }
   return next;
+}
+
+export function mergeDaemonMediaProviders(
+  localConfig: AppConfig,
+  daemonProviders: AppConfig['mediaProviders'] | null,
+  options?: {
+    preserveLocalProviderIds?: ReadonlySet<string>;
+  },
+): AppConfig {
+  if (daemonProviders == null) {
+    return { ...localConfig };
+  }
+
+  if (!hasAnyDaemonManagedMediaProvider(daemonProviders)) {
+    return {
+      ...localConfig,
+      mediaProviders: Object.fromEntries(
+        Object.entries(localConfig.mediaProviders ?? {}).filter(([, entry]) => !isMarkerOnlyMediaProviderEntry(entry)),
+      ),
+    };
+  }
+
+  const mediaProviders = { ...(localConfig.mediaProviders ?? {}) };
+  for (const [providerId, daemonEntry] of Object.entries(daemonProviders ?? {})) {
+    if (!isStoredMediaProviderEntryPresent(daemonEntry)) continue;
+    const localEntry = mediaProviders[providerId];
+    const preserveLocalPendingEdit = Boolean(
+      options?.preserveLocalProviderIds?.has(providerId)
+      && hasRecoverableLocalMediaProviderFields(localEntry),
+    );
+    mediaProviders[providerId] = preserveLocalPendingEdit
+      ? { ...daemonEntry, ...localEntry }
+      : { ...daemonEntry };
+  }
+
+  return {
+    ...localConfig,
+    mediaProviders,
+  };
 }
 
 export function hasAnyConfiguredProvider(
   providers: Record<string, MediaProviderCredentials> | undefined,
 ): boolean {
   if (!providers) return false;
-  return Object.values(providers).some((entry) =>
-    Boolean(entry?.apiKey?.trim() || entry?.baseUrl?.trim()),
-  );
+  return Object.values(providers).some((entry) => isStoredMediaProviderEntryPresent(entry));
+}
+
+export function shouldSyncLocalMediaProvidersToDaemon(
+  localProviders: Record<string, MediaProviderCredentials> | undefined,
+  daemonProviders: Record<string, MediaProviderCredentials> | null | undefined,
+): boolean {
+  return daemonProviders != null
+    && Object.values(localProviders ?? {}).some((entry) => hasRecoverableLocalMediaProviderFields(entry))
+    && !hasAnyDaemonManagedMediaProvider(daemonProviders);
 }
 
 export async function syncMediaProvidersToDaemon(
   providers: Record<string, MediaProviderCredentials> | undefined,
-  options?: { force?: boolean; throwOnError?: boolean },
+  options?: {
+    force?: boolean;
+    daemonProviders?: Record<string, MediaProviderCredentials> | null;
+    throwOnError?: boolean;
+  },
 ): Promise<void> {
   if (!providers) return;
   try {
+    const payload = buildMediaProvidersForDaemonSave(
+      providers,
+      options?.daemonProviders,
+      { force: options?.force },
+    );
     const response = await fetch('/api/media/config', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ providers, force: Boolean(options?.force) }),
+      body: JSON.stringify(payload),
     });
     if (!response.ok) throw new Error(`Failed to sync media config (${response.status})`);
   } catch {
@@ -435,6 +789,10 @@ export async function syncConfigToDaemon(
     disabledSkills: config.disabledSkills,
     disabledDesignSystems: config.disabledDesignSystems,
     orbit: normalizeOrbit(config.orbit),
+    installationId: config.installationId,
+    telemetry: config.telemetry,
+    privacyDecisionAt: config.privacyDecisionAt,
+    customInstructions: config.customInstructions ?? null,
   };
   try {
     const response = await fetch('/api/app-config', {

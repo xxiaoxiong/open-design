@@ -859,18 +859,18 @@ async function ensureCloudflarePagesDomain(config: DeployConfig, hostname: strin
 }
 
 async function findCloudflarePagesDomain(config: DeployConfig, hostname: string) {
-  const domains = await fetchCloudflarePaginatedResult(
-    config,
-    (page, perPage) => {
-      const params = new URLSearchParams({
-        page: String(page),
-        per_page: String(perPage),
-      });
-      return `${cloudflarePagesProjectUrl(config, 'domains')}?${params.toString()}`;
-    },
-    'Cloudflare Pages custom domain lookup failed.',
-  );
-  return domains.find((domain) => normalizeHostname(domain?.name) === normalizeHostname(hostname)) || null;
+  const normalizedHostname = normalizeHostname(hostname);
+  if (!normalizedHostname) return null;
+  const resp = await fetch(cloudflarePagesProjectDomainUrl(config, normalizedHostname), {
+    headers: cloudflareHeaders(config),
+  });
+  const json = await readCloudflareJson(resp);
+  if (resp.status === 404) return null;
+  if (!resp.ok || json?.success === false) {
+    throw cloudflareError(json, resp.status, 'Cloudflare Pages custom domain lookup failed.');
+  }
+  const domain = json?.result ?? json;
+  return normalizeHostname(domain?.name) === normalizedHostname ? domain : null;
 }
 
 export async function readCloudflarePagesDomain(config: DeployConfig, hostname: string) {
@@ -1767,6 +1767,10 @@ function cloudflarePagesProjectUrl(config: DeployConfig, suffix = '') {
   if (!config.projectName) throw new DeployError('Cloudflare Pages project name could not be generated.', 400);
   const base = `${cloudflareAccountPagesProjectsUrl(config)}/${encodeURIComponent(config.projectName)}`;
   return suffix ? `${base}/${suffix}` : base;
+}
+
+function cloudflarePagesProjectDomainUrl(config: DeployConfig, hostname: string) {
+  return `${cloudflarePagesProjectUrl(config, 'domains')}/${encodeURIComponent(hostname)}`;
 }
 
 function cloudflarePagesProductionUrl(config: DeployConfig) {

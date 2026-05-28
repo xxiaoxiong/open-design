@@ -3,20 +3,18 @@
 // (via `exportProjectTranscript` from PR #493), the project's active design
 // system body, and the project's "current artifact" (active artifact tab,
 // fallback to newest .artifact.json by manifest.updatedAt, fallback null),
-// runs them through Claude's Messages API, and writes the synthesized
-// Markdown back to disk atomically.
+// runs them through the user's selected BYOK provider, and writes the
+// synthesized Markdown back to disk atomically.
 //
 // Per-project lockfile semantics (`.finalize.lock`) mirror PR #493's
 // transcript-export hygiene. A second concurrent finalize throws
 // `FinalizePackageLockedError`. Stale-lock recovery (e.g. after a crash)
 // is out of scope; operators clear via `rm <projectDir>/.finalize.lock`.
 //
-// API key, base URL, and model flow in via the route's request body
-// (matching the proxy at `apps/daemon/src/server.ts`'s
-// `/api/proxy/anthropic/stream`). The daemon does NOT store provider
-// credentials. `baseUrl` is optional here (intentional divergence from
-// the proxy, which requires it) so standard Anthropic users don't need
-// to set it; Bedrock / self-hosted-proxy users still can.
+// Provider protocol, API key, base URL, and model flow in via the route's
+// request body. The daemon does NOT store provider credentials. `baseUrl`
+// is optional when the selected provider has a daemon default; custom
+// gateways still pass it explicitly.
 //
 // Inline `PersistedAgentEvent` shape is restated in this file (the daemon
 // tsconfig does not resolve the `@open-design/contracts/api/chat` subpath
@@ -31,16 +29,19 @@ import type {
   FinalizeAnthropicRequest,
   FinalizeAnthropicResponse,
   FinalizeArtifactRef,
+  FinalizeProviderProtocol,
 } from '@open-design/contracts/api/finalize';
 import { getProject } from './db.js';
 import { readDesignSystem } from './design-systems.js';
 import {
   listFiles,
   readProjectFile,
+  reconcileHtmlArtifactManifest,
   resolveProjectDir,
   validateProjectPath,
 } from './projects.js';
 import { exportProjectTranscript } from './transcript-export.js';
+import { googleGenerateContentUrl } from './google-models.js';
 
 // Re-export the request/response types so existing daemon-internal
 // imports (and the route handler) keep their referenced names. The
@@ -51,23 +52,52 @@ export type {
   FinalizeAnthropicRequest,
   FinalizeAnthropicResponse,
   FinalizeArtifactRef,
+  FinalizeProviderProtocol,
 };
 
-const DEFAULT_BASE_URL = 'https://api.anthropic.com';
+const DEFAULT_BASE_URL_BY_PROTOCOL: Record<FinalizeProviderProtocol, string> = {
+  anthropic: 'https://api.anthropic.com',
+  openai: 'https://api.openai.com',
+  azure: '',
+  google: 'https://generativelanguage.googleapis.com',
+  ollama: 'https://ollama.com',
+};
 const DEFAULT_MAX_TOKENS = 16000;
 const INPUT_BODY_CAP_BYTES = 384 * 1024;
 const LOCK_FILENAME = '.finalize.lock';
 const OUTPUT_FILENAME = 'DESIGN.md';
-const DEFAULT_TIMEOUT_MS = 120_000;
+export const DEFAULT_TIMEOUT_MS = 120_000;
+const FINALIZE_PROVIDER_PROTOCOLS = new Set<FinalizeProviderProtocol>([
+  'anthropic',
+  'openai',
+  'azure',
+  'google',
+  'ollama',
+]);
+
+export function isFinalizeProviderProtocol(value: unknown): value is FinalizeProviderProtocol {
+  return typeof value === 'string' && FINALIZE_PROVIDER_PROTOCOLS.has(value as FinalizeProviderProtocol);
+}
+
+export function defaultBaseUrlForFinalizeProtocol(protocol: FinalizeProviderProtocol): string {
+  return DEFAULT_BASE_URL_BY_PROTOCOL[protocol] ?? '';
+}
 
 export interface FinalizeOptions {
+  protocol?: FinalizeProviderProtocol;
   apiKey: string;
   baseUrl?: string;
   model: string;
   maxTokens?: number;
+  apiVersion?: string;
   now?: () => Date;
   fetchImpl?: typeof globalThis.fetch;
   signal?: AbortSignal;
+  // Override the helper-internal upstream-call timeout. Production callers
+  // omit this so the helper bounds at DEFAULT_TIMEOUT_MS; tests pass a
+  // smaller value to exercise the AbortSignal.any composition without
+  // depending on fake timers.
+  timeoutMs?: number;
 }
 
 export class FinalizePackageLockedError extends Error {
@@ -155,6 +185,14 @@ export async function resolveCurrentArtifact(
     }
     if (safeTabName) {
       const sidecarPath = path.join(dir, `${safeTabName}.artifact.json`);
+      if (!fs.existsSync(sidecarPath)) {
+        await reconcileHtmlArtifactManifest(
+          projectsRoot,
+          projectId,
+          safeTabName,
+          metadata ?? undefined,
+        );
+      }
       if (fs.existsSync(sidecarPath)) {
         const file = await readProjectFile(
           projectsRoot,
@@ -174,18 +212,35 @@ export async function resolveCurrentArtifact(
   }
 
   const files = await listFiles(projectsRoot, projectId, { metadata: metadata ?? undefined });
-  const candidates = files
-    .filter((f: { name: string; artifactManifest?: { updatedAt?: string } | null }) => {
+  await Promise.all(
+    files.map((f) => {
+      if (fs.existsSync(path.join(dir, `${f.name}.artifact.json`))) return null;
+      return reconcileHtmlArtifactManifest(
+        projectsRoot,
+        projectId,
+        f.name,
+        metadata ?? undefined,
+      );
+    }),
+  );
+  const reconciledFiles = await listFiles(projectsRoot, projectId, {
+    metadata: metadata ?? undefined,
+  });
+  const candidates = reconciledFiles
+    .filter((f) => {
       // Require a real sidecar on disk; an inferred manifest does not count.
       return fs.existsSync(path.join(dir, `${f.name}.artifact.json`));
     })
-    .map((f: { name: string; artifactManifest?: { updatedAt?: string } | null }) => ({
-      name: f.name,
-      updatedAt:
-        f.artifactManifest && typeof f.artifactManifest.updatedAt === 'string'
-          ? f.artifactManifest.updatedAt
-          : '',
-    }))
+    .map((f) => {
+      const manifest =
+        f.artifactManifest && typeof f.artifactManifest === 'object'
+          ? f.artifactManifest as { updatedAt?: unknown }
+          : null;
+      return {
+        name: f.name,
+        updatedAt: typeof manifest?.updatedAt === 'string' ? manifest.updatedAt : '',
+      };
+    })
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)); // descending; '' sorts last
 
   if (candidates.length > 0) {
@@ -237,7 +292,8 @@ export async function finalizeDesignPackage(
     `${OUTPUT_FILENAME}.tmp.${process.pid}.${randomBytes(4).toString('hex')}`,
   );
   const now = options.now ?? (() => new Date());
-  const baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
+  const protocol = options.protocol ?? 'anthropic';
+  const baseUrl = options.baseUrl ?? defaultBaseUrlForFinalizeProtocol(protocol);
   const maxTokens = options.maxTokens ?? DEFAULT_MAX_TOKENS;
 
   let lockFd: number | null = null;
@@ -292,9 +348,12 @@ export async function finalizeDesignPackage(
       now: now(),
     });
 
-    // Phase 7: Anthropic call with bounded blocking timeout. We use our own
-    // AbortController if the caller did not pass one; either way the call
-    // bounds at DEFAULT_TIMEOUT_MS.
+    // Phase 7: Anthropic call with bounded blocking timeout. The timeout
+    // controller is always created so DEFAULT_TIMEOUT_MS bounds every call,
+    // regardless of whether the caller supplied a request-abort signal.
+    // When the caller does pass a signal, both cancel paths are honored via
+    // AbortSignal.any so neither replaces the other (per @lefarcen P1 review
+    // on PR #974 round 7: passing options.signal alone disabled the timeout).
     //
     // Network errors (DNS, ECONNREFUSED, ECONNRESET) and JSON parse errors
     // on the response body are rewrapped as FinalizeUpstreamError(502) so
@@ -302,13 +361,13 @@ export async function finalizeDesignPackage(
     // INTERNAL. Per @lefarcen P1 review on PR #832: only HTTP-non-OK
     // responses were previously wrapped, leaving DNS/parse failures to
     // surface as generic 500s.
-    const ownController = options.signal ? null : new AbortController();
-    const timeoutId = ownController
-      ? setTimeout(() => ownController.abort(), DEFAULT_TIMEOUT_MS)
-      : null;
+    const timeoutController = new AbortController();
+    const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
     let response: Response;
     try {
-      const callParams: AnthropicCallParams = {
+      const callParams: FinalizeProviderCallParams = {
+        protocol,
         apiKey: options.apiKey,
         baseUrl,
         model: options.model,
@@ -316,11 +375,13 @@ export async function finalizeDesignPackage(
         systemPrompt,
         userPrompt,
       };
-      const signalToUse = options.signal ?? ownController?.signal;
-      if (signalToUse) callParams.signal = signalToUse;
+      if (options.apiVersion) callParams.apiVersion = options.apiVersion;
+      callParams.signal = options.signal
+        ? AbortSignal.any([options.signal, timeoutController.signal])
+        : timeoutController.signal;
       if (options.fetchImpl) callParams.fetchImpl = options.fetchImpl;
       try {
-        response = await callAnthropicWithRetry(callParams);
+        response = await callFinalizeProviderWithRetry(callParams);
       } catch (err: unknown) {
         if (err instanceof FinalizeUpstreamError) throw err;
         const errName =
@@ -332,10 +393,10 @@ export async function finalizeDesignPackage(
         // via cause.code, etc.) — rewrap as upstream failure so the route
         // handler maps to 502 UPSTREAM_FAILED with redacted details.
         const message = err instanceof Error ? err.message : String(err);
-        throw new FinalizeUpstreamError(502, '', `upstream network error: ${message}`);
+        throw new FinalizeUpstreamError(502, '', `upstream ${protocol} network error: ${message}`);
       }
     } finally {
-      if (timeoutId !== null) clearTimeout(timeoutId);
+      clearTimeout(timeoutId);
     }
 
     // Phase 8: extract DESIGN.md body and usage counters. A 200 with a body
@@ -349,13 +410,11 @@ export async function finalizeDesignPackage(
       throw new FinalizeUpstreamError(
         502,
         '',
-        `upstream Anthropic returned non-JSON body: ${message}`,
+        `upstream ${providerLabel(protocol)} returned non-JSON body: ${message}`,
       );
     }
-    const designMd = extractDesignMd(payload);
-    const usage = (payload as { usage?: { input_tokens?: number; output_tokens?: number } }).usage ?? {};
-    const inputTokens = typeof usage.input_tokens === 'number' ? usage.input_tokens : 0;
-    const outputTokens = typeof usage.output_tokens === 'number' ? usage.output_tokens : 0;
+    const designMd = extractDesignMd(payload, protocol);
+    const { inputTokens, outputTokens } = extractTokenUsage(payload, protocol);
 
     // Phase 9: atomic write. Mirror PR #493: writeFileSync({flag:'wx'}) →
     // reopen for fsync → rename. On any failure unlink tmp; rethrow so the
@@ -425,23 +484,167 @@ export function appendVersionedApiPath(baseUrl: string, suffix: string): string 
   return url.toString();
 }
 
-export interface AnthropicCallParams {
+export interface FinalizeProviderCallParams {
+  protocol: FinalizeProviderProtocol;
   apiKey: string;
   baseUrl: string;
   model: string;
   maxTokens: number;
   systemPrompt: string;
   userPrompt: string;
+  apiVersion?: string;
   signal?: AbortSignal;
   fetchImpl?: typeof globalThis.fetch;
   /** Test-only: skip the inter-attempt sleep so retries are instant. */
   _sleepMs?: (ms: number) => Promise<void>;
 }
 
+export type AnthropicCallParams = Omit<FinalizeProviderCallParams, 'protocol' | 'apiVersion'>;
+
 const defaultSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+interface FinalizeProviderHttpRequest {
+  url: string;
+  headers: Record<string, string>;
+  body: unknown;
+}
+
+function buildAzureChatCompletionsUrl(baseUrl: string, model: string, apiVersion?: string): {
+  url: string;
+  usesVersionedOpenAIPath: boolean;
+} {
+  const url = new URL(baseUrl);
+  const basePath = url.pathname.replace(/\/+$/, '');
+  const usesVersionedOpenAIPath = /\/openai\/v\d+(?:$|\/)/.test(basePath);
+  const version =
+    apiVersion && apiVersion.trim()
+      ? apiVersion.trim()
+      : usesVersionedOpenAIPath
+        ? ''
+        : '2024-10-21';
+  url.pathname = usesVersionedOpenAIPath
+    ? `${basePath}/chat/completions`
+    : `${basePath}/openai/deployments/${encodeURIComponent(model)}/chat/completions`;
+  if (usesVersionedOpenAIPath && !version) {
+    url.searchParams.delete('api-version');
+  }
+  if (version) {
+    url.searchParams.set('api-version', version);
+  }
+  return { url: url.toString(), usesVersionedOpenAIPath };
+}
+
+function buildFinalizeProviderRequest(params: FinalizeProviderCallParams): FinalizeProviderHttpRequest {
+  const payloadMessages = [
+    { role: 'system', content: params.systemPrompt },
+    { role: 'user', content: params.userPrompt },
+  ];
+
+  if (params.protocol === 'anthropic') {
+    return {
+      url: appendVersionedApiPath(params.baseUrl, '/messages'),
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': params.apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: {
+        model: params.model,
+        max_tokens: params.maxTokens,
+        system: params.systemPrompt,
+        messages: [{ role: 'user', content: params.userPrompt }],
+        stream: false,
+      },
+    };
+  }
+
+  if (params.protocol === 'openai') {
+    return {
+      url: appendVersionedApiPath(params.baseUrl, '/chat/completions'),
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${params.apiKey}`,
+      },
+      body: {
+        model: params.model,
+        messages: payloadMessages,
+        max_tokens: params.maxTokens,
+        stream: false,
+      },
+    };
+  }
+
+  if (params.protocol === 'azure') {
+    const { url, usesVersionedOpenAIPath } = buildAzureChatCompletionsUrl(
+      params.baseUrl,
+      params.model,
+      params.apiVersion,
+    );
+    return {
+      url,
+      headers: {
+        'content-type': 'application/json',
+        'api-key': params.apiKey,
+      },
+      body: {
+        ...(usesVersionedOpenAIPath ? { model: params.model } : {}),
+        messages: payloadMessages,
+        max_tokens: params.maxTokens,
+        stream: false,
+      },
+    };
+  }
+
+  if (params.protocol === 'google') {
+    return {
+      url: googleGenerateContentUrl(params.baseUrl, params.model),
+      headers: {
+        'content-type': 'application/json',
+        'x-goog-api-key': params.apiKey,
+      },
+      body: {
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: params.userPrompt }],
+          },
+        ],
+        systemInstruction: {
+          parts: [{ text: params.systemPrompt }],
+        },
+        generationConfig: {
+          maxOutputTokens: params.maxTokens,
+        },
+      },
+    };
+  }
+
+  const clean = params.baseUrl.replace(/\/+$/, '').replace(/\/api\/?$/, '');
+  return {
+    url: `${clean}/api/chat`,
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${params.apiKey}`,
+    },
+    body: {
+      model: params.model,
+      messages: payloadMessages,
+      stream: false,
+      options: { num_predict: params.maxTokens },
+    },
+  };
+}
+
+function providerLabel(protocol: FinalizeProviderProtocol): string {
+  if (protocol === 'google') return 'Google Gemini';
+  if (protocol === 'openai') return 'OpenAI';
+  if (protocol === 'azure') return 'Azure OpenAI';
+  if (protocol === 'ollama') return 'Ollama';
+  return 'Anthropic';
+}
+
 /**
- * Call Anthropic's Messages API once, retrying once on a transient
+ * Call the selected provider API once, retrying once on a transient
  * upstream failure (HTTP 429 or 5xx). On a terminal failure, throw a
  * `FinalizeUpstreamError` carrying the upstream HTTP status and raw
  * body text — the route handler maps the status to one of
@@ -454,35 +657,33 @@ const defaultSleep = (ms: number): Promise<void> => new Promise((r) => setTimeou
  * retry matches the existing daemon's posture (transcript export and
  * connectionTest do zero retries).
  */
-export async function callAnthropicWithRetry(
-  params: AnthropicCallParams,
+export async function callFinalizeProviderWithRetry(
+  params: FinalizeProviderCallParams,
 ): Promise<Response> {
   const fetchImpl = params.fetchImpl ?? globalThis.fetch;
   const sleep = params._sleepMs ?? defaultSleep;
-  const url = appendVersionedApiPath(params.baseUrl, '/messages');
-  const headers: Record<string, string> = {
-    'content-type': 'application/json',
-    'x-api-key': params.apiKey,
-    'anthropic-version': '2023-06-01',
-  };
-  const body = JSON.stringify({
-    model: params.model,
-    max_tokens: params.maxTokens,
-    system: params.systemPrompt,
-    messages: [{ role: 'user', content: params.userPrompt }],
-    stream: false,
-  });
+  const request = buildFinalizeProviderRequest(params);
+  const body = JSON.stringify(request.body);
 
   for (let attempt = 0; attempt <= 1; attempt += 1) {
-    const init: RequestInit = { method: 'POST', headers, body };
+    const init: RequestInit = {
+      method: 'POST',
+      headers: request.headers,
+      body,
+      redirect: 'error',
+    };
     if (params.signal) init.signal = params.signal;
-    const response = await fetchImpl(url, init);
+    const response = await fetchImpl(request.url, init);
     if (response.ok) return response;
 
     const transient = response.status === 429 || response.status >= 500;
     if (!transient || attempt === 1) {
       const text = await response.text().catch(() => '');
-      throw new FinalizeUpstreamError(response.status, text);
+      throw new FinalizeUpstreamError(
+        response.status,
+        text,
+        `upstream ${providerLabel(params.protocol)} returned ${response.status}`,
+      );
     }
     // Linear backoff: 1s on attempt 0. Two retries would extend to 2s on
     // attempt 1 — kept at one retry to stay within the daemon's blocking-
@@ -491,43 +692,145 @@ export async function callAnthropicWithRetry(
   }
   // Loop above always returns or throws within two iterations. This is
   // unreachable; satisfies TypeScript control-flow analysis.
-  throw new Error('callAnthropicWithRetry: unreachable');
+  throw new Error('callFinalizeProviderWithRetry: unreachable');
+}
+
+export async function callAnthropicWithRetry(
+  params: AnthropicCallParams,
+): Promise<Response> {
+  return callFinalizeProviderWithRetry({ ...params, protocol: 'anthropic' });
 }
 
 /**
- * Extract the Markdown body from Anthropic's Messages API response.
- * Concatenates `content[].text` for every block where `type === 'text'`,
- * preserving order. Throws `FinalizeUpstreamError(502)` if the response
- * shape is unexpected (no content array, no text blocks) — synthesis
- * cannot proceed, and the route handler maps the throw to
- * `502 UPSTREAM_FAILED` rather than producing an empty DESIGN.md on disk.
+ * Extract the Markdown body from a provider response. Anthropic returns
+ * `content[].text`; OpenAI/Azure return `choices[].message.content`;
+ * Gemini returns `candidates[].content.parts[].text`; Ollama returns
+ * `message.content`. Unexpected shapes throw `FinalizeUpstreamError(502)`
+ * so the route handler maps them to `502 UPSTREAM_FAILED` rather than
+ * producing an empty DESIGN.md on disk.
  */
-export function extractDesignMd(payload: unknown): string {
+export function extractDesignMd(
+  payload: unknown,
+  protocol: FinalizeProviderProtocol = 'anthropic',
+): string {
   if (!payload || typeof payload !== 'object') {
-    throw new FinalizeUpstreamError(502, '', 'upstream Anthropic response was not an object');
-  }
-  const content = (payload as { content?: unknown }).content;
-  if (!Array.isArray(content)) {
     throw new FinalizeUpstreamError(
       502,
       '',
-      'upstream Anthropic response had no content array',
+      `upstream ${providerLabel(protocol)} response was not an object`,
     );
   }
+
   let out = '';
-  for (const block of content) {
-    if (!block || typeof block !== 'object') continue;
-    const b = block as { type?: unknown; text?: unknown };
-    if (b.type === 'text' && typeof b.text === 'string') out += b.text;
+
+  if (protocol === 'anthropic') {
+    const content = (payload as { content?: unknown }).content;
+    if (!Array.isArray(content)) {
+      throw new FinalizeUpstreamError(
+        502,
+        '',
+        'upstream Anthropic response had no content array',
+      );
+    }
+    for (const block of content) {
+      if (!block || typeof block !== 'object') continue;
+      const b = block as { type?: unknown; text?: unknown };
+      if (b.type === 'text' && typeof b.text === 'string') out += b.text;
+    }
+  } else if (protocol === 'openai' || protocol === 'azure') {
+    const choices = (payload as { choices?: unknown }).choices;
+    if (!Array.isArray(choices)) {
+      throw new FinalizeUpstreamError(
+        502,
+        '',
+        `upstream ${providerLabel(protocol)} response had no choices array`,
+      );
+    }
+    for (const choice of choices) {
+      if (!choice || typeof choice !== 'object') continue;
+      const message = (choice as { message?: { content?: unknown }; text?: unknown }).message;
+      if (typeof message?.content === 'string') out += message.content;
+      if (typeof (choice as { text?: unknown }).text === 'string') {
+        out += (choice as { text: string }).text;
+      }
+    }
+  } else if (protocol === 'google') {
+    const candidates = (payload as { candidates?: unknown }).candidates;
+    if (!Array.isArray(candidates)) {
+      throw new FinalizeUpstreamError(
+        502,
+        '',
+        'upstream Google Gemini response had no candidates array',
+      );
+    }
+    for (const candidate of candidates) {
+      const parts = (candidate as { content?: { parts?: unknown } } | null)?.content?.parts;
+      if (!Array.isArray(parts)) continue;
+      for (const part of parts) {
+        if (part && typeof part === 'object' && typeof (part as { text?: unknown }).text === 'string') {
+          out += (part as { text: string }).text;
+        }
+      }
+    }
+  } else {
+    const message = (payload as { message?: { content?: unknown } }).message;
+    if (typeof message?.content === 'string') out += message.content;
   }
+
   if (out.length === 0) {
     throw new FinalizeUpstreamError(
       502,
       '',
-      'upstream Anthropic response contained no text blocks',
+      `upstream ${providerLabel(protocol)} response contained no text`,
     );
   }
   return out;
+}
+
+function extractTokenUsage(
+  payload: unknown,
+  protocol: FinalizeProviderProtocol,
+): { inputTokens: number; outputTokens: number } {
+  if (!payload || typeof payload !== 'object') {
+    return { inputTokens: 0, outputTokens: 0 };
+  }
+
+  if (protocol === 'anthropic') {
+    const usage = (payload as { usage?: { input_tokens?: unknown; output_tokens?: unknown } }).usage;
+    return {
+      inputTokens: typeof usage?.input_tokens === 'number' ? usage.input_tokens : 0,
+      outputTokens: typeof usage?.output_tokens === 'number' ? usage.output_tokens : 0,
+    };
+  }
+
+  if (protocol === 'openai' || protocol === 'azure') {
+    const usage = (payload as { usage?: { prompt_tokens?: unknown; completion_tokens?: unknown } }).usage;
+    return {
+      inputTokens: typeof usage?.prompt_tokens === 'number' ? usage.prompt_tokens : 0,
+      outputTokens: typeof usage?.completion_tokens === 'number' ? usage.completion_tokens : 0,
+    };
+  }
+
+  if (protocol === 'google') {
+    const usage = (payload as {
+      usageMetadata?: { promptTokenCount?: unknown; candidatesTokenCount?: unknown };
+    }).usageMetadata;
+    return {
+      inputTokens: typeof usage?.promptTokenCount === 'number' ? usage.promptTokenCount : 0,
+      outputTokens: typeof usage?.candidatesTokenCount === 'number' ? usage.candidatesTokenCount : 0,
+    };
+  }
+
+  return {
+    inputTokens:
+      typeof (payload as { prompt_eval_count?: unknown }).prompt_eval_count === 'number'
+        ? (payload as { prompt_eval_count: number }).prompt_eval_count
+        : 0,
+    outputTokens:
+      typeof (payload as { eval_count?: unknown }).eval_count === 'number'
+        ? (payload as { eval_count: number }).eval_count
+        : 0,
+  };
 }
 
 const SYSTEM_PROMPT = `You are a senior product designer synthesizing a finalized design package
@@ -552,6 +855,8 @@ The Provenance section MUST list:
 - Current artifact (file name, or "none" if not in scope)
 - Transcript message count
 - Generated UTC timestamp
+
+Render Provenance fields as plain Markdown bullets with no emphasis on the field labels, exactly: "- Field name: value". Do not bold, italicize, or otherwise decorate the labels or the colon. Field values may use inline code formatting (backticks) where appropriate.
 
 Output the Markdown body only. No preamble, no chat-style framing, no
 "Here's your DESIGN.md" prefix. Do not invent facts not supported by the
