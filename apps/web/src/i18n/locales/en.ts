@@ -562,6 +562,8 @@ export const en: Dict = {
   'chat.send': 'Send',
   'chat.stop': 'Stop',
   'chat.removeAria': 'Remove {name}',
+  'chat.mentionButtonTitle': 'Mention a file',
+  'chat.mentionButtonAria': 'Open file mention picker',
   'chat.example1Title': 'Editorial pitch deck',
   'chat.example1Tag': 'Magazine',
   'chat.example1Prompt':

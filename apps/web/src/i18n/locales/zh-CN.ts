@@ -553,6 +553,8 @@ export const zhCN: Dict = {
   'chat.send': '发送',
   'chat.stop': '停止',
   'chat.removeAria': '移除 {name}',
+  'chat.mentionButtonTitle': '引用文件',
+  'chat.mentionButtonAria': '打开文件引用选择器',
   'chat.example1Title': '编辑风路演 PPT',
   'chat.example1Tag': '杂志',
   'chat.example1Prompt':

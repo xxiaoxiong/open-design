@@ -760,6 +760,33 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
             />
             <div className="composer-tools-wrap">
               <button
+                type="button"
+                className="icon-btn"
+                onClick={() => {
+                  const ta = textareaRef.current;
+                  if (!ta) return;
+                  const cursor = ta.selectionStart;
+                  const before = draft.slice(0, cursor);
+                  const after = draft.slice(cursor);
+                  const next = before + '@' + after;
+                  setDraft(next);
+                  // Manually open the mention popover, same as handleChange
+                  // does when it detects a fresh @ in the typed input.
+                  const pos = cursor + 1;
+                  const textBefore = next.slice(0, pos);
+                  const m = /(^|\s)@([^\s@]*)$/.exec(textBefore);
+                  if (m) setMention({ q: m[2] ?? '', cursor: pos });
+                  requestAnimationFrame(() => {
+                    ta.focus();
+                    ta.setSelectionRange(pos, pos);
+                  });
+                }}
+                title={t('chat.mentionButtonTitle')}
+                aria-label={t('chat.mentionButtonAria')}
+              >
+                <span style={{ fontFamily: 'monospace', fontSize: 15 }}>@</span>
+              </button>
+              <button
                 ref={toolsTriggerRef}
                 type="button"
                 className={`icon-btn composer-tools-trigger${toolsOpen ? ' active' : ''}`}
