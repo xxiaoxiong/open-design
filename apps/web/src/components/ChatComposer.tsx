@@ -1376,6 +1376,18 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
                   setDraft((cur) => (cur.trim().length === 0 ? brief : cur));
                 }
               }}
+              onCleared={(clearedRecord) => {
+                // When the user removes a plugin chip, also strip the
+                // corresponding @plugin mention from the draft so the chip
+                // and textarea stay in sync (fixes #3190).
+                if (clearedRecord) {
+                  setDraft((d) =>
+                    d
+                      .replace(new RegExp(`(^|\\s)@${escapeRegExp(clearedRecord.id)}(\\s|$)`, 'g'), '$1$2')
+                      .replace(/\s{2,}/g, ' '),
+                  );
+                }
+              }}
               onChipDetails={(item: ContextItem) => {
                 if (item.kind !== 'plugin') return;
                 const record = installedPlugins.find((p) => p.id === item.id);

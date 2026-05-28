@@ -67,7 +67,7 @@ interface Props {
   showRail?: boolean;
   // Optional hooks — see file header.
   onApplied?: (brief: string, applied: ApplyResult) => void;
-  onCleared?: () => void;
+  onCleared?: (clearedRecord: InstalledPluginRecord | null) => void;
   onValidityChange?: (valid: boolean) => void;
   // Forwarded to ContextChipStrip so chips can open the plugin details
   // modal when the user clicks one (kind === 'plugin').
@@ -124,11 +124,12 @@ export const PluginsSection = forwardRef<PluginsSectionHandle, Props>(
     );
 
     const clear = useCallback(() => {
+      const recordBeforeClear = activeRecord;
       setApplied(null);
       setActiveRecord(null);
       setPluginInputs({});
-      props.onCleared?.();
-    }, [props]);
+      props.onCleared?.(recordBeforeClear);
+    }, [props, activeRecord]);
 
     const onChipRemove = useCallback(
       (_item: ContextItem) => {
