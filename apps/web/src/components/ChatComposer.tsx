@@ -950,9 +950,10 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
     }
 
     async function insertSkillMention(skill: SkillSummary) {
+      const mentionSnapshot = mention;
       const applied = await applyProjectSkill(skill);
       if (!applied) return;
-      replaceMentionWithText(`${inlineMentionToken(skill.name)} `);
+      replaceMentionWithText(`${inlineMentionToken(skill.name)} `, mentionSnapshot);
     }
 
     function removeStagedSkill(id: string) {
