@@ -765,20 +765,30 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
                 onClick={() => {
                   const ta = textareaRef.current;
                   if (!ta) return;
-                  const cursor = ta.selectionStart;
-                  const before = draft.slice(0, cursor);
-                  const after = draft.slice(cursor);
+                  // Use both selectionStart and selectionEnd so that any
+                  // selected text is replaced by @, matching the behavior
+                  // of typing @ into the textarea.
+                  const { selectionStart, selectionEnd } = ta;
+                  const before = draft.slice(0, selectionStart);
+                  const after = draft.slice(selectionEnd);
                   const next = before + '@' + after;
                   setDraft(next);
-                  // Manually open the mention popover, same as handleChange
-                  // does when it detects a fresh @ in the typed input.
-                  const pos = cursor + 1;
+                  // Recompute mention and slash from the updated draft,
+                  // exactly as handleChange does on every keystroke.
+                  const pos = selectionStart + 1;
                   const textBefore = next.slice(0, pos);
-                  const m = /(^|\\s)@([^\\s@]*)$/.exec(textBefore);
-                  if (m) {
-                    setMention({ q: m[2] ?? '', cursor: pos });
+                  const mentionM = /(^|\\s)@([^\\s@]*)$/.exec(textBefore);
+                  if (mentionM) {
+                    setMention({ q: mentionM[2] ?? '', cursor: pos });
                   } else {
                     setMention(null);
+                  }
+                  const slashM = /^\/([^\s/]*)$/.exec(textBefore);
+                  if (slashM) {
+                    setSlash({ q: slashM[1] ?? '', cursor: pos });
+                    setSlashIndex(0);
+                  } else {
+                    setSlash(null);
                   }
                   requestAnimationFrame(() => {
                     ta.focus();
