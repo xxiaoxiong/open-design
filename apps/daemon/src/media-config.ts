@@ -40,12 +40,25 @@ import os from 'node:os';
 import path from 'node:path';
 import { MEDIA_PROVIDERS } from './media-models.js';
 import { expandHomePrefix } from './home-expansion.js';
+import { resolveXAIBearer } from './xai-credentials.js';
+import { isSandboxModeEnabled } from './sandbox-mode.js';
 
 const PROVIDER_IDS = MEDIA_PROVIDERS.map((p) => p.id);
 type ProviderEntry = { apiKey?: string; baseUrl?: string; model?: string };
 type ProviderMap = Record<string, ProviderEntry>;
+type ModelAliasMap = Record<string, string>;
 type JsonRecord = Record<string, unknown>;
 type OAuthCredential = { apiKey: string; source: string };
+
+// Single env var carries the full alias map as JSON so we don't have
+// to dynamically lift `OD_MEDIA_MODEL_ALIAS_<id>=value` into a record
+// with all the env-var-name escaping that entails (Windows cmd.exe in
+// particular rejects hyphens). The shape mirrors the on-disk
+// `aliases` map so users can switch storage layers without rewriting
+// their workflow:
+//
+//   OD_MEDIA_MODEL_ALIASES='{"doubao-seedream-3-0-t2i-250415":"doubao-seedream-5-0"}'
+const ENV_MODEL_ALIASES = 'OD_MEDIA_MODEL_ALIASES';
 
 function isRecord(value: unknown): value is JsonRecord {
   return value !== null && typeof value === 'object';
@@ -74,6 +87,9 @@ const ENV_KEYS: Record<string, string[]> = {
   // it for the official SDK don't have to re-paste into Settings.
   grok: ['OD_GROK_API_KEY', 'XAI_API_KEY'],
   nanobanana: ['OD_NANOBANANA_API_KEY', 'GOOGLE_API_KEY', 'GEMINI_API_KEY'],
+  imagerouter: ['OD_IMAGEROUTER_API_KEY', 'IMAGEROUTER_API_KEY'],
+  openrouter: ['OD_OPENROUTER_API_KEY', 'OPENROUTER_API_KEY'],
+  'custom-image': ['OD_CUSTOM_IMAGE_API_KEY', 'CUSTOM_IMAGE_API_KEY'],
   bfl: ['OD_BFL_API_KEY', 'BFL_API_KEY'],
   fal: ['OD_FAL_KEY', 'FAL_KEY'],
   replicate: ['OD_REPLICATE_API_TOKEN', 'REPLICATE_API_TOKEN'],
@@ -85,7 +101,9 @@ const ENV_KEYS: Record<string, string[]> = {
   udio: ['OD_UDIO_API_KEY'],
   elevenlabs: ['OD_ELEVENLABS_API_KEY', 'ELEVENLABS_API_KEY'],
   fishaudio: ['OD_FISHAUDIO_API_KEY', 'FISH_AUDIO_API_KEY'],
+  senseaudio: ['OD_SENSEAUDIO_API_KEY', 'SENSEAUDIO_API_KEY'],
   tavily: ['OD_TAVILY_API_KEY', 'TAVILY_API_KEY'],
+  leonardo: ['OD_LEONARDO_API_KEY', 'LEONARDO_API_KEY'],
 };
 
 // Resolve an `OD_*_DIR` env override using the same semantics as
@@ -119,33 +137,123 @@ function envOverrideDir(envName: string, projectRoot: string): string | null {
   return trimmed ? resolveOverrideDir(trimmed, projectRoot) : null;
 }
 
-function configFile(projectRoot: string): string {
-  // Precedence: explicit media-config override > general data dir > default.
-  const dir =
+/**
+ * Resolve the directory media-config.json (and credentials living next to
+ * it, like xai-tokens.json) actually live in. Precedence: explicit
+ * media-config override > general data dir > default.
+ */
+export function mediaConfigDir(projectRoot: string): string {
+  return (
     envOverrideDir('OD_MEDIA_CONFIG_DIR', projectRoot)
     ?? envOverrideDir('OD_DATA_DIR', projectRoot)
-    ?? path.join(projectRoot, '.od');
-  return path.join(dir, 'media-config.json');
+    ?? path.join(projectRoot, '.od')
+  );
 }
 
-async function readStored(projectRoot: string): Promise<ProviderMap> {
+function configFile(projectRoot: string): string {
+  return path.join(mediaConfigDir(projectRoot), 'media-config.json');
+}
+
+/**
+ * Normalise an arbitrary unknown into a string-to-string map, dropping
+ * keys that have empty / non-string values. Shared by the env-var
+ * parser and the on-disk reader so both layers reject malformed
+ * entries the same way.
+ */
+function coerceAliasMap(raw: unknown): ModelAliasMap {
+  if (!isRecord(raw)) return {};
+  const out: ModelAliasMap = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (typeof k !== 'string' || !k.trim()) continue;
+    if (typeof v !== 'string' || !v.trim()) continue;
+    out[k.trim()] = v.trim();
+  }
+  return out;
+}
+
+async function readStoredFile(projectRoot: string): Promise<JsonRecord> {
   try {
     const raw = await readFile(configFile(projectRoot), 'utf8');
     const parsed = JSON.parse(raw);
-    if (isRecord(parsed) && isRecord(parsed.providers)) {
-      return parsed.providers as ProviderMap;
-    }
-    return {};
+    return isRecord(parsed) ? parsed : {};
   } catch (err) {
     if (errorCode(err) === 'ENOENT') return {};
     throw err;
   }
 }
 
-async function writeStored(projectRoot: string, providers: ProviderMap): Promise<void> {
+async function readStored(projectRoot: string): Promise<ProviderMap> {
+  const parsed = await readStoredFile(projectRoot);
+  return isRecord(parsed.providers) ? (parsed.providers as ProviderMap) : {};
+}
+
+async function readStoredAliases(projectRoot: string): Promise<ModelAliasMap> {
+  const parsed = await readStoredFile(projectRoot);
+  return coerceAliasMap(parsed.aliases);
+}
+
+async function writeStored(
+  projectRoot: string,
+  providers: ProviderMap,
+  aliases?: ModelAliasMap,
+): Promise<void> {
   const file = configFile(projectRoot);
   await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, JSON.stringify({ providers }, null, 2), 'utf8');
+  // Preserve any existing aliases when the caller doesn't pass them.
+  // The Settings UI writes providers only; without this, every
+  // provider edit would silently wipe the user's model aliases (issue
+  // #1277 introduces aliases but the Settings UI surface for editing
+  // them lands in a follow-up PR).
+  const resolvedAliases = aliases ?? (await readStoredAliases(projectRoot));
+  const body: JsonRecord = { providers };
+  if (Object.keys(resolvedAliases).length > 0) {
+    body.aliases = resolvedAliases;
+  }
+  await writeFile(file, JSON.stringify(body, null, 2), 'utf8');
+}
+
+function readEnvAliases(): ModelAliasMap {
+  const raw = process.env[ENV_MODEL_ALIASES];
+  if (typeof raw !== 'string' || !raw.trim()) return {};
+  try {
+    return coerceAliasMap(JSON.parse(raw));
+  } catch {
+    // Malformed JSON is non-fatal — the user can fix the env var
+    // without restarting the daemon mid-generation, and silent fall-
+    // through to the on-disk map matches the precedent of the rest
+    // of the env / stored config resolution in this module.
+    return {};
+  }
+}
+
+/**
+ * Resolve a registered model id to the wire-name the provider should
+ * actually receive on the network. Env wins over stored, mirroring
+ * the precedence the rest of media-config uses for `apiKey` (issue
+ * #1277). Pass-through when no alias is configured.
+ */
+export async function resolveModelAlias(
+  projectRoot: string,
+  modelId: string,
+): Promise<string> {
+  const envAliases = readEnvAliases();
+  if (envAliases[modelId]) return envAliases[modelId]!;
+  const stored = await readStoredAliases(projectRoot);
+  return stored[modelId] ?? modelId;
+}
+
+/**
+ * Read the merged alias map (env + stored). Exposed for the
+ * `/api/media/config` GET endpoint so the Settings UI can display
+ * which aliases are active and where they came from.
+ */
+export async function readAliasMap(
+  projectRoot: string,
+): Promise<{ effective: ModelAliasMap; env: ModelAliasMap; stored: ModelAliasMap }> {
+  const env = readEnvAliases();
+  const stored = await readStoredAliases(projectRoot);
+  const effective: ModelAliasMap = { ...stored, ...env };
+  return { effective, env, stored };
 }
 
 function readEnvKey(providerId: string): string | null {
@@ -180,54 +288,58 @@ async function readJsonIfPresent(file: string): Promise<JsonRecord | null> {
   }
 }
 
-function tokenFromHermesAuth(data: unknown): string {
-  const providerToken = readNestedString(data, [
-    'providers',
-    'openai-codex',
-    'tokens',
-    'access_token',
-  ]);
-  if (providerToken) return providerToken;
-
-  const pool =
-    isRecord(data) && isRecord(data.credential_pool)
-      ? data.credential_pool['openai-codex']
-      : null;
-  if (Array.isArray(pool)) {
-    for (const item of pool) {
-      const token = readNestedString(item, ['access_token']);
-      if (token) return token;
-    }
-  }
-  return '';
+function apiKeyFromCodexAuth(data: unknown): string {
+  return readNestedString(data, ['OPENAI_API_KEY']);
 }
 
-function tokenFromCodexAuth(data: unknown): { token: string; source: string } | null {
-  const oauthToken = readNestedString(data, ['tokens', 'access_token']);
-  if (oauthToken) return { token: oauthToken, source: 'oauth-codex' };
-
-  const apiKey = readNestedString(data, ['OPENAI_API_KEY']);
-  if (apiKey) return { token: apiKey, source: 'codex-auth' };
+async function resolveOpenAIAuthFileCredential(): Promise<OAuthCredential | null> {
+  if (isSandboxModeEnabled(process.env)) return null;
+  const home = os.homedir();
+  const codexAuth = await readJsonIfPresent(
+    path.join(home, '.codex', 'auth.json'),
+  );
+  const apiKey = apiKeyFromCodexAuth(codexAuth);
+  if (apiKey) {
+    return { apiKey, source: 'codex-auth' };
+  }
 
   return null;
 }
 
-async function resolveOpenAIOAuthCredential(): Promise<OAuthCredential | null> {
+async function resolveXAIOAuthCredential(
+  projectRoot: string,
+): Promise<OAuthCredential | null> {
+  // 1. OD-native xAI OAuth tokens (written by the daemon's own
+  //    xai-oauth.ts client when the user authorizes inside OD).
+  const odBearer = await resolveXAIBearer(mediaConfigDir(projectRoot)).catch(
+    () => null,
+  );
+  if (odBearer) {
+    return {
+      apiKey: odBearer.accessToken,
+      source: `oauth-xai-${odBearer.source}`,
+    };
+  }
+
+  if (isSandboxModeEnabled(process.env)) return null;
+
+  // 2. Borrow the xAI OAuth token Hermes wrote to ~/.hermes/auth.json
+  //    when the user ran `hermes auth add xai-oauth`. A user who has already authorized
+  //    Hermes doesn't have to run a second OAuth dance inside OD.
+  //    (No proactive refresh here — Hermes itself maintains the token,
+  //    and we only borrow what is currently fresh.)
   const home = os.homedir();
   const hermesAuth = await readJsonIfPresent(
     path.join(home, '.hermes', 'auth.json'),
   );
-  const hermesToken = tokenFromHermesAuth(hermesAuth);
-  if (hermesToken) {
-    return { apiKey: hermesToken, source: 'oauth-hermes' };
-  }
-
-  const codexAuth = await readJsonIfPresent(
-    path.join(home, '.codex', 'auth.json'),
-  );
-  const codexToken = tokenFromCodexAuth(codexAuth);
-  if (codexToken) {
-    return { apiKey: codexToken.token, source: codexToken.source };
+  const hermesXaiToken = readNestedString(hermesAuth, [
+    'providers',
+    'xai-oauth',
+    'tokens',
+    'access_token',
+  ]);
+  if (hermesXaiToken) {
+    return { apiKey: hermesXaiToken, source: 'oauth-hermes-xai' };
   }
 
   return null;
@@ -235,19 +347,25 @@ async function resolveOpenAIOAuthCredential(): Promise<OAuthCredential | null> {
 
 /**
  * Resolve credentials for a provider. Env vars win, then stored config,
- * then OpenAI/Codex OAuth for the OpenAI media provider.
+ * then provider-specific external credential stores. OpenAI only trusts
+ * explicit API keys from Codex auth files; Codex/Hermes OAuth tokens are
+ * not valid proof that the Images API can be called.
  * Returns { apiKey, baseUrl } where either may be empty string.
  */
 export async function resolveProviderConfig(projectRoot: string, providerId: string): Promise<ProviderEntry> {
   const stored = await readStored(projectRoot);
   const entry = stored[providerId] || {};
   const envKey = readEnvKey(providerId);
-  const oauth =
-    providerId === 'openai' && !envKey && !entry.apiKey
-      ? await resolveOpenAIOAuthCredential()
-      : null;
+  const needsExternalCredential = !envKey && !entry.apiKey;
+  const externalCredential = needsExternalCredential
+    ? providerId === 'openai'
+      ? await resolveOpenAIAuthFileCredential()
+      : providerId === 'grok'
+        ? await resolveXAIOAuthCredential(projectRoot)
+        : null
+    : null;
   return {
-    apiKey: envKey || entry.apiKey || oauth?.apiKey || '',
+    apiKey: envKey || entry.apiKey || externalCredential?.apiKey || '',
     baseUrl: entry.baseUrl || '',
     ...(typeof entry.model === 'string' && entry.model.trim()
       ? { model: entry.model.trim() }
@@ -260,23 +378,38 @@ export async function resolveProviderConfig(projectRoot: string, providerId: str
  * frontend can show "••••" + a "configured" indicator without leaking
  * the secret back into the DOM.
  */
-export async function readMaskedConfig(projectRoot: string): Promise<{ providers: Record<string, { configured: boolean; source: string; apiKeyTail: string; baseUrl: string; model?: string }> }> {
+export interface MaskedConfigResponse {
+  providers: Record<string, { configured: boolean; source: string; apiKeyTail: string; baseUrl: string; model?: string }>;
+  /**
+   * Effective alias map plus source attribution. The Settings UI can
+   * show "from env" vs "from media-config.json" badges next to each
+   * entry without needing a second endpoint. Empty maps mean no
+   * aliases are configured (issue #1277).
+   */
+  aliases: { effective: ModelAliasMap; env: ModelAliasMap; stored: ModelAliasMap };
+}
+
+export async function readMaskedConfig(projectRoot: string): Promise<MaskedConfigResponse> {
   const stored = await readStored(projectRoot);
-  const providers: Record<string, { configured: boolean; source: string; apiKeyTail: string; baseUrl: string; model?: string }> = {};
+  const providers: MaskedConfigResponse['providers'] = {};
   for (const id of PROVIDER_IDS) {
     const entry = stored[id] || {};
     const envKey = readEnvKey(id);
     const hasStoredKey = typeof entry.apiKey === 'string' && entry.apiKey.length > 0;
-    const oauth =
-      id === 'openai' && !envKey && !hasStoredKey
-        ? await resolveOpenAIOAuthCredential()
-        : null;
+    const needsExternalCredential = !envKey && !hasStoredKey;
+    const externalCredential = needsExternalCredential
+      ? id === 'openai'
+        ? await resolveOpenAIAuthFileCredential()
+        : id === 'grok'
+          ? await resolveXAIOAuthCredential(projectRoot)
+          : null
+      : null;
     providers[id] = {
-      configured: Boolean(envKey || hasStoredKey || oauth?.apiKey),
-      source: envKey ? 'env' : hasStoredKey ? 'stored' : oauth?.source || 'unset',
+      configured: Boolean(envKey || hasStoredKey || externalCredential?.apiKey),
+      source: envKey ? 'env' : hasStoredKey ? 'stored' : externalCredential?.source || 'unset',
       // Show last 4 chars only when stored locally; never echo env-var
-      // or OAuth secrets so power users don't accidentally see them in
-      // the DOM.
+      // or borrowed auth-file/OAuth secrets so power users don't
+      // accidentally see them in the DOM.
       apiKeyTail: hasStoredKey && entry.apiKey ? entry.apiKey.slice(-4) : '',
       baseUrl: entry.baseUrl || '',
       ...(typeof entry.model === 'string' && entry.model.trim()
@@ -284,7 +417,8 @@ export async function readMaskedConfig(projectRoot: string): Promise<{ providers
         : {}),
     };
   }
-  return { providers };
+  const aliases = await readAliasMap(projectRoot);
+  return { providers, aliases };
 }
 
 /**
@@ -355,4 +489,54 @@ export async function writeConfig(projectRoot: string, body: unknown) {
   }
   await writeStored(projectRoot, next);
   return readMaskedConfig(projectRoot);
+}
+
+/**
+ * Idempotent "seed if empty" write for a single provider slot. The chat
+ * proxy uses this to mirror a BYOK key into media-config so the agent's
+ * image / TTS path picks up the same credential without the user having
+ * to paste it twice. Strict rules:
+ *   * No-op when an apiKey is ALREADY stored for `providerId` (the user
+ *     may have configured Media independently and we never overwrite).
+ *   * No-op when an env-var key resolves for `providerId` (env wins
+ *     regardless of disk state — seeding would be invisible).
+ *   * No-op when the incoming `apiKey` is empty (we only seed values
+ *     the chat layer has just verified upstream).
+ *   * Otherwise merge `{ [providerId]: entry }` into the existing
+ *     provider map and persist. All other provider slots and aliases
+ *     are preserved byte-for-byte.
+ *
+ * Returns `true` when a write happened (caller can log), `false` when
+ * the call was a no-op. Errors are surfaced — the caller decides
+ * whether to swallow them (fire-and-forget) or propagate.
+ */
+export async function seedProviderIfMissing(
+  projectRoot: string,
+  providerId: string,
+  entry: { apiKey?: string; baseUrl?: string; model?: string },
+): Promise<boolean> {
+  if (!PROVIDER_IDS.includes(providerId)) return false;
+  const apiKey = entry.apiKey?.trim() ?? '';
+  if (!apiKey) return false;
+  // Env var wins at resolution time, so seeding when env is set would
+  // be invisible to the user. Skip to avoid confusing on-disk state.
+  if (readEnvKey(providerId)) return false;
+
+  const prior = await readStored(projectRoot);
+  const priorApiKey =
+    typeof prior[providerId]?.apiKey === 'string' && prior[providerId].apiKey.trim()
+      ? prior[providerId].apiKey.trim()
+      : '';
+  if (priorApiKey) return false;
+
+  const baseUrl = entry.baseUrl?.trim() ?? '';
+  const model = entry.model?.trim() ?? '';
+  const next: ProviderMap = { ...prior };
+  next[providerId] = {
+    apiKey,
+    ...(baseUrl ? { baseUrl } : {}),
+    ...(model ? { model } : {}),
+  };
+  await writeStored(projectRoot, next);
+  return true;
 }

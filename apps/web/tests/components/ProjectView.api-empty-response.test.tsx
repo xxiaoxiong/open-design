@@ -7,7 +7,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProjectView } from '../../src/components/ProjectView';
 import { streamMessage } from '../../src/providers/anthropic';
 import type { StreamHandlers } from '../../src/providers/anthropic';
-import { patchPreviewCommentStatus, writeProjectTextFile } from '../../src/providers/registry';
+import {
+  fetchProjectFilePreview,
+  fetchProjectFileText,
+  fetchProjectFiles,
+  patchPreviewCommentStatus,
+  writeProjectTextFile,
+} from '../../src/providers/registry';
 import { listMessages, saveMessage } from '../../src/state/projects';
 import { playSound } from '../../src/utils/notifications';
 import type {
@@ -24,6 +30,7 @@ import type {
 } from '../../src/types';
 
 const chatPaneMockState = vi.hoisted(() => ({
+  attachments: [] as ChatAttachment[],
   commentAttachments: [] as ChatCommentAttachment[],
 }));
 
@@ -38,6 +45,7 @@ vi.mock('../../src/providers/anthropic', () => ({
 vi.mock('../../src/providers/daemon', () => ({
   fetchChatRunStatus: vi.fn(),
   listActiveChatRuns: vi.fn().mockResolvedValue([]),
+  listProjectRuns: vi.fn().mockResolvedValue([]),
   reattachDaemonRun: vi.fn(),
   streamViaDaemon: vi.fn(),
 }));
@@ -65,6 +73,8 @@ vi.mock('../../src/providers/registry', async () => {
     deletePreviewComment: vi.fn(),
     fetchDesignSystem: vi.fn().mockResolvedValue(null),
     fetchLiveArtifacts: vi.fn().mockResolvedValue([]),
+    fetchProjectFilePreview: vi.fn().mockResolvedValue(null),
+    fetchProjectFileText: vi.fn().mockResolvedValue(null),
     fetchPreviewComments: vi.fn().mockResolvedValue([]),
     fetchProjectFiles: vi.fn().mockResolvedValue([]),
     fetchSkill: vi.fn().mockResolvedValue(null),
@@ -109,7 +119,9 @@ vi.mock('../../src/components/AvatarMenu', () => ({
 }));
 
 vi.mock('../../src/components/FileWorkspace', () => ({
-  FileWorkspace: () => <div data-testid="file-workspace" />,
+  FileWorkspace: ({ openRequest }: { openRequest?: { name: string; nonce: number } | null }) => (
+    <div data-testid="file-workspace" data-open-request-name={openRequest?.name ?? ''} />
+  ),
 }));
 
 vi.mock('../../src/components/Loading', () => ({
@@ -120,6 +132,7 @@ vi.mock('../../src/components/ChatPane', () => ({
   ChatPane: ({
     messages,
     onSend,
+    onRetry,
     error,
   }: {
     messages: ChatMessage[];
@@ -128,11 +141,25 @@ vi.mock('../../src/components/ChatPane', () => ({
       attachments: ChatAttachment[],
       commentAttachments: ChatCommentAttachment[],
     ) => void;
+    onRetry?: (assistantMessage: ChatMessage) => void;
     error?: string | null;
-  }) => (
-    <div>
-      {error ? <div>{error}</div> : null}
-      <button type="button" onClick={() => onSend('Create a login page', [], chatPaneMockState.commentAttachments)}>
+  }) => {
+    const lastMessage = messages[messages.length - 1];
+    const retryMessage = lastMessage?.role === 'assistant' && lastMessage.runStatus === 'failed'
+      ? lastMessage
+      : null;
+    return (
+      <div>
+        {error ? <div>{error}</div> : null}
+        {error && retryMessage && onRetry ? (
+          <button type="button" onClick={() => onRetry(retryMessage)}>
+            retry
+          </button>
+        ) : null}
+      <button
+        type="button"
+        onClick={() => onSend('Create a login page', chatPaneMockState.attachments, chatPaneMockState.commentAttachments)}
+      >
         send
       </button>
       {messages.map((message) => (
@@ -147,11 +174,15 @@ vi.mock('../../src/components/ChatPane', () => ({
           ))}
         </article>
       ))}
-    </div>
-  ),
+      </div>
+    );
+  },
 }));
 
 const mockedStreamMessage = vi.mocked(streamMessage);
+const mockedFetchProjectFilePreview = vi.mocked(fetchProjectFilePreview);
+const mockedFetchProjectFileText = vi.mocked(fetchProjectFileText);
+const mockedFetchProjectFiles = vi.mocked(fetchProjectFiles);
 const mockedListMessages = vi.mocked(listMessages);
 const mockedSaveMessage = vi.mocked(saveMessage);
 const mockedWriteProjectTextFile = vi.mocked(writeProjectTextFile);
@@ -211,11 +242,25 @@ function renderProjectView(renderProject: Project = project) {
 
 describe('ProjectView API empty response handling', () => {
   beforeEach(() => {
+    chatPaneMockState.attachments = [];
     chatPaneMockState.commentAttachments = [];
     mockedStreamMessage.mockReset();
+    mockedFetchProjectFilePreview.mockReset();
+    mockedFetchProjectFileText.mockReset();
+    mockedFetchProjectFiles.mockReset();
+    mockedFetchProjectFilePreview.mockResolvedValue(null);
+    mockedFetchProjectFileText.mockResolvedValue(null);
+    mockedFetchProjectFiles.mockResolvedValue([]);
+    mockedWriteProjectTextFile.mockResolvedValue({
+      name: 'landing-page.html',
+      path: 'landing-page.html',
+      kind: 'html',
+      mime: 'text/html',
+      size: 1,
+      mtime: 1,
+    });
     mockedListMessages.mockClear();
     mockedSaveMessage.mockClear();
-    mockedWriteProjectTextFile.mockClear();
     mockedPatchPreviewCommentStatus.mockClear();
     mockedPlaySound.mockClear();
   });
@@ -263,12 +308,47 @@ describe('ProjectView API empty response handling', () => {
     expect(mockedPlaySound).toHaveBeenCalledWith('failure-sound');
   });
 
-  it('keeps project action entry points visible above the workspace', async () => {
+  it('retries a failed API turn without appending a duplicate user message', async () => {
+    let callCount = 0;
+    mockedStreamMessage.mockImplementation(async (
+      _cfg: AppConfig,
+      _system: string,
+      _history: ChatMessage[],
+      _signal: AbortSignal,
+      handlers: StreamHandlers,
+    ) => {
+      callCount += 1;
+      if (callCount === 1) {
+        handlers.onError(new Error('model crashed'));
+      }
+    });
     renderProjectView();
 
-    expect(screen.getByRole('toolbar', { name: 'Project actions' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Finalize design package' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Continue in CLI' })).toBeTruthy();
+    await sendTestPrompt();
+
+    await waitFor(() => expect(screen.getByText('model crashed')).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+
+    await waitFor(() => expect(mockedStreamMessage).toHaveBeenCalledTimes(2));
+    const retryHistory = mockedStreamMessage.mock.calls[1]![2] as ChatMessage[];
+    expect(retryHistory.map((message) => `${message.role}:${message.content}`)).toEqual([
+      'user:Create a login page',
+    ]);
+    expect(
+      mockedSaveMessage.mock.calls.filter((call) => {
+        const message = call[2] as ChatMessage;
+        return message.role === 'user' && message.content === 'Create a login page';
+      }),
+    ).toHaveLength(1);
+  });
+
+  it('renders the workspace without the removed project action toolbar', async () => {
+    renderProjectView();
+
+    expect(screen.getByTestId('file-workspace')).toBeTruthy();
+    expect(screen.queryByRole('toolbar', { name: 'Project actions' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Finalize design package' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Continue in CLI' })).toBeNull();
   });
 
   it('marks attached saved comments as failed when an API completion has no output', async () => {
@@ -338,6 +418,60 @@ describe('ProjectView API empty response handling', () => {
     expect(screen.queryByText(/provider ended the request/i)).toBeNull();
   });
 
+  it('inlines attached document text into the BYOK prompt sent to API providers', async () => {
+    chatPaneMockState.attachments = [
+      { path: 'brief.docx', name: 'brief.docx', kind: 'file', size: 1024 },
+    ];
+    mockedFetchProjectFiles.mockResolvedValue([
+      {
+        name: 'brief.docx',
+        path: 'brief.docx',
+        kind: 'document',
+        mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        size: 1024,
+        mtime: 1,
+      },
+    ] as never);
+    mockedFetchProjectFilePreview.mockResolvedValue({
+      kind: 'document',
+      title: 'brief.docx',
+      sections: [
+        {
+          title: 'Document',
+          lines: ['Hello world', 'Second line'],
+        },
+      ],
+    } as never);
+
+    let capturedHistory: ChatMessage[] = [];
+    mockedStreamMessage.mockImplementation(async (
+      _cfg: AppConfig,
+      _system: string,
+      history: ChatMessage[],
+      _signal: AbortSignal,
+      handlers: StreamHandlers,
+    ) => {
+      capturedHistory = history;
+      handlers.onDelta('hello');
+      handlers.onDone('hello');
+    });
+
+    renderProjectView();
+
+    await sendTestPrompt();
+
+    await waitFor(() => {
+      expect(mockedFetchProjectFilePreview).toHaveBeenCalledWith(project.id, 'brief.docx');
+    });
+    expect(mockedFetchProjectFileText).not.toHaveBeenCalled();
+    const userMessage = capturedHistory.at(-1);
+    expect(userMessage?.role).toBe('user');
+    expect(userMessage?.content).toContain('<attached-project-files>');
+    expect(userMessage?.content).toContain('brief.docx');
+    expect(userMessage?.content).toContain('Hello world');
+    expect(userMessage?.content).toContain('Second line');
+  });
+
   it('plays the success sound for API completions that become succeeded after starting without runStatus', async () => {
     mockedStreamMessage.mockImplementation(async (
       _cfg: AppConfig,
@@ -384,6 +518,44 @@ describe('ProjectView API empty response handling', () => {
     await waitFor(() => expect(mockedWriteProjectTextFile).toHaveBeenCalled());
     expect(screen.queryByText(/provider ended the request/i)).toBeNull();
     expect(screen.queryByText('empty_response:deepseek-chat')).toBeNull();
+  });
+
+  it('opens the real HTML page instead of saving a pointer artifact as the preview entry', async () => {
+    const realPage = {
+      name: 'worker-edition-v2.html',
+      path: 'worker-edition-v2.html',
+      kind: 'html',
+      mime: 'text/html',
+      size: 60_000,
+      mtime: 1,
+    };
+    mockedFetchProjectFiles.mockResolvedValue([realPage] as never);
+    const artifact =
+      '<artifact identifier="worker-edition-v2" type="text/html" title="合同审查报告">' +
+      '见 worker-edition-v2.html' +
+      '</artifact>';
+    mockedStreamMessage.mockImplementation(async (
+      _cfg: AppConfig,
+      _system: string,
+      _history: ChatMessage[],
+      _signal: AbortSignal,
+      handlers: StreamHandlers,
+    ) => {
+      handlers.onDelta(artifact);
+      handlers.onDone('');
+    });
+    renderProjectView();
+
+    await sendTestPrompt();
+
+    await waitFor(() => {
+      expect(hasSavedAssistantMessage((message) => message.runStatus === 'succeeded')).toBe(true);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('file-workspace').dataset.openRequestName).toBe('worker-edition-v2.html');
+    });
+    expect(mockedWriteProjectTextFile).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Refused to save artifact/i)).toBeNull();
   });
 
   it('injects ElevenLabs voice options into API-mode audio project prompts', async () => {

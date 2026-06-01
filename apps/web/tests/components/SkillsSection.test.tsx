@@ -39,8 +39,16 @@ function makeSkill(overrides: Partial<SkillSummary>): SkillSummary {
   };
 }
 
-function renderSkillsSection(skills: SkillSummary[]) {
+function renderSkillsSection(
+  skills: SkillSummary[],
+  options?: {
+    onSkillsRefresh?: () => void | Promise<void>;
+    onSkillsChanged?: (id?: string) => void;
+  },
+) {
   const setCfg = vi.fn();
+  const onSkillsRefresh = options?.onSkillsRefresh;
+  const onSkillsChanged = options?.onSkillsChanged;
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = input.toString();
     if (url === '/api/skills' && (!init || init.method === undefined)) {
@@ -49,8 +57,54 @@ function renderSkillsSection(skills: SkillSummary[]) {
         headers: { 'content-type': 'application/json' },
       });
     }
+    if (url === '/api/skills/import' && init?.method === 'POST') {
+      return new Response(
+        JSON.stringify({
+          skill: makeSkill({
+            id: 'new-skill',
+            name: 'New skill',
+            source: 'user',
+          }),
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      );
+    }
     if (url.startsWith('/api/skills/') && init?.method === 'DELETE') {
       return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (url.startsWith('/api/skills/') && init?.method === 'PUT') {
+      const id = decodeURIComponent(url.split('/').pop() ?? '');
+      const payload = init.body
+        ? (JSON.parse(init.body as string) as { name?: string; description?: string; body?: string; triggers?: string[] })
+        : {};
+      const updated = makeSkill({
+        id,
+        name: payload.name ?? id,
+        description: payload.description ?? '',
+        triggers: payload.triggers ?? [],
+        source: 'user',
+      });
+      return new Response(JSON.stringify({ skill: updated }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (url.match(/^\/api\/skills\/[^/]+\/files$/) && (!init || init.method === undefined)) {
+      return new Response(JSON.stringify({ files: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (url.match(/^\/api\/skills\/[^/]+$/) && (!init || init.method === undefined)) {
+      const id = decodeURIComponent(url.split('/').pop() ?? '');
+      const summary = makeSkill({ id });
+      return new Response(JSON.stringify({ ...summary, body: '' }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
@@ -62,9 +116,16 @@ function renderSkillsSection(skills: SkillSummary[]) {
     <SkillsSection
       cfg={TEST_CONFIG}
       setCfg={setCfg}
+      onSkillsRefresh={onSkillsRefresh}
+      onSkillsChanged={onSkillsChanged}
     />,
   );
-  return { fetchMock: globalThis.fetch as ReturnType<typeof vi.fn>, setCfg };
+  return {
+    fetchMock: globalThis.fetch as ReturnType<typeof vi.fn>,
+    setCfg,
+    onSkillsRefresh,
+    onSkillsChanged,
+  };
 }
 
 describe('SkillsSection', () => {
@@ -156,6 +217,86 @@ describe('SkillsSection', () => {
     expect(await within(row).findByTestId('skills-edit-form')).toBeTruthy();
   });
 
+  it('refreshes app-level skills after creating a skill', async () => {
+    const onSkillsRefresh = vi.fn();
+    renderSkillsSection([], { onSkillsRefresh });
+
+    fireEvent.click(await screen.findByTestId('skills-new'));
+    const form = await screen.findByTestId('skills-create-form');
+    fireEvent.change(within(form).getByPlaceholderText('my-skill'), {
+      target: { value: 'New skill' },
+    });
+    fireEvent.change(within(form).getAllByRole('textbox').at(-1)!, {
+      target: { value: '# New skill\n\nDo the thing.' },
+    });
+    fireEvent.click(within(form).getByTestId('skills-save'));
+
+    await waitFor(() => {
+      expect(onSkillsRefresh).toHaveBeenCalledTimes(1);
+    });
+    expect(
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.some(
+        ([url, init]) =>
+          url.toString() === '/api/skills/import' && init?.method === 'POST',
+      ),
+    ).toBe(true);
+  });
+
+  // Regression for the mrcfps follow-up on PR #2190: when a user edits
+  // only the body of a skill (no name/description/trigger changes), the
+  // SkillSummary fields ProjectView hashes do not move and the
+  // signature-driven eviction misses the change. SkillsSection must
+  // notify the App shell so the preview keep-alive pool can drop any
+  // entry whose project uses this skill.
+  it('notifies onSkillsChanged after a body-only edit', async () => {
+    const onSkillsChanged = vi.fn();
+    renderSkillsSection(
+      [
+        makeSkill({
+          id: 'user-skill',
+          name: 'User skill',
+          description: 'Original description',
+          triggers: ['ping'],
+          source: 'user',
+        }),
+      ],
+      { onSkillsChanged },
+    );
+
+    const row = await screen.findByTestId('skill-row-user-skill');
+    fireEvent.click(within(row).getByTestId('skills-edit'));
+    const form = await within(row).findByTestId('skills-edit-form');
+    const bodyField = within(form).getAllByRole('textbox').at(-1) as HTMLTextAreaElement;
+    fireEvent.change(bodyField, { target: { value: 'A fresh body that did not exist before.' } });
+    fireEvent.click(within(form).getByTestId('skills-save'));
+
+    await waitFor(() => {
+      expect(onSkillsChanged).toHaveBeenCalledWith('user-skill');
+    });
+  });
+
+  it('notifies onSkillsChanged after a delete', async () => {
+    const onSkillsChanged = vi.fn();
+    renderSkillsSection(
+      [
+        makeSkill({
+          id: 'user-skill',
+          name: 'User skill',
+          source: 'user',
+        }),
+      ],
+      { onSkillsChanged },
+    );
+
+    const row = await screen.findByTestId('skill-row-user-skill');
+    fireEvent.click(within(row).getByTestId('skills-delete'));
+    fireEvent.click(within(row).getByTestId('skills-delete-confirm'));
+
+    await waitFor(() => {
+      expect(onSkillsChanged).toHaveBeenCalledWith('user-skill');
+    });
+  });
+
   it('treats skills with undefined source as built-in for filtering and counting', async () => {
     renderSkillsSection([
       makeSkill({
@@ -178,26 +319,27 @@ describe('SkillsSection', () => {
     // Wait for skills to load
     await screen.findByTestId('skill-row-undefined-source-skill');
 
-    // Find the source filter tabs
-    const builtinTab = screen.getByRole('button', { name: /built-in/i });
-    const userTab = screen.getByRole('button', { name: /user/i });
+    // Find the source filter select
+    const sourceSelect = screen.getByRole('combobox', { name: /source/i });
 
-    // Built-in tab should count both explicit built-in and undefined source (2 total)
-    expect(builtinTab.textContent).toMatch(/2/);
-    
-    // User tab should only count explicit user skills (1 total)
-    expect(userTab.textContent).toMatch(/1/);
+    // Check that the built-in option shows count of 2 (explicit + undefined)
+    const builtinOption = within(sourceSelect).getByRole('option', { name: /built-in.*2/i });
+    expect(builtinOption).toBeInTheDocument();
 
-    // Click built-in tab - should show both explicit and undefined source skills
-    fireEvent.click(builtinTab);
+    // Check that the user option shows count of 1
+    const userOption = within(sourceSelect).getByRole('option', { name: /user.*1/i });
+    expect(userOption).toBeInTheDocument();
+
+    // Select built-in - should show both explicit and undefined source skills
+    fireEvent.change(sourceSelect, { target: { value: 'built-in' } });
     await waitFor(() => {
       expect(screen.getByTestId('skill-row-undefined-source-skill')).toBeInTheDocument();
       expect(screen.getByTestId('skill-row-explicit-builtin')).toBeInTheDocument();
       expect(screen.queryByTestId('skill-row-user-skill')).toBeNull();
     });
 
-    // Click user tab - should only show user skills
-    fireEvent.click(userTab);
+    // Select user - should only show user skills
+    fireEvent.change(sourceSelect, { target: { value: 'user' } });
     await waitFor(() => {
       expect(screen.queryByTestId('skill-row-undefined-source-skill')).toBeNull();
       expect(screen.queryByTestId('skill-row-explicit-builtin')).toBeNull();

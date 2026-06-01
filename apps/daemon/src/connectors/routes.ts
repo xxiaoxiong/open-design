@@ -2,7 +2,7 @@ import net from 'node:net';
 
 import type { Express, Request, RequestHandler, Response } from 'express';
 
-import type { ToolTokenGrant } from '../tool-tokens.js';
+import { checkConnectorAccess, type ToolTokenGrant } from '../tool-tokens.js';
 import { validateBoundedJsonObject } from '../live-artifacts/schema.js';
 import { executeConnectorTool, listConnectorTools } from '../tools/connectors.js';
 import { readComposioConfig, readPublicComposioConfig, writeComposioConfig } from './composio-config.js';
@@ -15,6 +15,7 @@ type ConnectorApiErrorCode =
   | 'VALIDATION_FAILED'
   | 'CONNECTOR_NOT_FOUND'
   | 'CONNECTOR_NOT_CONNECTED'
+  | 'CONNECTOR_NOT_GRANTED'
   | 'CONNECTOR_DISABLED'
   | 'CONNECTOR_TOOL_NOT_FOUND'
   | 'CONNECTOR_SAFETY_DENIED'
@@ -588,7 +589,7 @@ export function registerConnectorRoutes(app: Express, options: RegisterConnector
     }
   });
 
-  app.get('/api/connectors/:connectorId', async (req: Request, res: Response) => {
+  app.get('/api/connectors/:connectorId', async (req: Request<{ connectorId: string }>, res: Response) => {
     try {
       const connectorId = req.params.connectorId;
       if (!connectorId) return options.sendApiError(res, 400, 'CONNECTOR_NOT_FOUND', 'connectorId is required');
@@ -624,7 +625,7 @@ export function registerConnectorRoutes(app: Express, options: RegisterConnector
     }
   });
 
-  app.post('/api/connectors/:connectorId/connect', requireLocalDaemonRequest, async (req: Request, res: Response) => {
+  app.post('/api/connectors/:connectorId/connect', requireLocalDaemonRequest, async (req: Request<{ connectorId: string }>, res: Response) => {
     try {
       const connectorId = req.params.connectorId;
       if (!connectorId) return options.sendApiError(res, 400, 'CONNECTOR_NOT_FOUND', 'connectorId is required');
@@ -652,7 +653,7 @@ export function registerConnectorRoutes(app: Express, options: RegisterConnector
     }
   });
 
-  app.get('/api/connectors/oauth/callback/:connectorId', async (req: Request, res: Response) => {
+  app.get('/api/connectors/oauth/callback/:connectorId', async (req: Request<{ connectorId: string }>, res: Response) => {
     try {
       const connectorId = req.params.connectorId;
       if (!connectorId) return options.sendApiError(res, 400, 'CONNECTOR_NOT_FOUND', 'connectorId is required');
@@ -673,7 +674,7 @@ export function registerConnectorRoutes(app: Express, options: RegisterConnector
     }
   });
 
-  app.post('/api/connectors/:connectorId/authorization/cancel', requireLocalDaemonRequest, async (req: Request, res: Response) => {
+  app.post('/api/connectors/:connectorId/authorization/cancel', requireLocalDaemonRequest, async (req: Request<{ connectorId: string }>, res: Response) => {
     try {
       const connectorId = req.params.connectorId;
       if (!connectorId) return options.sendApiError(res, 400, 'CONNECTOR_NOT_FOUND', 'connectorId is required');
@@ -683,7 +684,7 @@ export function registerConnectorRoutes(app: Express, options: RegisterConnector
     }
   });
 
-  app.delete('/api/connectors/:connectorId/connection', requireLocalDaemonRequest, async (req: Request, res: Response) => {
+  app.delete('/api/connectors/:connectorId/connection', requireLocalDaemonRequest, async (req: Request<{ connectorId: string }>, res: Response) => {
     try {
       const connectorId = req.params.connectorId;
       if (!connectorId) return options.sendApiError(res, 400, 'CONNECTOR_NOT_FOUND', 'connectorId is required');
@@ -756,6 +757,18 @@ export function registerConnectorRoutes(app: Express, options: RegisterConnector
       }
       if (typeof toolName !== 'string' || toolName.length === 0) {
         options.sendApiError(res, 400, 'BAD_REQUEST', 'toolName is required');
+        return;
+      }
+
+      // Plan §3.A3 / spec §9: re-validate the plugin connector capability
+      // gate on every call so a token replacement attack never bypasses
+      // the §5.3 rule. When the grant has no plugin context the gate is
+      // a no-op.
+      const connectorGate = checkConnectorAccess(grant, connectorId);
+      if (!connectorGate.ok) {
+        options.sendApiError(res, 403, 'CONNECTOR_NOT_GRANTED', connectorGate.reason, {
+          details: { connectorId },
+        });
         return;
       }
       const inputValidation = validateBoundedJsonObject(input ?? {}, 'input');

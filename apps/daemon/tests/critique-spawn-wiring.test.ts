@@ -18,8 +18,6 @@ import { loadCritiqueConfigFromEnv } from '../src/critique/config.js';
 import { runOrchestrator, type CritiqueSseBus } from '../src/critique/orchestrator.js';
 import type { CritiqueSseEvent } from '@open-design/contracts/critique';
 import { defaultCritiqueConfig } from '@open-design/contracts/critique';
-import { createRuntimeAdapter } from '../src/runtimes/runtime-adapter.js';
-import { minimalAgentDef } from './runtimes/helpers/test-helpers.js';
 
 function freshDb(): Database.Database {
   const db = new Database(':memory:');
@@ -174,32 +172,28 @@ describe('spawn wiring - cfg.enabled=true (orchestrator path)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Runtime adapter capability gating (Defect 1)
+// Stream format gating (Defect 1)
 // ---------------------------------------------------------------------------
-// The server gates the orchestrator path on adapter.supportsCritiqueTheater().
+// The server gates the orchestrator path on streamFormat === 'plain'.
 // We test the logic inline: simulate the server branch condition and verify
-// that adapters without the capability skip the orchestrator entirely.
+// that non-plain adapters skip the orchestrator entirely.
 
-describe('spawn wiring - runtime adapter critique capability (Defect 1)', () => {
+describe('spawn wiring - stream format gating (Defect 1)', () => {
   const NON_PLAIN_FORMATS = [
     'claude-stream-json',
     'qoder-stream-json',
     'copilot-stream-json',
     'json-event-stream',
-    'pi-rpc',
     'acp-json-rpc',
   ] as const;
 
   for (const fmt of NON_PLAIN_FORMATS) {
-    it(`adapter format="${fmt}" skips the orchestrator (no run row inserted)`, async () => {
-      // Simulate the server branch: if critique capability is absent, skip orchestrator.
+    it(`format="${fmt}" skips the orchestrator (no run row inserted)`, async () => {
+      // Simulate the server branch: if streamFormat !== 'plain', skip orchestrator.
       const cfg = loadCritiqueConfigFromEnv({ OD_CRITIQUE_ENABLED: '1' });
-      const adapter = createRuntimeAdapter(minimalAgentDef({
-        bin: `agent-${fmt}`,
-        streamFormat: fmt,
-      }));
+      const adapterStreamFormat: string = fmt;
 
-      if (cfg.enabled && !adapter.supportsCritiqueTheater()) {
+      if (cfg.enabled && adapterStreamFormat !== 'plain') {
         // Legacy path: orchestrator NOT called.
         // Nothing should be inserted.
         expect(getCritiqueRun(db, `skip-${fmt}`)).toBeNull();
@@ -213,14 +207,11 @@ describe('spawn wiring - runtime adapter critique capability (Defect 1)', () => 
 
   it('format="plain" routes through the orchestrator', async () => {
     const cfg = loadCritiqueConfigFromEnv({ OD_CRITIQUE_ENABLED: '1' });
-    const adapter = createRuntimeAdapter(minimalAgentDef({
-      bin: 'plain-agent',
-      streamFormat: 'plain',
-    }));
+    const adapterStreamFormat = 'plain';
 
-    // Simulate: only call orchestrator when the adapter advertises support.
-    if (!cfg.enabled || !adapter.supportsCritiqueTheater()) {
-      throw new Error('Expected critique-capable adapter to be routed through orchestrator');
+    // Simulate: only call orchestrator when format is plain.
+    if (!cfg.enabled || adapterStreamFormat !== 'plain') {
+      throw new Error('Expected plain format to be routed through orchestrator');
     }
 
     const { bus } = makeBus();

@@ -53,6 +53,7 @@ function makeConfig(root: string, overrides: Partial<ToolPackConfig> = {}): Tool
     removeLogs: false,
     removeProductUserData: false,
     removeSidecars: false,
+    requireVelaCli: false,
     roots: {
       output: {
         appBuilderRoot: join(root, ".tmp", "tools-pack", "out", "mac", "namespaces", "local-test", "builder"),
@@ -142,6 +143,27 @@ describe("startPackedMacApp", () => {
         `"namespaceBaseRoot": ${JSON.stringify(config.roots.runtime.namespaceBaseRoot)}`,
       );
       await expect(readFile(launchConfigPath, "utf8")).resolves.toContain('"appVersion": "1.2.3"');
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  it("uses the preview executable name for preview release namespaces", async () => {
+    const root = await mkdtemp(join(tmpdir(), "open-design-tools-pack-mac-lifecycle-"));
+    try {
+      const config = makeConfig(root, { namespace: "release-preview" });
+      const paths = resolveMacPaths(config);
+      const executablePath = join(paths.installedAppPath, "Contents", "MacOS", "Open Design Preview");
+
+      await mkdir(join(paths.installedAppPath, "Contents", "MacOS"), { recursive: true });
+      await writeFile(executablePath, "#!/bin/sh\nexit 0\n", "utf8");
+      await chmod(executablePath, 0o755);
+
+      const result = await startPackedMacApp(config);
+
+      expect(result.source).toBe("installed");
+      expect(result.executablePath).toBe(executablePath);
+      expect(result.status?.state).toBe("running");
     } finally {
       await rm(root, { force: true, recursive: true });
     }

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import { useT } from '../i18n';
+import { useI18n, useT } from '../i18n';
+import {
+  localizeSkillDescription,
+  localizeSkillName,
+} from '../i18n/content';
 import { Icon } from './Icon';
 import type { AppConfig } from '../types';
 import type { SkillSummary } from '@open-design/contracts';
@@ -30,6 +34,15 @@ import {
 interface Props {
   cfg: AppConfig;
   setCfg: Dispatch<SetStateAction<AppConfig>>;
+  onSkillsRefresh?: () => Promise<void> | void;
+  /**
+   * Fires after every successful skill registry mutation so the App
+   * shell can refresh derived state and evict any preview iframe whose
+   * project depends on the affected skill — body-only edits do not move
+   * any SkillSummary field, so ProjectView's signature-based eviction
+   * cannot see them on its own.
+   */
+  onSkillsChanged?: (affectedSkillId?: string) => void;
 }
 
 type SourceFilter = 'all' | 'user' | 'built-in';
@@ -64,7 +77,7 @@ function parseTriggers(raw: string): string[] {
     .filter(Boolean);
 }
 
-export function SkillsSection({ cfg, setCfg }: Props) {
+export function SkillsSection({ cfg, setCfg, onSkillsRefresh, onSkillsChanged }: Props) {
   const t = useT();
 
   const [skills, setSkills] = useState<SkillSummary[]>([]);
@@ -104,6 +117,12 @@ export function SkillsSection({ cfg, setCfg }: Props) {
   // Only one skill can be in the 'confirm pending' state at a time; the
   // user clicks once to arm, twice to commit.
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  // Editing a built-in skill writes a user-owned shadow copy and hides
+  // the built-in entry from the list. Arm an inline confirmation first
+  // so the listing change doesn't feel like a silent conversion (#1378).
+  const [confirmBuiltInEditId, setConfirmBuiltInEditId] = useState<
+    string | null
+  >(null);
 
   const refresh = useCallback(async () => {
     const list = await fetchSkills();
@@ -157,13 +176,6 @@ export function SkillsSection({ cfg, setCfg }: Props) {
     });
   }, [skills, modeFilter, sourceFilter, categoryFilter, search]);
 
-  // Reset source filter to 'all' when the selected source has zero skills
-  useEffect(() => {
-    if (sourceFilter === 'all') return;
-    const count = skills.filter((skill) => (skill.source ?? 'built-in') === sourceFilter).length;
-    if (count === 0) setSourceFilter('all');
-  }, [sourceFilter, skills]);
-
   const ensureBody = useCallback(
     async (id: string) => {
       if (bodyById[id] !== undefined) return bodyById[id];
@@ -206,6 +218,7 @@ export function SkillsSection({ cfg, setCfg }: Props) {
       // Switching rows aborts any in-flight edit on the previous row.
       setEditingId((cur) => (cur === id ? cur : null));
       setConfirmDeleteId(null);
+      setConfirmBuiltInEditId(null);
     },
     [ensureBody, ensureFiles],
   );
@@ -216,6 +229,7 @@ export function SkillsSection({ cfg, setCfg }: Props) {
     setDraftError(null);
     setEditingId(null);
     setConfirmDeleteId(null);
+    setConfirmBuiltInEditId(null);
   }, []);
 
   const startEdit = useCallback(
@@ -227,9 +241,26 @@ export function SkillsSection({ cfg, setCfg }: Props) {
       setExpandedId(skill.id);
       setCreating(false);
       setConfirmDeleteId(null);
+      setConfirmBuiltInEditId(null);
     },
     [ensureBody],
   );
+
+  const requestEdit = useCallback(
+    (skill: SkillSummary) => {
+      if (skill.source === 'built-in') {
+        setConfirmBuiltInEditId(skill.id);
+        setConfirmDeleteId(null);
+        return;
+      }
+      void startEdit(skill);
+    },
+    [startEdit],
+  );
+
+  const cancelBuiltInEdit = useCallback(() => {
+    setConfirmBuiltInEditId(null);
+  }, []);
 
   const cancelDraft = useCallback(() => {
     setDraft(EMPTY_DRAFT);
@@ -243,11 +274,11 @@ export function SkillsSection({ cfg, setCfg }: Props) {
     const name = draft.name.trim();
     const body = draft.body.trim();
     if (!name) {
-      setDraftError('Skill name is required.');
+      setDraftError(t('settings.skillsNameRequired'));
       return;
     }
     if (!body) {
-      setDraftError('Skill body is required.');
+      setDraftError(t('settings.skillsBodyRequired'));
       return;
     }
     const triggers = parseTriggers(draft.triggers);
@@ -270,6 +301,7 @@ export function SkillsSection({ cfg, setCfg }: Props) {
     }
     const updated = result.skill;
     await refresh();
+    await onSkillsRefresh?.();
     setBodyById((cur) => ({ ...cur, [updated.id]: body }));
     // Drop the cached file tree for this id so the next expand
     // re-walks the on-disk folder; SKILL.md may have been the only
@@ -283,7 +315,8 @@ export function SkillsSection({ cfg, setCfg }: Props) {
     setEditingId(null);
     setCreating(false);
     setDraft(EMPTY_DRAFT);
-  }, [draft, draftSaving, editingId, refresh]);
+    onSkillsChanged?.(updated.id);
+  }, [draft, draftSaving, editingId, onSkillsChanged, onSkillsRefresh, refresh]);
 
   const armDelete = useCallback((id: string) => {
     setConfirmDeleteId(id);
@@ -302,6 +335,7 @@ export function SkillsSection({ cfg, setCfg }: Props) {
       }
       setConfirmDeleteId(null);
       await refresh();
+      await onSkillsRefresh?.();
       setBodyById((cur) => {
         const next = { ...cur };
         delete next[id];
@@ -324,8 +358,9 @@ export function SkillsSection({ cfg, setCfg }: Props) {
         setEditingId(null);
         setDraft(EMPTY_DRAFT);
       }
+      onSkillsChanged?.(id);
     },
-    [editingId, expandedId, refresh, setCfg],
+    [editingId, expandedId, onSkillsChanged, onSkillsRefresh, refresh, setCfg],
   );
 
   const toggleEnabled = useCallback(
@@ -342,93 +377,88 @@ export function SkillsSection({ cfg, setCfg }: Props) {
 
   return (
     <section className="settings-section settings-skills">
-      <div className="section-head">
-        <div>
-          <h3>{t('settings.skills')}</h3>
-          <p className="hint">{t('settings.skillsHint')}</p>
-        </div>
-        <button
-          type="button"
-          className="primary skills-add-btn"
-          onClick={startCreate}
-          data-testid="skills-new"
-        >
-          <Icon name="plus" size={13} />
-          <span>{t('settings.skillsNew')}</span>
-        </button>
-      </div>
-
-      <div className="library-toolbar">
-        <input
-          type="search"
-          className="library-search"
-          placeholder={t('settings.librarySearch')}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <div className="library-filters">
-          {(['all', 'user', 'built-in'] as const).map((s) => {
-            const count =
-              s === 'all'
-                ? skills.length
-                : skills.filter((skill) => (skill.source ?? 'built-in') === s).length;
-            // Hide source pills with zero count (except 'all')
-            if (s !== 'all' && count === 0) return null;
-            return (
-              <button
-                key={s}
-                type="button"
-                className={`filter-pill${sourceFilter === s ? ' active' : ''}`}
-                onClick={() => setSourceFilter(s)}
-              >
-                {s === 'all' ? t('settings.libraryAll') : s}
-                <span className="filter-pill-count">{count}</span>
-              </button>
-            );
-          })}
-        </div>
-        <div className="library-filters">
+      <div className="library-toolbar skills-toolbar">
+        {/* Row 1: search + New skill button */}
+        <div className="skills-toolbar-top">
+          <input
+            type="search"
+            className="library-search"
+            placeholder={t('settings.librarySearch')}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
           <button
             type="button"
-            className={`filter-pill${modeFilter === 'all' ? ' active' : ''}`}
-            onClick={() => setModeFilter('all')}
+            className="primary skills-add-btn"
+            onClick={startCreate}
+            data-testid="skills-new"
           >
-            {t('settings.libraryAll')}
+            <Icon name="plus" size={13} />
+            <span>{t('settings.skillsNew')}</span>
           </button>
-          {modeOptions.map(([mode, count]) => (
-            <button
-              key={mode}
-              type="button"
-              className={`filter-pill${modeFilter === mode ? ' active' : ''}`}
-              onClick={() => setModeFilter(mode)}
-            >
-              {mode}
-              <span className="filter-pill-count">{count}</span>
-            </button>
-          ))}
         </div>
-        {categoryOptions.length > 0 ? (
-          <div className="library-filters" data-testid="skills-category-filters">
-            <button
-              type="button"
-              className={`filter-pill${categoryFilter === 'all' ? ' active' : ''}`}
-              onClick={() => setCategoryFilter('all')}
+        {/* Row 2: filter dropdowns */}
+        <div className="library-filter-selects">
+          <label className="library-filter-select">
+            <span className="library-filter-select-label">Source</span>
+            <select
+              value={sourceFilter}
+              data-active={sourceFilter !== 'all' ? 'true' : undefined}
+              onChange={(e) => setSourceFilter(e.target.value as SourceFilter)}
             >
-              {t('settings.libraryAll')}
-            </button>
-            {categoryOptions.map(([cat, count]) => (
-              <button
-                key={cat}
-                type="button"
-                className={`filter-pill${categoryFilter === cat ? ' active' : ''}`}
-                onClick={() => setCategoryFilter(cat)}
+              <option value="all">
+                {t('settings.libraryAll')} ({skills.length})
+              </option>
+              {(['user', 'built-in'] as const).map((s) => {
+                const count = skills.filter((sk) => (sk.source ?? 'built-in') === s).length;
+                return (
+                  <option key={s} value={s}>
+                    {s} ({count})
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+          <label className="library-filter-select">
+            <span className="library-filter-select-label">Type</span>
+            <select
+              value={modeFilter}
+              data-active={modeFilter !== 'all' ? 'true' : undefined}
+              onChange={(e) => setModeFilter(e.target.value)}
+            >
+              <option value="all">
+                {t('settings.libraryAll')} ({skills.length})
+              </option>
+              {modeOptions.map(([mode, count]) => (
+                <option key={mode} value={mode}>
+                  {mode} ({count})
+                </option>
+              ))}
+            </select>
+          </label>
+          {categoryOptions.length > 0 ? (
+            <label
+              className="library-filter-select"
+              data-testid="skills-category-filters"
+            >
+              <span className="library-filter-select-label">Category</span>
+              <select
+                value={categoryFilter}
+                data-active={categoryFilter !== 'all' ? 'true' : undefined}
+                onChange={(e) => setCategoryFilter(e.target.value)}
               >
-                {humanizeCategory(cat)}
-                <span className="filter-pill-count">{count}</span>
-              </button>
-            ))}
-          </div>
-        ) : null}
+                <option value="all">
+                  {t('settings.libraryAll')} ({skills.length})
+                </option>
+                {categoryOptions.map(([cat, count]) => (
+                  <option key={cat} value={cat}>
+                    {humanizeCategory(cat)} ({count})
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+        </div>
       </div>
 
       {creating ? (
@@ -467,13 +497,16 @@ export function SkillsSection({ cfg, setCfg }: Props) {
                 files={filesById[skill.id] ?? null}
                 filesLoading={filesLoadingId === skill.id}
                 confirmDelete={confirmDeleteId === skill.id}
+                confirmBuiltInEdit={confirmBuiltInEditId === skill.id}
                 draft={isEditing ? draft : null}
                 draftError={isEditing ? draftError : null}
                 draftSaving={isEditing && draftSaving}
                 setDraft={setDraft}
                 onToggleExpanded={() => toggleExpanded(skill.id)}
                 onToggleEnabled={(e) => toggleEnabled(skill.id, e)}
-                onStartEdit={() => void startEdit(skill)}
+                onStartEdit={() => requestEdit(skill)}
+                onConfirmBuiltInEdit={() => void startEdit(skill)}
+                onCancelBuiltInEdit={cancelBuiltInEdit}
                 onArmDelete={() => armDelete(skill.id)}
                 onCancelDelete={cancelDelete}
                 onCommitDelete={() => void commitDelete(skill.id)}
@@ -498,6 +531,7 @@ interface SkillRowProps {
   files: SkillFileEntry[] | null;
   filesLoading: boolean;
   confirmDelete: boolean;
+  confirmBuiltInEdit: boolean;
   draft: DraftState | null;
   draftError: string | null;
   draftSaving: boolean;
@@ -505,6 +539,8 @@ interface SkillRowProps {
   onToggleExpanded: () => void;
   onToggleEnabled: (enabled: boolean) => void;
   onStartEdit: () => void;
+  onConfirmBuiltInEdit: () => void;
+  onCancelBuiltInEdit: () => void;
   onArmDelete: () => void;
   onCancelDelete: () => void;
   onCommitDelete: () => void;
@@ -522,6 +558,7 @@ function SkillRow({
   files,
   filesLoading,
   confirmDelete,
+  confirmBuiltInEdit,
   draft,
   draftError,
   draftSaving,
@@ -529,6 +566,8 @@ function SkillRow({
   onToggleExpanded,
   onToggleEnabled,
   onStartEdit,
+  onConfirmBuiltInEdit,
+  onCancelBuiltInEdit,
   onArmDelete,
   onCancelDelete,
   onCommitDelete,
@@ -536,7 +575,9 @@ function SkillRow({
   onSubmitEdit,
 }: SkillRowProps) {
   const t = useT();
-  const summaryName = skill.name || skill.id;
+  const { locale } = useI18n();
+  const summaryName = localizeSkillName(locale, skill) || skill.id;
+  const summaryDescription = localizeSkillDescription(locale, skill);
   const canDelete = skill.source === 'user';
   return (
     <div
@@ -577,8 +618,8 @@ function SkillRow({
                 </span>
               ) : null}
             </span>
-            {skill.description ? (
-              <span className="skills-row-summary-desc">{skill.description}</span>
+            {summaryDescription ? (
+              <span className="skills-row-summary-desc">{summaryDescription}</span>
             ) : null}
           </span>
           <span className="skills-row-chevron" aria-hidden>
@@ -642,6 +683,38 @@ function SkillRow({
           </label>
         </div>
       </div>
+
+      {confirmBuiltInEdit ? (
+        <div
+          className="skills-edit-builtin-warning"
+          role="alert"
+          data-testid="skills-edit-builtin-warning"
+        >
+          <p>
+            Editing this built-in skill creates a user override. The built-in
+            entry will be hidden from the list until you delete the override.
+            Continue?
+          </p>
+          <div className="skills-edit-builtin-actions">
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={onCancelBuiltInEdit}
+              data-testid="skills-edit-builtin-cancel"
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="button"
+              className="btn primary"
+              onClick={onConfirmBuiltInEdit}
+              data-testid="skills-edit-builtin-confirm"
+            >
+              {t('settings.skillsEdit')}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {expanded && !editing ? (
         <div className="skills-row-detail">

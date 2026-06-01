@@ -50,6 +50,9 @@ interface CuratedSkill {
   tagline?: string;
   // Optional credit line ("By @author") shown at the top of the body.
   attribution?: string;
+  // Optional warning for catalogue entries whose upstream workflow depends on
+  // assets or scripts that are not bundled by this repository.
+  catalogueOnlyNote?: string;
 }
 
 const CATALOGUE: CuratedSkill[] = [
@@ -643,12 +646,14 @@ const CATALOGUE: CuratedSkill[] = [
   {
     id: 'ui-ux-pro-max',
     description:
-      'UI/UX design patterns and best practices. Pattern library + heuristic checks for shipping clean, usable interfaces.',
+      'Catalog-only UI/UX Pro Max entry. The full upstream templates, data, and search workflow are not bundled in Open Design.',
     triggers: ['ui ux patterns', 'design patterns', 'ux heuristics', 'usability'],
     mode: 'design-system',
     category: 'design-systems',
     upstream: 'https://github.com/nextlevelbuilder/ui-ux-pro-max-skill',
     attribution: 'Curated from @nextlevelbuilder.',
+    catalogueOnlyNote:
+      'Open Design ships this entry as discovery metadata only. The upstream UI/UX Pro Max data CSVs, scripts/search.py helper, templates, references, and related skill instructions are not bundled here; if those files are absent, disclose the limitation before falling back to Open Design defaults.',
   },
   {
     id: 'taste-skill',
@@ -825,12 +830,12 @@ const CATALOGUE: CuratedSkill[] = [
   {
     id: 'd3-visualization',
     description:
-      'Teaches the agent to produce D3 charts and interactive data visualizations. Useful for editorial dashboards, reports, and explanatory graphics.',
-    triggers: ['d3', 'd3.js', 'interactive chart', 'data visualization', 'editorial chart'],
+      'Teaches the agent to produce D3 charts and interactive data visualizations. A comprehensive D3.js skill with examples across chart types and techniques giving the agent expert-level knowledge to generate complex, interactive visualizations. Useful for editorial dashboards, reports, data-rich prototypes, and explanatory graphics.',
+    triggers: ['d3', 'd3.js', 'interactive chart', 'data visualization', 'editorial chart', 'd3 bar chart', 'd3 line chart', 'd3 map', 'd3 force graph', 'd3 sankey', 'd3 treemap', 'd3 sunburst', 'd3 choropleth', 'd3 animation', 'd3 scroll', 'snow-d3'],
     mode: 'prototype',
     category: 'diagrams',
-    upstream: 'https://github.com/chrisvoncsefalvay/d3-claude-skill',
-    attribution: 'Curated from @chrisvoncsefalvay.',
+    upstream: 'https://github.com/jiannanya/snow-d3/',
+    attribution: 'Curated from @jiannanya.',
   },
   {
     id: 'hand-drawn-diagrams',
@@ -907,7 +912,7 @@ const CATALOGUE: CuratedSkill[] = [
     triggers: ['ad creative', 'ad headline', 'ad copy', 'paid social ad', 'search ad'],
     mode: 'design-system',
     category: 'marketing-creative',
-    upstream: 'https://github.com/coreyhaines31/skills',
+    upstream: 'https://github.com/coreyhaines31/marketingskills',
     attribution: 'Curated from Corey Haines.',
   },
   {
@@ -917,7 +922,7 @@ const CATALOGUE: CuratedSkill[] = [
     triggers: ['copywriting', 'landing copy', 'ad copy', 'homepage copy', 'rewrite copy'],
     mode: 'design-system',
     category: 'marketing-creative',
-    upstream: 'https://github.com/coreyhaines31/skills',
+    upstream: 'https://github.com/coreyhaines31/marketingskills',
     attribution: 'Curated from Corey Haines.',
   },
   {
@@ -927,7 +932,7 @@ const CATALOGUE: CuratedSkill[] = [
     triggers: ['marketing psychology', 'behavioral copy', 'persuasion', 'framing', 'cognitive bias'],
     mode: 'design-system',
     category: 'marketing-creative',
-    upstream: 'https://github.com/coreyhaines31/skills',
+    upstream: 'https://github.com/coreyhaines31/marketingskills',
     attribution: 'Curated from Corey Haines.',
   },
   {
@@ -937,7 +942,7 @@ const CATALOGUE: CuratedSkill[] = [
     triggers: ['paywall', 'upgrade screen', 'cro paywall', 'upsell modal', 'pricing screen'],
     mode: 'design-system',
     category: 'marketing-creative',
-    upstream: 'https://github.com/coreyhaines31/skills',
+    upstream: 'https://github.com/coreyhaines31/marketingskills',
     attribution: 'Curated from Corey Haines.',
   },
   {
@@ -1046,6 +1051,12 @@ function buildBody(s: CuratedSkill): string {
   lines.push('');
   lines.push(s.description);
   lines.push('');
+  if (s.catalogueOnlyNote) {
+    lines.push('## Current Open Design scope');
+    lines.push('');
+    lines.push(s.catalogueOnlyNote);
+    lines.push('');
+  }
   lines.push('## Source');
   lines.push('');
   lines.push(`- Upstream: ${s.upstream}`);

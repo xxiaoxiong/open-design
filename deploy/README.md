@@ -6,8 +6,25 @@ separate nginx container.
 
 ## Local compose
 
+Before starting:
+
+1. Copy the environment template:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Generate a secure token:
+
+   ```bash
+   openssl rand -hex 32
+   ```
+
+3. Open `.env` in your editor, find `OD_API_TOKEN=`, and paste the generated token there.
+
+Then pull and start the service:
+
 ```bash
-cd deploy
 OPEN_DESIGN_IMAGE=docker.io/vanjayak/open-design:latest docker compose pull
 OPEN_DESIGN_IMAGE=docker.io/vanjayak/open-design:latest docker compose up -d --no-build
 ```
@@ -40,6 +57,20 @@ OPEN_DESIGN_IMAGE=docker.io/vanjayak/open-design@sha256:<digest> docker compose 
 The image intentionally does not bundle Claude/Codex/Gemini CLI binaries. Keep
 those outside the image, or build a separate private runtime layer if a server
 deployment needs local code-agent CLIs installed in the container.
+
+If you install Codex inside an unprivileged Linux container and it fails while
+creating its `workspace-write` sandbox, opt into Codex's full-access mode for
+all Codex runs in that deployment:
+
+```bash
+OD_CODEX_SANDBOX=danger-full-access docker compose up -d --no-build
+```
+
+Only the exact value `danger-full-access` is supported; unknown values are
+ignored. Use this only for trusted, single-user deployments. It lets Codex run
+without the workspace-write sandbox, which is useful when the container host
+blocks unprivileged user namespaces, but it gives the Codex process broader
+filesystem access inside the container.
 
 ## Publish to Docker Hub
 

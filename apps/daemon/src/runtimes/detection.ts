@@ -10,24 +10,34 @@ import type {
   DetectedAgent,
   RuntimeAgentDef,
   RuntimeCapabilityMap,
+  RuntimeModelSource,
   RuntimeModelOption,
 } from './types.js';
+
+type FetchedRuntimeModels = {
+  models: RuntimeModelOption[];
+  source: RuntimeModelSource;
+};
 
 async function fetchModels(
   def: RuntimeAgentDef,
   resolvedBin: string,
   env: NodeJS.ProcessEnv,
-): Promise<RuntimeModelOption[]> {
+): Promise<FetchedRuntimeModels> {
   if (typeof def.fetchModels === 'function') {
     try {
       const parsed = await def.fetchModels(resolvedBin, env);
-      if (!parsed || parsed.length === 0) return def.fallbackModels;
-      return parsed;
+      if (!parsed || parsed.length === 0) {
+        return { models: def.fallbackModels, source: 'fallback' };
+      }
+      return { models: parsed, source: 'live' };
     } catch {
-      return def.fallbackModels;
+      return { models: def.fallbackModels, source: 'fallback' };
     }
   }
-  if (!def.listModels) return def.fallbackModels;
+  if (!def.listModels) {
+    return { models: def.fallbackModels, source: 'fallback' };
+  }
   try {
     const { stdout } = await execAgentFile(resolvedBin, def.listModels.args, {
       env,
@@ -41,10 +51,12 @@ async function fetchModels(
     // Empty / null parse result means the CLI didn't actually return a
     // usable list (e.g. cursor-agent's "No models available"); fall back
     // to the static hint so the picker isn't stuck on Default-only.
-    if (!parsed || parsed.length === 0) return def.fallbackModels;
-    return parsed;
+    if (!parsed || parsed.length === 0) {
+      return { models: def.fallbackModels, source: 'fallback' };
+    }
+    return { models: parsed, source: 'live' };
   } catch {
-    return def.fallbackModels;
+    return { models: def.fallbackModels, source: 'fallback' };
   }
 }
 
@@ -88,7 +100,7 @@ async function probeVersionAtPath(
   try {
     const { stdout } = await execAgentFile(resolved, def.versionArgs, {
       env,
-      timeout: 3000,
+      timeout: def.versionProbeTimeoutMs ?? 3000,
     });
     const version = String(stdout).trim().split('\n')[0] ?? null;
     return { kind: 'spawned', version };
@@ -109,6 +121,7 @@ function unavailableAgent(def: RuntimeAgentDef): DetectedAgent {
   return {
     ...stripFns(def),
     models: def.fallbackModels ?? [DEFAULT_MODEL_OPTION],
+    modelsSource: 'fallback',
     available: false,
     ...installMetaForAgent(def.id),
   };
@@ -138,6 +151,8 @@ async function probe(
         ...(def.env || {}),
       },
       configuredEnv,
+      undefined,
+      { resolvedBin: launch.selectedPath },
     ),
     launch,
   );
@@ -164,11 +179,12 @@ async function probe(
     }
     agentCapabilities.set(def.id, caps);
   }
-  const models = await fetchModels(def, launch.launchPath, probeEnv);
+  const modelResult = await fetchModels(def, launch.launchPath, probeEnv);
   const auth = await probeAgentAuthStatus(def.id, launch.launchPath, probeEnv);
   return {
     ...stripFns(def),
-    models,
+    models: modelResult.models,
+    modelsSource: modelResult.source,
     available: true,
     path: launch.selectedPath,
     version: outcome.version,
@@ -184,7 +200,7 @@ async function probe(
 
 function stripFns(
   def: RuntimeAgentDef,
-): Omit<DetectedAgent, 'models' | 'available' | 'path' | 'version'> {
+): Omit<DetectedAgent, 'models' | 'modelsSource' | 'available' | 'path' | 'version'> {
   // Drop the buildArgs / listModels closures but keep declarative metadata
   // (reasoningOptions, streamFormat, name, bin, etc.). `models` is
   // populated separately by `fetchModels`, so we strip the static
@@ -199,6 +215,7 @@ function stripFns(
     helpArgs,
     capabilityFlags,
     fallbackBins,
+    versionProbeTimeoutMs,
     maxPromptArgBytes,
     env,
     ...rest
@@ -206,11 +223,29 @@ function stripFns(
   return rest;
 }
 
+async function safeProbe(
+  def: RuntimeAgentDef,
+  configuredEnv: Record<string, string> = {},
+): Promise<DetectedAgent> {
+  try {
+    return await probe(def, configuredEnv);
+  } catch {
+    // Fault isolation (issue #2297): one adapter's probe blowing up
+    // — e.g. a synchronous filesystem throw during PATH walking on a
+    // packaged Windows daemon, or an async rejection from one of the
+    // post-launch probes — must not collapse the whole agent picker.
+    // Without this guard the bare `Promise.all` rejected and the
+    // `/api/agents` catch arm returned `[]`, so the UI silently lost
+    // every CLI option and fell back to BYOK / Cloud only.
+    return unavailableAgent(def);
+  }
+}
+
 export async function detectAgents(
   configuredEnvByAgent: Record<string, Record<string, string>> = {},
 ) {
   const results = await Promise.all(
-    AGENT_DEFS.map((def) => probe(def, configuredEnvByAgent?.[def.id] ?? {})),
+    AGENT_DEFS.map((def) => safeProbe(def, configuredEnvByAgent?.[def.id] ?? {})),
   );
   // Refresh the validation cache from whatever we just surfaced to the UI
   // so /api/chat can accept any model the user could have just picked,
