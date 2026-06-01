@@ -81,13 +81,9 @@ function MediaFallback({
 }) {
   const trimmed = pluginTitle.trim();
   const glyph = String.fromCodePoint(trimmed.codePointAt(0) ?? 0x2022).toUpperCase();
-  const icon = mediaType === 'video' ? 'play' : mediaType === 'audio' ? 'mic' : 'image';
   return (
     <div className="plugins-home__media-fallback" aria-hidden>
       <span className="plugins-home__media-fallback-glyph">{glyph}</span>
-      <span className="plugins-home__media-fallback-icon">
-        <Icon name={icon} size={15} />
-      </span>
     </div>
   );
 }
