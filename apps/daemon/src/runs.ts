@@ -3,6 +3,10 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { normalizeMediaExecutionPolicyForRun } from './media-policy.js';
+import {
+  normalizeRunToolBundleForRun,
+  summarizeRunToolBundle,
+} from './run-tool-bundle.js';
 
 export const TERMINAL_RUN_STATUSES = new Set(['succeeded', 'failed', 'canceled']);
 
@@ -57,6 +61,7 @@ export function createChatRunService({
       pluginId:
         typeof meta.pluginId === 'string' && meta.pluginId ? meta.pluginId : null,
       mediaExecution: normalizeMediaExecutionPolicyForRun(meta.mediaExecution),
+      toolBundle: normalizeRunToolBundleForRun(meta.toolBundle),
       status: 'queued',
       createdAt: now,
       updatedAt: now,
@@ -149,6 +154,7 @@ export function createChatRunService({
     errorCode: run.errorCode ?? null,
     eventsLogPath: run.eventsLogPath ?? null,
     mediaExecution: run.mediaExecution ?? normalizeMediaExecutionPolicyForRun(null),
+    toolBundle: summarizeRunToolBundle(run.toolBundle),
   });
 
   const finish = (run, status, code: number | null = null, signal: string | null = null) => {
@@ -295,6 +301,29 @@ export function createChatRunService({
     return new Promise((resolve) => run.waiters.add(resolve));
   };
 
+  // Drop a run from the in-memory registry without emitting any terminal
+  // event. Used by callers that prepared a run optimistically (created the
+  // record before some external precondition was checked) and need to undo
+  // the create without surfacing the run via `/api/runs`. Only valid before
+  // the run reaches a terminal status — terminal runs use scheduleCleanup
+  // and would already have notified any subscribers.
+  const drop = (run) => {
+    if (!run) return;
+    if (TERMINAL_RUN_STATUSES.has(run.status)) return;
+    runs.delete(run.id);
+    for (const sse of run.clients) {
+      try { sse.end(); } catch { /* best-effort detach */ }
+    }
+    run.clients.clear();
+    // Resolve any pending waiters with a synthetic "canceled" status so
+    // they unblock instead of hanging forever — the run is being dropped
+    // because nothing will ever start.
+    run.status = 'canceled';
+    run.updatedAt = Date.now();
+    for (const waiter of run.waiters) waiter(statusBody(run));
+    run.waiters.clear();
+  };
+
   return {
     create,
     start,
@@ -307,6 +336,7 @@ export function createChatRunService({
     emit,
     finish,
     fail,
+    drop,
     statusBody,
     isTerminal(status) {
       return TERMINAL_RUN_STATUSES.has(status);

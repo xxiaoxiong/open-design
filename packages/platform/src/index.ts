@@ -942,16 +942,32 @@ export function wellKnownUserToolchainBins(
     join(home, ".npm-global", "bin"),
     join(home, ".npm-packages", "bin"),
   );
+
+  // Mise shims: makes every tool installed with `mise install` visible to
+  // GUI-launched daemons even when the process inherits a stripped PATH.
+  // Respect MISE_DATA_DIR (the official way to relocate the whole mise tree).
+  // We only fall back to the legacy ~/.mise/shims path when no explicit
+  // MISE_DATA_DIR override is provided.
+  const miseDataOverride = resolveUserScopedHome(env.MISE_DATA_DIR, home);
+  const miseData = miseDataOverride || join(home, ".local", "share", "mise");
+  dirs.push(join(miseData, "shims"));
+
+  if (!miseDataOverride) {
+    dirs.push(join(home, ".mise", "shims"));
+  }
+
   if (includeSystemBins) {
     dirs.push("/opt/homebrew/bin", "/usr/local/bin");
   }
   // Per-version Node toolchains: scan the install root and surface every
   // version directory's bin folder. Best-effort — missing roots simply
   // contribute nothing.
-  dirs.push(...existingMiseNpmPackageBinDirs(join(home, ".local", "share", "mise", "installs")));
-  const installRoots = [
+  // When MISE_DATA_DIR is set we use the same root for consistency with shims.
+  const miseInstalls = join(miseData, "installs");
+  dirs.push(...existingMiseNpmPackageBinDirs(miseInstalls));
+  for (const installRoot of [
     {
-      root: join(home, ".local", "share", "mise", "installs", "node"),
+      root: join(miseInstalls, "node"),
       segments: ["bin"],
     },
     {
@@ -966,26 +982,18 @@ export function wellKnownUserToolchainBins(
       root: join(home, ".fnm", "node-versions"),
       segments: ["installation", "bin"],
     },
-  ];
+  ]) {
+    dirs.push(...existingChildBinDirs(installRoot.root, installRoot.segments));
+  }
   // On Windows, fnm also installs to %LOCALAPPDATA%\fnm (AppData\Local\fnm)
   // and npm global packages go to node-versions\<version>\installation\node_modules\.bin
   if (process.platform === "win32") {
     const localAppData = env.LOCALAPPDATA;
     if (typeof localAppData === "string" && localAppData.trim().length > 0) {
-      installRoots.push({
-        root: join(localAppData.trim(), "fnm", "node-versions"),
-        segments: ["installation", "bin"],
-      });
+      const fnmRoot = join(localAppData.trim(), "fnm", "node-versions");
+      dirs.push(...existingChildBinDirs(fnmRoot, ["installation", "bin"]));
       // npm global packages installed via fnm-managed Node
-      installRoots.push({
-        root: join(localAppData.trim(), "fnm", "node-versions"),
-        segments: ["installation", "node_modules", ".bin"],
-      });
-    }
-  }
-  for (const installRoot of installRoots) {
-    for (const dir of existingChildBinDirs(installRoot.root, installRoot.segments)) {
-      dirs.push(dir);
+      dirs.push(...existingChildBinDirs(fnmRoot, ["installation", "node_modules", ".bin"]));
     }
   }
   return dirs;

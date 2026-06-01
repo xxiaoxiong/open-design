@@ -25,7 +25,10 @@ import {
   shouldRenderCodexImagegenOverride,
 } from './prompts/system.js';
 import { expandHomePrefix, resolveProjectRelativePath } from './home-expansion.js';
+import { resolveProjectRoot } from './project-root.js';
 import { userFacingAgentLabel } from './user-facing-agent-label.js';
+
+export { resolveProjectRoot };
 import { createCommandInvocation } from '@open-design/platform';
 import { SIDECAR_DEFAULTS, SIDECAR_ENV } from '@open-design/sidecar-proto';
 import {
@@ -41,7 +44,12 @@ import {
   sanitizeCustomModel,
   spawnEnvForAgent,
 } from './agents.js';
-import { rememberLiveModels, resolveModelForAgent } from './runtimes/models.js';
+import {
+  getRememberedLiveModels,
+  preferFreshLiveModels,
+  rememberLiveModels,
+  resolveModelForAgent,
+} from './runtimes/models.js';
 import {
   cancelVelaLogin,
   forgetVelaLogin,
@@ -86,6 +94,12 @@ import { listCodexPets, readCodexPetSpritesheet } from './codex-pets.js';
 import { syncCommunityPets } from './community-pets-sync.js';
 import { parseMediaExecutionPolicyInput } from './media-policy.js';
 import {
+  applySandboxRuntimeEnv,
+  ensureSandboxRuntimeDirs,
+  isSandboxModeEnabled,
+  resolveSandboxRuntimeConfig,
+} from './sandbox-mode.js';
+import {
   createUserDesignSystem,
   deleteUserDesignSystem,
   LEGACY_DESIGN_SYSTEM_ARTIFACTS,
@@ -127,6 +141,7 @@ import {
   registerBuiltInAtomWorkers,
   registerBundledPlugins,
   registryRootsForDataDir,
+  restoreProjectSnapshotLink,
   resolvePluginSnapshot,
   runPipelineForRun,
   runStageWithRegistry,
@@ -173,6 +188,7 @@ import {
 } from './memory-connectors.js';
 import { attachAcpSession } from './acp.js';
 import { attachPiRpcSession } from './pi-rpc.js';
+import { stageAmrImagePaths } from './amr-image-staging.js';
 import {
   applyAutomationProposal,
   createAutomationProposal,
@@ -187,6 +203,7 @@ import {
 } from './automation-ingestions.js';
 import { ingestRoutineConnectorEvolution } from './automation-routine-evolution.js';
 import { createClaudeStreamHandler } from './claude-stream.js';
+import { createRoleMarkerGuard } from './role-marker-guard.js';
 import { diagnoseClaudeCliFailure } from './claude-diagnostics.js';
 import { loadCritiqueConfigFromEnv } from './critique/config.js';
 import { reconcileStaleRuns } from './critique/persistence.js';
@@ -207,10 +224,13 @@ import { narrowProjectCritiqueOverride } from './critique/spawn-inputs.js';
 import { createCopilotStreamHandler } from './copilot-stream.js';
 import { createJsonEventStreamHandler } from './json-event-stream.js';
 import {
+  antigravityAuthGuidance,
+  antigravityQuotaGuidance,
   classifyAgentAuthFailure,
   classifyAgentServiceFailure,
   cursorAuthGuidance,
 } from './runtimes/auth.js';
+import { readOpenCodeServiceFailure } from './runtimes/opencode-log.js';
 import { createQoderStreamHandler } from './qoder-stream.js';
 import { subscribe as subscribeFileEvents } from './project-watchers.js';
 import { renderDesignSystemPreview } from './design-system-preview.js';
@@ -221,6 +241,7 @@ import {
   countDesignSystemPreviewModules,
   countNewHtmlArtifacts,
   didRunCreateDesignSystemFile,
+  runAskedUserQuestion,
 } from './run-artifacts.js';
 import {
   reportRunCompletedFromDaemon,
@@ -236,10 +257,12 @@ import { observePendingInstallerApplyAttempts } from './update-apply-observation
 import {
   agentIdToTracking,
   deriveConfigureGlobals,
+  modelIdForTracking,
   projectKindToTracking,
   type ObservabilityEventRequest,
 } from '@open-design/contracts/analytics';
 import {
+  mergeNoProxyWithLoopbackDefaults,
   redactSecrets,
   testAgentConnection,
   testProviderConnection,
@@ -295,6 +318,11 @@ import {
   writeMcpConfig,
 } from './mcp-config.js';
 import {
+  parseRunToolBundleForRequest,
+  resolveExternalMcpServersForRun,
+  validateRunToolBundleForAgent,
+} from './run-tool-bundle.js';
+import {
   beginAuth,
   exchangeCodeForToken,
   PendingAuthCache,
@@ -323,8 +351,10 @@ import {
   buildBatchArchive,
   decodeMultipartFilename,
   deleteProjectFile,
+  assertSandboxProjectRootAvailable,
   detectEntryFile,
   ensureProject,
+  isRunTouchedProjectFile,
   isSafeId,
   listFiles,
   mimeFor,
@@ -334,6 +364,7 @@ import {
   renameProjectFile,
   removeProjectDir,
   resolveProjectDir,
+  SandboxImportedProjectError,
   sanitizeName,
   searchProjectFiles,
   resolveProjectDir,
@@ -360,6 +391,7 @@ import {
   insertProject,
   insertRoutine,
   insertRoutineRun,
+  insertScheduledRoutineRun,
   insertTemplate,
   findTemplateByNameAndProject,
   updateTemplate,
@@ -463,13 +495,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const require = createRequire(import.meta.url);
 const DAEMON_CLI_PATH_ENV = 'OD_DAEMON_CLI_PATH';
-export function resolveProjectRoot(moduleDir: string): string {
-  const base = path.basename(moduleDir);
-  const daemonDir =
-    base === 'dist' || base === 'src' ? path.dirname(moduleDir) : moduleDir;
-  return path.resolve(daemonDir, '../..');
-}
-
 function cleanOptionalPath(value: string | undefined): string | null {
   return typeof value === 'string' && value.trim().length > 0
     ? path.resolve(value)
@@ -1043,6 +1068,56 @@ export function resolveSafeProjectAttachments(cwd, attachments, opts = {}) {
   return out;
 }
 
+export function resolveSafePromptImagePaths(imagePaths, opts = {}) {
+  if (!Array.isArray(imagePaths) || imagePaths.length === 0) {
+    return { safeImages: [], oversizedImages: [], failedImages: [] };
+  }
+  const pathImpl = opts.pathImpl ?? path;
+  const existsSync = opts.existsSync ?? fs.existsSync;
+  const statSync = opts.statSync ?? fs.statSync;
+  const uploadDir = pathImpl.resolve(opts.uploadDir ?? UPLOAD_DIR);
+  const maxBytes = Number.isFinite(opts.maxBytes)
+    ? Number(opts.maxBytes)
+    : MAX_CHAT_IMAGE_BYTES;
+  const safeImages = [];
+  const oversizedImages = [];
+  const failedImages = [];
+
+  for (const inputPath of imagePaths) {
+    if (typeof inputPath !== 'string' || inputPath.length === 0) continue;
+    let resolved;
+    try {
+      resolved = pathImpl.resolve(inputPath);
+    } catch {
+      // Drop malformed path input; we cannot even resolve it to a location.
+      continue;
+    }
+    if (!isPathWithin(uploadDir, resolved) || !existsSync(resolved)) continue;
+    // Past the within-UPLOAD_DIR + existence gate the path points at a real
+    // upload. A statSync failure here (EACCES/EPERM, a file that vanished
+    // mid-run) is an infrastructure error, not bad input — surface it so the
+    // run fails loudly instead of silently dropping required prompt context.
+    let stat;
+    try {
+      stat = statSync(resolved);
+    } catch (err) {
+      failedImages.push({
+        path: inputPath,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      continue;
+    }
+    if (!stat.isFile()) continue;
+    if (typeof stat.size === 'number' && stat.size > maxBytes) {
+      oversizedImages.push({ path: inputPath, sizeBytes: stat.size });
+      continue;
+    }
+    safeImages.push(inputPath);
+  }
+
+  return { safeImages, oversizedImages, failedImages };
+}
+
 function resolveProcessResourcesPath() {
   if (
     typeof process.resourcesPath === 'string' &&
@@ -1265,8 +1340,14 @@ function createMarketplaceFetcher(seedId, bundledMarketplaceEntries) {
   };
 }
 
-export function resolveDataDir(raw, projectRoot) {
-  if (!raw) return path.join(projectRoot, '.od');
+export function resolveDataDir(raw, projectRoot, options = {}) {
+  const value = raw?.trim();
+  if (!value) {
+    if (options.requireExplicit) {
+      throw new Error('OD_DATA_DIR is required when OD_SANDBOX_MODE is enabled');
+    }
+    return path.join(projectRoot, '.od');
+  }
   // expandHomePrefix is shared with media-config.ts so OD_DATA_DIR and
   // OD_MEDIA_CONFIG_DIR can never split state under a $HOME-style value.
   // Some launchers (systemd unit files, NixOS modules, certain Docker
@@ -1275,7 +1356,7 @@ export function resolveDataDir(raw, projectRoot) {
   // expandHomePrefix turns those (and the ~ shorthand, with both / and \
   // separators) into os.homedir() before path.resolve runs so launch
   // surfaces stay consistent.
-  const resolved = resolveProjectRelativePath(raw, projectRoot);
+  const resolved = resolveProjectRelativePath(value, projectRoot);
   try {
     fs.mkdirSync(resolved, { recursive: true });
     fs.accessSync(resolved, fs.constants.W_OK);
@@ -1301,7 +1382,12 @@ export function resolveDataDir(raw, projectRoot) {
   }
   return resolved;
 }
-const RUNTIME_DATA_DIR = resolveDataDir(process.env.OD_DATA_DIR, PROJECT_ROOT);
+const SANDBOX_MODE_ENABLED = isSandboxModeEnabled(process.env);
+const RUNTIME_DATA_DIR = resolveDataDir(process.env.OD_DATA_DIR, PROJECT_ROOT, {
+  requireExplicit: SANDBOX_MODE_ENABLED,
+});
+const SANDBOX_RUNTIME = resolveSandboxRuntimeConfig(SANDBOX_MODE_ENABLED, RUNTIME_DATA_DIR);
+ensureSandboxRuntimeDirs(SANDBOX_RUNTIME);
 const PLUGIN_LOCKFILE_PATH = path.join(RUNTIME_DATA_DIR, 'od-plugin-lock.json');
 // Canonical (realpath-resolved) form of RUNTIME_DATA_DIR for the few callers
 // that compare it against a user-supplied realpath() result. On macOS, /var
@@ -1560,15 +1646,25 @@ export function createAgentRuntimeEnv(
   toolTokenGrant: { token?: string } | null = null,
   nodeBin: string = process.execPath,
 ): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {
-    ...baseEnv,
-    OD_DATA_DIR: RUNTIME_DATA_DIR,
-    OD_DAEMON_URL: daemonUrl,
-    OD_NODE_BIN: nodeBin,
-  };
+  const env: NodeJS.ProcessEnv = applySandboxRuntimeEnv(
+    {
+      ...baseEnv,
+      OD_DATA_DIR: RUNTIME_DATA_DIR,
+      OD_DAEMON_URL: daemonUrl,
+      OD_NODE_BIN: nodeBin,
+    },
+    SANDBOX_RUNTIME,
+  );
   const sidecarIpcPath = baseEnv[SIDECAR_ENV.IPC_PATH];
   if (typeof sidecarIpcPath === 'string' && sidecarIpcPath.length > 0) {
     env[SIDECAR_ENV.IPC_PATH] = sidecarIpcPath;
+  }
+  if (SANDBOX_RUNTIME.enabled) {
+    const noProxy = mergeNoProxyWithLoopbackDefaults(env.NO_PROXY ?? env.no_proxy);
+    if (noProxy) {
+      env.NO_PROXY = noProxy;
+      if (process.platform !== 'win32') env.no_proxy = noProxy;
+    }
   }
 
   // Ensure the node binary directory is on PATH so agent sub-processes —
@@ -1909,6 +2005,53 @@ export function __forTestResolveRunProjectKindForAnalytics(args) {
   return resolveRunProjectKindForAnalytics(args);
 }
 
+// Scans run.events newest→oldest to extract usage token counts and the
+// agent-reported model name. The scan must not short-circuit on usage
+// before reaching the model signal: usage is a terminal event while
+// status:initializing/model is emitted at the very start of the run, so
+// in reverse iteration usage is seen first. The loop continues until both
+// usage tokens are found AND (the caller already has a model from reqBody
+// OR the agent-reported model has been found).
+function scanRunEventsForFinishedProps(events, reqBodyModel) {
+  let inputTokens;
+  let outputTokens;
+  let agentReportedModel = null;
+  const needAgentModel = !(typeof reqBodyModel === 'string' && reqBodyModel.trim());
+  let haveUsageTokens = false;
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const ev = events[i];
+    const data = ev?.data;
+    if (ev?.event === 'agent' && data?.type === 'usage' && data.usage && !haveUsageTokens) {
+      const u = data.usage;
+      if (typeof u.input_tokens === 'number') inputTokens = u.input_tokens;
+      if (typeof u.output_tokens === 'number') outputTokens = u.output_tokens;
+      if (inputTokens !== undefined || outputTokens !== undefined) haveUsageTokens = true;
+    }
+    if (
+      !agentReportedModel &&
+      ev?.event === 'agent' &&
+      data?.type === 'status' &&
+      (data.label === 'model' || data.label === 'initializing')
+    ) {
+      const candidate =
+        typeof data.model === 'string'
+          ? data.model
+          : typeof data.detail === 'string'
+            ? data.detail
+            : null;
+      if (candidate && candidate.trim()) {
+        agentReportedModel = candidate.trim();
+      }
+    }
+    if (haveUsageTokens && (!needAgentModel || agentReportedModel)) break;
+  }
+  return { inputTokens, outputTokens, agentReportedModel };
+}
+
+export function __forTestScanRunEventsForFinishedProps(events, reqBodyModel) {
+  return scanRunEventsForFinishedProps(events, reqBodyModel);
+}
+
 function githubRepoNameFromPluginName(name) {
   const slug = String(name)
     .toLowerCase()
@@ -2038,6 +2181,14 @@ function shouldSkipPluginContextEntry(name) {
   return PLUGIN_CONTEXT_SKIP_DIRS.has(name) || PLUGIN_CONTEXT_SKIP_FILES.has(name);
 }
 
+export function selectPromptImagePaths(
+  agentId,
+  safeImages,
+  amrStagedImages,
+) {
+  return agentId === 'amr' ? amrStagedImages : safeImages;
+}
+
 async function ensureGhReady() {
   const version = await execGhBuffered(['--version'], { timeout: 10_000 });
   if (!version.ok) {
@@ -2078,6 +2229,33 @@ function reconcileAssistantMessageOnRunEnd(db, runs, run) {
     .catch((err) => {
       console.warn('[runs] message reconciliation failed', err);
     });
+}
+
+
+function isPluginAuthoringRun(db, run) {
+  if (run?.pluginId === 'od-plugin-authoring') return true;
+  if (
+    typeof run?.appliedPluginSnapshotId === 'string'
+    && run.appliedPluginSnapshotId.length > 0
+  ) {
+    const snapshot = getSnapshot(db, run.appliedPluginSnapshotId);
+    return snapshot?.pluginId === 'od-plugin-authoring';
+  }
+  return false;
+}
+
+async function hasGeneratedPluginArtifacts(projectRoot) {
+  if (!projectRoot || typeof projectRoot !== 'string') return false;
+  const required = [
+    path.join(projectRoot, 'generated-plugin', 'open-design.json'),
+    path.join(projectRoot, 'generated-plugin', 'SKILL.md'),
+  ];
+  try {
+    await Promise.all(required.map((file) => fs.promises.access(file, fs.constants.F_OK)));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function detectSkillPluginCandidateOnRunSuccess(db, runs, run, input, projectRoot) {
@@ -2259,6 +2437,13 @@ function daemonAgentPayloadToPersistedAgentEvent(data) {
       ...(typeof data.durationMs === 'number' ? { durationMs: data.durationMs } : {}),
     };
   }
+  if (type === 'fabricated_role_marker' && typeof data.marker === 'string') {
+    return {
+      kind: 'status',
+      label: 'warning',
+      detail: `Model emitted fabricated role marker ("${data.marker}"). Response was truncated at this point to prevent unauthorized instruction injection. See issue #3247.`,
+    };
+  }
   if (type === 'raw' && typeof data.line === 'string') return { kind: 'raw', line: data.line };
   return null;
 }
@@ -2317,6 +2502,52 @@ export function telemetryPromptFromRunRequest(message, currentPrompt) {
 
 const FORM_ANSWERS_HEADER_RE = /^\s*\[form answers\s+(?:\u2014|-)\s*([^\]\r\n]+)\]/i;
 
+// Aggressive OVERRIDE for weak / medium-strength plain agents (e.g.
+// GPT-OSS-120B Medium, Gemini 3.5 Flash) that otherwise echo RULE 1's
+// fenced form example back at the user on follow-up turns even when
+// they correctly understand the form is answered. Strong models
+// (Claude Sonnet 4.6, Gemini 3.1 Pro) already handle a shorter
+// OVERRIDE; enumerating the anti-patterns is a no-op for them and a
+// strong suppressor for the weaker ones. RULE 1 itself stays in the
+// system prompt so turn 1 can still emit a valid form.
+//
+// Exported so tests pin both the trigger condition and the literal
+// anti-patterns we ask the model to skip \u2014 silently weakening the
+// list (e.g. dropping the markdown-fence ban) would reintroduce the
+// form-echo regression on GPT-OSS / Gemini Flash.
+export const FORM_ANSWERED_SYSTEM_OVERRIDE = `## OVERRIDE \u2014 form already answered (this is turn 2 or later)
+
+The user already submitted their form answers (see # User request below).
+RULE 1 documents the turn-1 ask flow; that flow is finished. Treat RULE 1
+as read-only documentation for this turn \u2014 do not execute any of it.
+
+Forbidden output for this turn:
+- A \`<question-form>\` tag of any id, including \`discovery\` or \`task-type\`.
+- A markdown \`\`\`json fenced block echoing the form schema or example.
+- Form-asking prose such as "Got it \u2014 tell me the following" or
+  "\u8bf7\u544a\u8bc9\u6211\u4ee5\u4e0b\u4fe1\u606f".
+- Narrating fake system events such as "subagents stopped" or
+  "server restart".
+
+Required output for this turn:
+- Open with a brief prose confirmation of what the brief is.
+- Then proceed to RULE 2 (branch on the submitted \`brand\` value) and
+  RULE 3 (emit the \`<artifact>\` block with the full HTML document).
+
+`;
+
+// Smaller override for non-discovery / non-task-type form ids. These
+// forms are not artifact-build transitions, so we only need to suppress
+// the form re-ask without directing the model toward RULE 2 / RULE 3.
+// Exported so tests can pin the literal content independently.
+export const FORM_ANSWERED_GENERIC_OVERRIDE = `## OVERRIDE \u2014 form already answered (this is turn 2 or later)
+
+The user already submitted their form answers (see # User request below).
+Do not ask the same form again. Treat the submitted answers as the active
+user instruction and respond accordingly.
+
+`;
+
 function formAnswerTransitionForCurrentPrompt(currentPrompt) {
   if (typeof currentPrompt !== 'string') return null;
   const trimmed = currentPrompt.trim();
@@ -2329,9 +2560,16 @@ function formAnswerTransitionForCurrentPrompt(currentPrompt) {
     '## Latest user turn - form answers submitted',
     trimmed,
     '',
+    // Keep the wording in lock-step with main — the stronger "do not
+    // emit any `<question-form>`" suppression now lives in the
+    // system-prompt `FORM_ANSWERED_SYSTEM_OVERRIDE` block, which
+    // every plain / stream-json adapter sees. Diverging the
+    // user-request transition string here breaks `chat-route.test
+    // marks submitted discovery form answers ...` which asserts on
+    // the exact main wording.
     `The user has answered the ${formId} form. Do not emit another ${formId} form.`,
   ];
-  if (formId.toLowerCase() === 'discovery') {
+  if (formId.toLowerCase() === 'discovery' || formId.toLowerCase() === 'task-type') {
     lines.push(
       'Continue with RULE 2 / RULE 3 now. For Branch B answers, build now instead of asking another brief.',
     );
@@ -2343,13 +2581,30 @@ function formAnswerTransitionForCurrentPrompt(currentPrompt) {
   return lines.join('\n');
 }
 
-export function composeChatUserRequestForAgent(message, currentPrompt) {
+export function composeChatUserRequestForAgent(
+  message,
+  currentPrompt,
+  options: { skipTranscript?: boolean } = {},
+) {
+  // When the adapter resumes its own session (today: `agy -c`), the
+  // daemon-rendered `## user` / `## assistant` transcript is a duplicate
+  // of what the upstream CLI already has in memory — and the embedded
+  // copy carries the literal `<question-form>` markup the agent emitted
+  // on turn 1, which the model then re-emits on turn 2. Send only the
+  // latest user turn (`currentPrompt`) in that case; the upstream
+  // session memory provides the rest. See
+  // `RuntimeAgentDef.resumesSessionViaCli`.
+  const skip = options.skipTranscript === true;
+  const bodySource = skip ? currentPrompt : message;
   const body =
-    typeof message === 'string' && message.trim()
-      ? message
+    typeof bodySource === 'string' && bodySource.trim()
+      ? bodySource
       : '(No extra typed instruction.)';
   const transition = formAnswerTransitionForCurrentPrompt(currentPrompt);
   if (!transition) return body;
+  if (skip) {
+    return [transition, body].join('\n\n');
+  }
   return [
     transition,
     '## Full conversation transcript',
@@ -2584,6 +2839,54 @@ function isLoopbackPeerAddress(address) {
   if (normalized === '::1' || normalized === '0:0:0:0:0:0:0:1') return true;
   if (net.isIP(normalized) === 4) return normalized === '127.0.0.1' || normalized.startsWith('127.');
   return false;
+}
+
+const PROJECT_PREVIEW_SCOPE_TTL_MS = 60 * 60 * 1000;
+const PROJECT_PREVIEW_ASSET_PATH_RE = /^\/projects\/([^/]+)\/preview\/([^/]+)\/.+$/u;
+
+function createProjectPreviewScopeRegistry() {
+  const scopes = new Map();
+
+  function pruneExpired(now = Date.now()) {
+    for (const [scope, entry] of scopes) {
+      if (entry.expiresAt <= now) scopes.delete(scope);
+    }
+  }
+
+  return {
+    mint(projectId) {
+      pruneExpired();
+      const scope = randomUUID();
+      scopes.set(scope, {
+        projectId: String(projectId),
+        expiresAt: Date.now() + PROJECT_PREVIEW_SCOPE_TTL_MS,
+      });
+      return scope;
+    },
+    validate(projectId, scope) {
+      const key = String(scope || '');
+      const entry = scopes.get(key);
+      if (!entry) return false;
+      if (entry.expiresAt <= Date.now()) {
+        scopes.delete(key);
+        return false;
+      }
+      return entry.projectId === String(projectId);
+    },
+  };
+}
+
+function parseProjectPreviewAssetPath(pathname) {
+  const match = PROJECT_PREVIEW_ASSET_PATH_RE.exec(String(pathname || ''));
+  if (!match) return null;
+  try {
+    return {
+      projectId: decodeURIComponent(match[1]),
+      scope: match[2],
+    };
+  } catch {
+    return null;
+  }
 }
 
 function localOriginFromHeader(value) {
@@ -2959,6 +3262,24 @@ function openNativeFolderDialog() {
  */
 function createSseErrorPayload(code, message, init = {}) {
   return { message, error: createCompatApiError(code, message, init) };
+}
+
+const MAX_CHAT_IMAGE_BYTES = 1024 * 1024;
+
+function rewriteKnownAgentStreamError(agentId, message, failureText = '') {
+  const rawMessage =
+    typeof message === 'string' && message.trim()
+      ? message.trim()
+      : 'Agent stream error';
+  const combined = `${rawMessage}\n${failureText}`;
+  if (
+    /bufio\.scanner:\s*token too long/i.test(combined) &&
+    /opencode/i.test(combined) &&
+    (agentId === 'opencode' || agentId === 'amr' || /json-rpc id \d+/i.test(combined))
+  ) {
+    return 'The run failed due to an unknown upstream streaming error. Please retry.';
+  }
+  return rawMessage;
 }
 
 function createAmrModelUnavailablePayload(model, init = {}) {
@@ -3596,18 +3917,39 @@ export async function startServer({
 
   const app = express();
   app.use(express.json({ limit: '4mb' }));
+  const projectPreviewScopes = createProjectPreviewScopeRegistry();
 
   // Plan §3.K1 — bearer-token middleware.
   //
   // Active only when OD_API_TOKEN is set. Loopback origins skip the
   // check (the desktop UI / local CLI never carry a bearer); every
   // other request must present `Authorization: Bearer <token>` with a
-  // value matching `OD_API_TOKEN`. Health / version / status remain
-  // open so monitoring probes don't need the token.
+  // value matching `OD_API_TOKEN`. Health / readiness / version remain
+  // open so monitoring probes don't need the token. Server-minted
+  // project preview asset scopes are also accepted for GETs so sandboxed
+  // browser iframes can load HTML/CSS/JS without privileged headers.
+  // Rich daemon status stays authenticated because it includes local
+  // runtime paths.
   if (apiToken.length > 0) {
-    const openProbePaths = new Set(['/api/health', '/api/version', '/api/daemon/status']);
+    const openProbePaths = new Set([
+      '/health',
+      '/api/health',
+      '/ready',
+      '/api/ready',
+      '/version',
+      '/api/version',
+    ]);
     app.use('/api', (req, res, next) => {
       if (openProbePaths.has(req.path)) return next();
+      if (req.method === 'GET') {
+        const previewAsset = parseProjectPreviewAssetPath(req.path);
+        if (
+          previewAsset &&
+          projectPreviewScopes.validate(previewAsset.projectId, previewAsset.scope)
+        ) {
+          return next();
+        }
+      }
       // Loopback short-circuit. We ignore the proxied X-Forwarded-For
       // header here because a reverse proxy MUST always forward the
       // bearer; the loopback bypass exists for the localhost desktop
@@ -3724,6 +4066,29 @@ export async function startServer({
       };
     }
     return { ok: true, id };
+  }
+
+  async function validateProjectSkillId(id) {
+    if (id === undefined || id === null || id === '') {
+      return { ok: true, id: null };
+    }
+    if (typeof id !== 'string') {
+      return {
+        ok: false,
+        code: 'INVALID_SKILL_ID',
+        message: 'skillId must be a string or null',
+      };
+    }
+    const skills = await listAllSkillLikeEntries();
+    const resolved = findSkillById(skills, id);
+    if (!resolved) {
+      return {
+        ok: false,
+        code: 'SKILL_NOT_FOUND',
+        message: 'skill not found',
+      };
+    }
+    return { ok: true, id: resolved.id };
   }
 
   function userDesignSystemWorkspaceProjectId(id) {
@@ -3872,7 +4237,7 @@ export async function startServer({
   // Routes that serve content to sandboxed iframes (Origin: null) for
   // read-only purposes.  All other /api routes reject Origin: null.
   const _NULL_ORIGIN_SAFE_GET_RE =
-    /^\/projects\/[^/]+\/raw\/|^\/codex-pets\/[^/]+\/spritesheet$/;
+    /^\/projects\/[^/]+\/(?:raw|preview)\/|^\/codex-pets\/[^/]+\/spritesheet$/;
 
   // Reject cross-origin requests to API endpoints.
   // Health/version remain open for monitoring probes.
@@ -3927,8 +4292,8 @@ export async function startServer({
   // delegates "list me everything" / "record a run" back to SQLite.
   routineService = new RoutineService({
     list: () => listRoutines(db).map((row) => routineDbRowToContract(row, null)),
-    insertRun: (run) => {
-      insertRoutineRun(db, {
+    insertRun: (run, options) => {
+      const row = {
         id: run.id,
         routineId: run.routineId,
         trigger: run.trigger,
@@ -3941,7 +4306,12 @@ export async function startServer({
         summary: run.summary,
         error: run.error,
         errorCode: run.errorCode,
-      });
+      };
+      if (options?.scheduledSlotAt != null) {
+        return Boolean(insertScheduledRoutineRun(db, row, options.scheduledSlotAt));
+      }
+      insertRoutineRun(db, row);
+      return true;
     },
     updateRun: (id, patch) => {
       updateRoutineRun(db, id, patch);
@@ -4088,6 +4458,16 @@ export async function startServer({
     res.json({ ok: true, version: versionInfo.version });
   });
 
+  app.get('/api/ready', async (_req, res) => {
+    const versionInfo = await readCurrentAppVersionInfo();
+    const ready = !daemonShuttingDown;
+    res.status(ready ? 200 : 503).json({
+      ok: ready,
+      ready,
+      version: versionInfo.version,
+    });
+  });
+
   app.get('/api/version', async (_req, res) => {
     const version = await readCurrentAppVersionInfo();
     res.json({ version });
@@ -4141,6 +4521,10 @@ export async function startServer({
       port: Number(process.env.OD_PORT ?? 7456),
       dataDir: RUNTIME_DATA_DIR,
       mediaConfigDir: process.env.OD_MEDIA_CONFIG_DIR ?? null,
+      sandboxMode: SANDBOX_RUNTIME.enabled,
+      sandbox: SANDBOX_RUNTIME.enabled
+        ? { enabled: true, roots: SANDBOX_RUNTIME.roots }
+        : { enabled: false },
       pid: process.pid,
       shuttingDown: daemonShuttingDown,
       installedPlugins: (() => {
@@ -4195,6 +4579,42 @@ export async function startServer({
   // with shell access to the daemon machine should be the only
   // one allowed to invoke. Returns the pre-purge stats so the
   // caller can confirm what they discarded.
+  // PR #3157: surface the Antigravity OAuth flow as a one-click action
+  // in the chat's AGENT_AUTH_REQUIRED banner. agy's `-p` print mode
+  // can't complete the Google Sign-In flow on its own (no input field
+  // for the auth code), so OD opens a system Terminal running `agy`
+  // for the user; they finish OAuth there, then retry the chat. The
+  // endpoint is loopback-gated and only supports antigravity because
+  // (a) we hardcode `agy` as the command, and (b) opening a new
+  // Terminal window is a visible side effect we don't want anyone
+  // hand-rolling for every agent that ships a CLI.
+  app.post('/api/agents/:agentId/oauth-launch', requireLocalDaemonRequest, async (req, res) => {
+    const agentId = req.params.agentId;
+    if (agentId !== 'antigravity') {
+      return res.status(400).json({
+        ok: false,
+        error: `oauth-launch is only supported for antigravity, got ${agentId}`,
+      });
+    }
+    try {
+      const { launchAgentInSystemTerminal } = await import('./runtimes/terminal-launch.js');
+      const result = await launchAgentInSystemTerminal('agy');
+      if (result.ok) {
+        return res.json({ ok: true, platform: result.platform, via: result.via });
+      }
+      return res.status(500).json({
+        ok: false,
+        platform: result.platform,
+        error: result.reason,
+      });
+    } catch (err) {
+      return res.status(500).json({
+        ok: false,
+        error: String(err),
+      });
+    }
+  });
+
   app.post('/api/plugins/events/purge', requireLocalDaemonRequest, async (_req, res) => {
     try {
       const { purgePluginEventBuffer } = await import('./plugins/events.js');
@@ -5323,7 +5743,7 @@ export async function startServer({
     EmptyTranscriptError,
     redactSecrets,
   };
-  const validationDeps = { isSafeId, validateExternalApiBaseUrl, validateBaseUrl, validateProjectDesignSystemId };
+  const validationDeps = { isSafeId, validateExternalApiBaseUrl, validateBaseUrl, validateProjectDesignSystemId, validateProjectSkillId };
   const agentDeps = {
     listProviderModels,
     testProviderConnection,
@@ -5376,6 +5796,7 @@ export async function startServer({
     events: projectEventDeps,
     ids: idDeps,
     telemetry: { reportFinalizedMessage },
+    appConfig: appConfigDeps,
     validation: validationDeps,
   });
   registerImportRoutes(app, {
@@ -5473,6 +5894,7 @@ export async function startServer({
     projectFiles: projectFileDeps,
     documents: { buildDocumentPreview },
     artifacts: artifactDeps,
+    projectPreviewScopes,
   });
 
   registerMediaRoutes(app, {
@@ -10423,34 +10845,48 @@ export async function startServer({
     // doesn't exist yet). Without one we don't pass cwd to spawn — the
     // agent then runs in whatever inherited dir, which still lets API
     // mode work but loses file-tool addressability.
-    // For git-linked projects (metadata.baseDir), use that folder directly
-    // so the agent writes back to the user's original source tree.
+    // Project directory resolution lives in projects.ts so sandbox mode can
+    // consistently reject imported-folder metadata that has no managed copy.
     let cwd = null;
     let existingProjectFiles = [];
     if (typeof projectId === 'string' && projectId) {
       try {
         const chatProject = getProject(db, projectId);
         const chatMeta = chatProject?.metadata;
-        if (chatMeta?.baseDir) {
-          cwd = path.normalize(chatMeta.baseDir);
-          existingProjectFiles = await listFiles(PROJECTS_DIR, projectId, { metadata: chatMeta });
-        } else {
-          cwd = await ensureProject(PROJECTS_DIR, projectId);
-          existingProjectFiles = await listFiles(PROJECTS_DIR, projectId);
+        assertSandboxProjectRootAvailable(chatMeta);
+        cwd = await ensureProject(PROJECTS_DIR, projectId, chatMeta);
+        existingProjectFiles = await listFiles(PROJECTS_DIR, projectId, { metadata: chatMeta });
+      } catch (err) {
+        if (err instanceof SandboxImportedProjectError) {
+          return design.runs.fail(run, 'BAD_REQUEST', err.message);
         }
-      } catch {
         cwd = null;
       }
     }
     if (run.cancelRequested || design.runs.isTerminal(run.status)) return;
 
-    // Sanitise supplied image paths: must live under UPLOAD_DIR.
-    const safeImages = imagePaths.filter((p) => {
-      const resolved = path.resolve(p);
-      return (
-        resolved.startsWith(UPLOAD_DIR + path.sep) && fs.existsSync(resolved)
+    // Sanitise supplied image paths: must live under UPLOAD_DIR and stay
+    // below the prompt-image safety cap.
+    const { safeImages, oversizedImages, failedImages } =
+      resolveSafePromptImagePaths(imagePaths);
+    if (oversizedImages.length > 0) {
+      return design.runs.fail(
+        run,
+        'BAD_REQUEST',
+        'Image attachments must be 1 MB or smaller.',
       );
-    });
+    }
+    if (failedImages.length > 0) {
+      return design.runs.fail(
+        run,
+        'INTERNAL_ERROR',
+        'Failed to read one or more image attachments.',
+      );
+    }
+    const amrStagedImages =
+      def.id === 'amr'
+        ? await stageAmrImagePaths(cwd ?? PROJECT_ROOT, safeImages, UPLOAD_DIR)
+        : safeImages;
 
     // Project-scoped attachments: project-relative paths inside cwd. Each
     // is run through the same path-traversal guard the file CRUD endpoints
@@ -10535,57 +10971,71 @@ export async function startServer({
     // values further down at .mcp.json write time — see the spawn block
     // below — instead of re-reading.
     let externalMcpConfig = { servers: [] };
-    try {
-      externalMcpConfig = await readMcpConfig(RUNTIME_DATA_DIR);
-    } catch (err) {
-      console.warn(
-        '[mcp-config] read failed:',
-        err && err.message ? err.message : err,
-      );
+    if (!SANDBOX_RUNTIME.enabled) {
+      try {
+        externalMcpConfig = await readMcpConfig(RUNTIME_DATA_DIR);
+      } catch (err) {
+        console.warn(
+          '[mcp-config] read failed:',
+          err && err.message ? err.message : err,
+        );
+      }
     }
-    const enabledExternalMcp = externalMcpConfig.servers.filter((s) => s.enabled);
+    const runScopedMcpServers = Array.isArray(run?.toolBundle?.mcpServers)
+      ? run.toolBundle.mcpServers
+      : [];
+    const {
+      enabledServers: enabledExternalMcp,
+      persistedTokenServerIds,
+    } = resolveExternalMcpServersForRun({
+      persistedServers: externalMcpConfig.servers,
+      runScopedServers: runScopedMcpServers,
+      sandboxMode: SANDBOX_RUNTIME.enabled,
+    });
     const oauthTokensForSpawn = {};
-    try {
-      const stored = await readAllTokens(RUNTIME_DATA_DIR);
-      for (const [serverId, tok] of Object.entries(stored)) {
-        if (!enabledExternalMcp.find((s) => s.id === serverId)) continue;
-        // Default to the persisted access token; null it out if expired so
-        // we never inject a stale `Authorization: Bearer …` header. The
-        // model treats a server with a Bearer pinned as connected and
-        // discourages re-auth, which is the worst possible UX when the
-        // token is going to 401 every call.
-        let access = isTokenExpired(tok) ? null : tok.accessToken;
-        if (isTokenExpired(tok) && tok.refreshToken) {
-          try {
-            const refreshed = await refreshAndPersistToken(
-              RUNTIME_DATA_DIR,
-              serverId,
-              tok,
-            );
-            if (refreshed) access = refreshed.accessToken;
-          } catch (err) {
+    if (persistedTokenServerIds.size > 0) {
+      try {
+        const stored = await readAllTokens(RUNTIME_DATA_DIR);
+        for (const [serverId, tok] of Object.entries(stored)) {
+          if (!persistedTokenServerIds.has(serverId)) continue;
+          // Default to the persisted access token; null it out if expired so
+          // we never inject a stale `Authorization: Bearer …` header. The
+          // model treats a server with a Bearer pinned as connected and
+          // discourages re-auth, which is the worst possible UX when the
+          // token is going to 401 every call.
+          let access = isTokenExpired(tok) ? null : tok.accessToken;
+          if (isTokenExpired(tok) && tok.refreshToken) {
+            try {
+              const refreshed = await refreshAndPersistToken(
+                RUNTIME_DATA_DIR,
+                serverId,
+                tok,
+              );
+              if (refreshed) access = refreshed.accessToken;
+            } catch (err) {
+              console.warn(
+                '[mcp-oauth] refresh failed for',
+                serverId,
+                err && err.message ? err.message : err,
+              );
+            }
+          }
+          if (access) {
+            oauthTokensForSpawn[serverId] = access;
+          } else {
             console.warn(
-              '[mcp-oauth] refresh failed for',
+              '[mcp-oauth] skipping expired token for',
               serverId,
-              err && err.message ? err.message : err,
+              '— reconnect required',
             );
           }
         }
-        if (access) {
-          oauthTokensForSpawn[serverId] = access;
-        } else {
-          console.warn(
-            '[mcp-oauth] skipping expired token for',
-            serverId,
-            '— reconnect required',
-          );
-        }
+      } catch (err) {
+        console.warn(
+          '[mcp-tokens] read failed:',
+          err && err.message ? err.message : err,
+        );
       }
-    } catch (err) {
-      console.warn(
-        '[mcp-tokens] read failed:',
-        err && err.message ? err.message : err,
-      );
     }
     const connectedExternalMcp = enabledExternalMcp
       .filter((s) => typeof oauthTokensForSpawn[s.id] === 'string')
@@ -10698,6 +11148,7 @@ export async function startServer({
     const userRequestPrompt = composeChatUserRequestForAgent(
       message,
       currentPrompt,
+      { skipTranscript: def.resumesSessionViaCli === true },
     );
     const clientInstructionPrompt = [researchCommandContract, runContextPrompt, systemPrompt]
       .map((part) => (typeof part === 'string' ? part.trim() : ''))
@@ -10718,17 +11169,36 @@ export async function startServer({
     // instructions and request) — see server.ts:9920 composer notes.
     const ECHO_GUARD =
       '\n\n(Do not quote, restate, or echo the # Instructions block above in your reply. Begin your response with the answer to the # User request below.)';
+    const formAnswerMatch = FORM_ANSWERS_HEADER_RE.exec(
+      typeof currentPrompt === 'string' ? currentPrompt : '',
+    );
+    const formIdForOverride = formAnswerMatch
+      ? ((formAnswerMatch[1] || 'form').trim().replace(/[^\w.-]/g, '') || 'form').toLowerCase()
+      : null;
+    const formOverride =
+      formIdForOverride === 'discovery' || formIdForOverride === 'task-type'
+        ? FORM_ANSWERED_SYSTEM_OVERRIDE
+        : formIdForOverride !== null
+          ? FORM_ANSWERED_GENERIC_OVERRIDE
+          : '';
+    const promptImagePaths = selectPromptImagePaths(
+      def.id,
+      safeImages,
+      amrStagedImages,
+    );
     const composed = [
       instructionPrompt
-        ? `# Instructions (read first)\n\n${instructionPrompt}${cwdHint}${linkedDirsHint}${ECHO_GUARD}\n\n---\n`
+        ? `# Instructions (read first)\n\n${formOverride}${instructionPrompt}${cwdHint}${linkedDirsHint}${ECHO_GUARD}\n\n---\n`
         : cwdHint
-          ? `# Instructions${cwdHint}${linkedDirsHint}${ECHO_GUARD}\n\n---\n`
+          ? `# Instructions\n\n${formOverride}${cwdHint}${linkedDirsHint}${ECHO_GUARD}\n\n---\n`
           : linkedDirsHint
-            ? `# Instructions${linkedDirsHint}${ECHO_GUARD}\n\n---\n`
-            : '',
+            ? `# Instructions\n\n${formOverride}${linkedDirsHint}${ECHO_GUARD}\n\n---\n`
+            : formOverride
+              ? `# Instructions\n\n${formOverride}${ECHO_GUARD}\n\n---\n`
+              : '',
       `# User request\n\n${userRequestPrompt}${attachmentHint}${commentHint}`,
-      safeImages.length
-        ? `\n\n${safeImages.map((p) => `@${p}`).join(' ')}`
+      promptImagePaths.length
+        ? `\n\n${promptImagePaths.map((p) => `@${p}`).join(' ')}`
         : '',
     ].join('');
     // Per-agent model + reasoning the user picked in the model menu.
@@ -10929,6 +11399,8 @@ export async function startServer({
                 ...(def.env || {}),
               },
               configuredAgentEnv,
+              undefined,
+              { resolvedBin: agentLaunch.selectedPath },
             ),
             agentLaunch,
           )
@@ -10942,7 +11414,11 @@ export async function startServer({
       } catch {
         liveModels = [];
       }
-      rememberLiveModels(def.id, liveModels);
+      const rememberedLiveModels = getRememberedLiveModels(def.id);
+      if (liveModels.length > 0) {
+        rememberLiveModels(def.id, liveModels);
+      }
+      liveModels = preferFreshLiveModels(liveModels, rememberedLiveModels);
       const liveModelIds = new Set(
         liveModels.map((candidate) => candidate?.id).filter(Boolean),
       );
@@ -11000,12 +11476,69 @@ export async function startServer({
       }
     }
 
+    // Plain-streaming adapters that own a "continue most recent
+    // conversation" CLI flag (today: only `agy -c`) read this signal
+    // to resume upstream session state on follow-up turns. The query
+    // matches any persisted assistant message in the same conversation
+    // EXCEPT the placeholder row this run just inserted (it's still
+    // `pending` and has no body — counting it as prior would always
+    // force `-c` on the very first turn). Adapters that don't consume
+    // this field ignore it.
+    const hasPriorAssistantTurn = run.conversationId
+      ? Boolean(
+          db
+            .prepare(
+              `SELECT 1 FROM messages
+               WHERE conversation_id = ?
+                 AND role = 'assistant'
+                 AND COALESCE(content, '') <> ''
+                 AND id <> COALESCE(?, '')
+               LIMIT 1`,
+            )
+            .get(run.conversationId, run.assistantMessageId ?? ''),
+        )
+      : false;
+
+    // Antigravity's `agy` is silent on stdout/stderr in print mode for
+    // both auth-missing and quota-exhausted failures — the actual
+    // RESOURCE_EXHAUSTED / "not logged in" payload only surfaces in
+    // its `--log-file`. We allocate a per-run temp path, pipe agy's
+    // log to it via buildArgs, then read it in the empty-output guard
+    // to disambiguate the silent-failure cause. Other adapters ignore
+    // this field.
+    const agentLogFilePath =
+      def.id === 'antigravity'
+        ? path.join(os.tmpdir(), `od-agy-${run.id}.log`)
+        : undefined;
+
+    // Serialize antigravity spawns whose buildArgs writes a concrete
+    // model into settings.json. Two concurrent runs with different
+    // models would otherwise race the file: A writes model A, B writes
+    // model B, then A's agy reads model B. The lock is acquired BEFORE
+    // buildArgs (which performs the write) and released asynchronously
+    // AFTER agy's --log-file confirms the model was propagated. See
+    // `antigravity.ts` for the chain implementation.
+    let antigravityModelLockRelease: (() => void) | null = null;
+    const antigravityConcreteModel =
+      def.id === 'antigravity'
+      && typeof agentOptions.model === 'string'
+      && agentOptions.model.length > 0
+      && agentOptions.model !== 'default'
+        ? agentOptions.model
+        : null;
+    if (antigravityConcreteModel) {
+      const { acquireAntigravityModelLock } = await import(
+        './runtimes/defs/antigravity.js'
+      );
+      antigravityModelLockRelease = await acquireAntigravityModelLock();
+    }
+
     const args = def.buildArgs(
       composed,
       safeImages,
       extraAllowedDirs,
       agentOptions,
-      { cwd: effectiveCwd },
+      { cwd: effectiveCwd, hasPriorAssistantTurn, agentLogFilePath },
     );
 
     // Second-pass budget check that knows about the Windows `.cmd` shim
@@ -11147,13 +11680,36 @@ export async function startServer({
         scheduleForcedChildShutdown();
         return;
       }
-      const message =
-        `Agent stalled without emitting any new output for ${Math.round(inactivityTimeoutMs / 1000)}s. ` +
-        'The model or CLI likely hung while generating. ' +
-        `Phase details: spawned agent ${userFacingAgentLabel(agentId, resolvedBin)}; stdout arrived: ${childStdoutSeen ? 'yes' : 'no'}; ` +
-        `last agent event: ${lastAgentEventPhase}; largest tool result observed: ${lastToolResultChars} chars. ` +
-        'Retry the turn, pick a different model, or start a new conversation if the prior context is very large.';
-      send('error', createSseErrorPayload('AGENT_EXECUTION_FAILED', message, { retryable: true }));
+      // OpenCode retries a 429 usage-limit silently and emits nothing on
+      // stdout/stderr, so the watchdog is the first signal we get. The real
+      // reason is recorded only in OpenCode's own session log — recover it
+      // and surface it HERE, before finish() tears down the live SSE
+      // clients, so a viewer sees "usage limit reached" instead of the
+      // generic stall message. Bound to this run via `since` so a stale or
+      // concurrent session's error can't be misattributed. See issue #982.
+      let stallPayload = null;
+      if (agentId === 'opencode') {
+        const logFailure = readOpenCodeServiceFailure(spawnedAgentEnv, {
+          since: run.createdAt,
+        });
+        if (logFailure) {
+          stallPayload = createSseErrorPayload(
+            logFailure.code,
+            logFailure.message,
+            { retryable: true },
+          );
+        }
+      }
+      if (!stallPayload) {
+        const message =
+          `Agent stalled without emitting any new output for ${Math.round(inactivityTimeoutMs / 1000)}s. ` +
+          'The model or CLI likely hung while generating. ' +
+          `Phase details: spawned agent ${userFacingAgentLabel(agentId, resolvedBin)}; stdout arrived: ${childStdoutSeen ? 'yes' : 'no'}; ` +
+          `last agent event: ${lastAgentEventPhase}; largest tool result observed: ${lastToolResultChars} chars. ` +
+          'Retry the turn, pick a different model, or start a new conversation if the prior context is very large.';
+        stallPayload = createSseErrorPayload('AGENT_EXECUTION_FAILED', message, { retryable: true });
+      }
+      send('error', stallPayload);
       design.runs.finish(run, 'failed', 1, null);
       if (acpSession?.abort) {
         acpSession.abort();
@@ -11227,6 +11783,8 @@ export async function startServer({
         ...(def.env || {}),
       },
       configuredAgentEnv,
+      undefined,
+      { resolvedBin: agentLaunch.selectedPath },
     );
     if (def.id === 'amr') {
       const loginStatus = readVelaLoginStatus(agentSpawnEnv, configuredAgentEnv);
@@ -11320,6 +11878,56 @@ export async function startServer({
         windowsVerbatimArguments: invocation.windowsVerbatimArguments,
       });
       run.child = child;
+      // Schedule release of the antigravity model lock once agy's
+      // --log-file confirms the chosen model was propagated to the
+      // backend (the upstream signal that settings.json was read).
+      // The watcher's `false` return (timeout) deliberately does NOT
+      // release — looper review at 263fd2fe7 flagged that releasing
+      // on timeout reopens the slow-cold-start race: a >15s agy
+      // startup that hadn't yet read settings.json would let run B
+      // rewrite the file and run A would then read run B's model.
+      // The exit handler is the canonical fallback that releases the
+      // lock no matter what (crashed agy, fast exit, etc.) so the
+      // queue can never starve permanently.
+      if (
+        antigravityModelLockRelease
+        && antigravityConcreteModel
+        && agentLogFilePath
+      ) {
+        const releaseOnce = (() => {
+          let fired = false;
+          return () => {
+            if (fired) return;
+            fired = true;
+            antigravityModelLockRelease?.();
+          };
+        })();
+        const watcherAbort = new AbortController();
+        const { waitForAgyToReadModel } = await import(
+          './runtimes/defs/antigravity.js'
+        );
+        void waitForAgyToReadModel(
+          agentLogFilePath,
+          antigravityConcreteModel,
+          { abortSignal: watcherAbort.signal },
+        )
+          .then((found) => {
+            // Only release on TRUE confirmation; a `false` return means
+            // the watcher ran out of its polling window without seeing
+            // the propagation line. We hold the lock until child exit
+            // so a slow-cold-start agy can't be pre-empted by a
+            // concurrent settings.json rewrite from run B.
+            if (found) releaseOnce();
+          })
+          .catch(() => undefined);
+        child.once('exit', () => {
+          // Stop the watcher so its pending readFile / setTimeout
+          // chain does not outlive the run and leak into subsequent
+          // antigravity spawns (or test cases).
+          watcherAbort.abort();
+          releaseOnce();
+        });
+      }
       if (def.promptViaStdin && child.stdin && def.streamFormat !== 'pi-rpc') {
         // EPIPE from a fast-exiting CLI (bad auth, missing model, exit on
         // launch) would otherwise surface as an unhandled stream error and
@@ -11569,6 +12177,12 @@ export async function startServer({
     // plain streams (most other CLIs) we forward raw chunks unchanged so
     // the browser can append them to the assistant's text buffer.
     let agentStreamError = null;
+    // Holds buffered plain-text stdout chunks for agents (currently
+    // antigravity) where we need to inspect the full output at close
+    // time before deciding whether to forward it. The auth-prompt guard
+    // in the close handler suppresses the buffer when the output is an
+    // OAuth prompt; otherwise the flush below sends the chunks in order.
+    const plaintextStdoutBuffer: string[] = [];
     // Tracks whether any stream the run is using actually emitted user-
     // visible content. Only the streams routed through `sendAgentEvent`
     // contribute to this flag; ACP sessions and plain stdout streams are
@@ -11589,17 +12203,93 @@ export async function startServer({
       'tool_result',
       'artifact',
     ]);
+
+    // Per-run role-marker guard for non-Claude structured streams (#3247).
+    // Claude has its own per-message guards in claude-stream.ts.
+    const runGuard = createRoleMarkerGuard('run');
+    let runWarned = false;
+
+    function guardTextDelta(delta) {
+      return runGuard.feedText(delta);
+    }
+
+    // Shared helper for emitting guarded text deltas across all agent
+    // stream handlers (sendAgentEvent, copilot, ACP).
+    function emitGuardedTextDelta(delta: string) {
+      const safe = guardTextDelta(delta);
+      if (safe.length > 0) {
+        send('agent', { type: 'text_delta', delta: safe });
+      }
+      if (runGuard.contaminated && !runWarned) {
+        runWarned = true;
+        const warn = runGuard.warningEvent();
+        if (warn) {
+          send('agent', warn);
+          abortForRoleMarker(warn.marker);
+        }
+      }
+    }
+
+    // Detection-only is necessary but not sufficient: by the time we see
+    // the role marker the model has already burned tokens, and the
+    // subprocess will keep generating downstream tokens (including
+    // `tool_use` blocks built on the fabricated context) until it exits
+    // on its own. We terminate the child immediately so:
+    //   1. Token billing stops at the detection point, not at the
+    //      model's natural completion of the contaminated response.
+    //   2. `tool_use` content blocks emitted AFTER the marker cannot
+    //      reach the daemon's tool-call dispatcher. Blocks emitted
+    //      BEFORE the marker have already been dispatched; this guard
+    //      can't help with those — they're a separate hardening.
+    //   3. The UI distinguishes "completed" from "killed by safety
+    //      guard" through a structured SSE error rather than seeing a
+    //      `fabricated_role_marker` warning followed by an eventual
+    //      normal turn-end.
+    // Idempotent — multiple guard paths (per-message Claude, run-scoped
+    // non-Claude, plain stdout) can all call it.
+    let roleMarkerAbortFired = false;
+    function abortForRoleMarker(marker: string) {
+      if (roleMarkerAbortFired) return;
+      roleMarkerAbortFired = true;
+      send(
+        'error',
+        createSseErrorPayload(
+          'ROLE_MARKER_HALLUCINATION',
+          `Run terminated: model emitted fabricated role marker (\`${marker}\`). ` +
+            'No further tokens or tool calls accepted from this turn. ' +
+            'See https://github.com/nexu-io/open-design/issues/3247.',
+          { retryable: true },
+        ),
+      );
+      // ACP sessions (Hermes, Kimi, Devin, Kiro, etc.) need explicit
+      // abort because their I/O is multiplexed and they won't
+      // necessarily exit on child SIGTERM alone.
+      if (acpSession?.abort) {
+        try {
+          acpSession.abort();
+        } catch {
+          // ignore — best-effort
+        }
+      }
+      if (child && !child.killed) child.kill('SIGTERM');
+      scheduleForcedChildShutdown();
+    }
+
     const sendAgentEvent = (ev) => {
       if (ev?.type === 'error') {
         if (agentStreamError) return;
-        agentStreamError = String(ev.message || 'Agent stream error');
-        clearInactivityWatchdog();
         const failureText = [
-          agentStreamError,
+          String(ev.message || 'Agent stream error'),
           typeof ev.raw === 'string' ? ev.raw : '',
           agentStdoutTail,
           agentStderrTail,
         ].join('\n');
+        agentStreamError = rewriteKnownAgentStreamError(
+          agentId,
+          String(ev.message || 'Agent stream error'),
+          failureText,
+        );
+        clearInactivityWatchdog();
         const authFailure = classifyAgentAuthFailure(agentId, failureText);
         if (authFailure?.status === 'missing') {
           send('error', createSseErrorPayload(
@@ -11632,6 +12322,11 @@ export async function startServer({
       if (ev?.type && SUBSTANTIVE_AGENT_EVENT_TYPES.has(ev.type)) {
         agentProducedOutput = true;
       }
+      // Role-marker guard for qoder / json-event-stream / pi-rpc (#3247).
+      if (ev?.type === 'text_delta' && typeof ev.delta === 'string') {
+        emitGuardedTextDelta(ev.delta);
+        return;
+      }
       send('agent', ev);
     };
 
@@ -11640,6 +12335,14 @@ export async function startServer({
         lastAgentEventPhase = summarizeAgentEventForInactivity(ev);
         noteAgentActivity();
         send('agent', ev);
+        // Claude uses per-message guards (claude-stream.ts) rather than the
+        // run-scoped guard above, so its `fabricated_role_marker` events
+        // surface here directly from the stream handler, not via
+        // emitGuardedTextDelta. Same abort semantics apply.
+        if (ev && (ev as any).type === 'fabricated_role_marker') {
+          const m = (ev as any).marker;
+          abortForRoleMarker(typeof m === 'string' ? m : 'role marker');
+        }
         // Stream-json input mode keeps the child's stdin open across the
         // turn so we can answer interactive tools like `AskUserQuestion`
         // with a real `tool_result`. The child has no other way to know
@@ -11699,6 +12402,10 @@ export async function startServer({
       const copilot = createCopilotStreamHandler((ev) => {
         lastAgentEventPhase = summarizeAgentEventForInactivity(ev);
         noteAgentActivity();
+        if (ev?.type === 'text_delta' && typeof ev.delta === 'string') {
+          emitGuardedTextDelta(ev.delta);
+          return;
+        }
         send('agent', ev);
       });
       child.stdout.on('data', (chunk) => copilot.feed(chunk));
@@ -11742,7 +12449,7 @@ export async function startServer({
             send(channel, payload);
           }
         },
-        imagePaths: def.supportsImagePaths ? safeImages : [],
+        imagePaths: def.supportsImagePaths ? amrStagedImages : [],
         uploadRoot: UPLOAD_DIR,
       });
     } else if (def.streamFormat === 'acp-json-rpc') {
@@ -11752,6 +12459,7 @@ export async function startServer({
         prompt: composed,
         cwd: effectiveCwd,
         model: safeModel,
+        imagePaths: def.supportsImagePaths ? amrStagedImages : [],
         mcpServers,
         ...(def.id === 'amr' ? { modelUnavailableErrorCode: 'AMR_MODEL_UNAVAILABLE' } : {}),
         send: (event, data) => {
@@ -11771,6 +12479,10 @@ export async function startServer({
               return;
             }
           }
+          if (event === 'agent' && data?.type === 'text_delta' && typeof data.delta === 'string') {
+            emitGuardedTextDelta(data.delta);
+            return;
+          }
           send(event, data);
         },
         ...(acpStageTimeoutMs !== undefined ? { stageTimeoutMs: acpStageTimeoutMs } : {}),
@@ -11788,10 +12500,33 @@ export async function startServer({
       );
       child.stdout.on('data', (chunk) => handler.feed(chunk));
       child.on('close', () => handler.flush());
-    } else {
+    } else if (def.id === 'antigravity') {
+      // Buffer stdout until close so the auth-prompt guard can suppress
+      // the OAuth URL before forwarding it to the client as assistant
+      // text. agy exits 0 after printing the auth URL on stdout, so the
+      // chunks would otherwise arrive before the close-time classifier
+      // detects them as an auth prompt.
       child.stdout.on('data', (chunk) => {
         noteAgentActivity();
-        send('stdout', { chunk });
+        plaintextStdoutBuffer.push(String(chunk));
+      });
+    } else {
+      // Plain / BYOK mode: guard raw stdout chunks (#3247).
+      child.stdout.on('data', (chunk) => {
+        noteAgentActivity();
+        const text = typeof chunk === 'string' ? chunk : String(chunk);
+        const safe = guardTextDelta(text);
+        if (safe.length > 0) {
+          send('stdout', { chunk: safe });
+        }
+        if (runGuard.contaminated && !runWarned) {
+          runWarned = true;
+          const warn = runGuard.warningEvent();
+          if (warn) {
+            send('agent', warn);
+            abortForRoleMarker(warn.marker);
+          }
+        }
       });
     }
     // Wire the acpSession onto the run so cancel() can call abort()
@@ -11810,7 +12545,8 @@ export async function startServer({
       send('error', createSseErrorPayload('AGENT_EXECUTION_FAILED', err.message));
       design.runs.finish(run, 'failed', 1, null);
     });
-    child.on('close', (code, signal) => {
+    child.on('close', async (code, signal) => {
+      try {
       clearInactivityWatchdog();
       revokeToolToken('child_exit');
       unregisterChatAgentEventSink();
@@ -11846,15 +12582,9 @@ export async function startServer({
           return design.runs.finish(run, 'failed', code ?? 1, signal ?? null);
         }
       }
-      // Empty-output guard: a clean `code === 0` exit on a stream we are
-      // tracking, with no error frame and no substantive event, means the
-      // run silently finished without producing anything visible. That used
-      // to be marked `succeeded` and rendered as an empty assistant turn —
-      // see issue #691, where OpenCode runs were ending in ~3s with no
-      // chat content and no error banner. Surface an explicit failure
-      // instead so the chat shows a clear reason. ACP sessions and plain
-      // stdout streams are gated out via `trackingSubstantiveOutput`;
-      // their success/failure determination lives elsewhere.
+      // Empty-output guard: a clean `code === 0` exit with no visible
+      // output means the run silently finished without producing anything.
+      // Surface an explicit failure so the chat shows a clear reason.
       if (
         code === 0 &&
         !run.cancelRequested &&
@@ -11867,6 +12597,109 @@ export async function startServer({
           { retryable: true },
         ));
         return design.runs.finish(run, 'failed', code, signal);
+      }
+      if (
+        code === 0 &&
+        !run.cancelRequested &&
+        isPluginAuthoringRun(db, run) &&
+        !(await hasGeneratedPluginArtifacts(cwd))
+      ) {
+        send('error', createSseErrorPayload(
+          'AGENT_EXECUTION_FAILED',
+          'Plugin authoring ended before generating the required generated-plugin artifacts.',
+          { retryable: true },
+        ));
+        return design.runs.finish(run, 'failed', code, signal);
+      }
+      // Plain-stream auth-failure guard: plain adapters (today
+      // antigravity, deepseek's TUI variants) may exit cleanly with
+      // visible stdout that's actually an auth prompt — agy prints
+      // "Authentication required. Please visit the URL to log in:
+      // <URL>" + "Error: authentication timed out." rather than
+      // failing with a non-zero exit. Without this guard the chat
+      // shows that raw prompt as the agent's "reply", and the user
+      // has no way to actually complete OAuth from inside the chat.
+      // Override the apparent success with a proper
+      // AGENT_AUTH_REQUIRED error carrying actionable guidance.
+      if (
+        code === 0 &&
+        !run.cancelRequested &&
+        !trackingSubstantiveOutput &&
+        childStdoutSeen
+      ) {
+        const authFailure = classifyAgentAuthFailure(
+          agentId,
+          `${agentStderrTail}\n${agentStdoutTail}`,
+        );
+        if (authFailure?.status === 'missing') {
+          send('error', createSseErrorPayload(
+            'AGENT_AUTH_REQUIRED',
+            authFailure.message ?? `${def.name} authentication required. Please re-authenticate and retry.`,
+            { retryable: true },
+          ));
+          return design.runs.finish(run, 'failed', 0, signal);
+        }
+      }
+      // Plain-stream empty-output guard: plain agents send raw stdout
+      // chunks without structured event tracking. Detect auth failures
+      // and quota / upstream errors when exit 0 but no stdout was
+      // seen. agy in print mode is silent on stdout/stderr for both
+      // missing-auth AND quota-exhausted failures; the daemon piped
+      // agy's `--log-file` to `agentLogFilePath` precisely so this
+      // guard can grep the upstream error code (RESOURCE_EXHAUSTED 429
+      // for quota, "not logged into Antigravity" for auth) and route
+      // to the right user-facing guidance.
+      if (
+        code === 0 &&
+        !run.cancelRequested &&
+        !trackingSubstantiveOutput &&
+        !childStdoutSeen
+      ) {
+        let combinedDetail = `${agentStderrTail}\n${agentStdoutTail}`;
+        if (def.id === 'antigravity' && agentLogFilePath) {
+          try {
+            const logContent = await fs.promises.readFile(agentLogFilePath, 'utf8');
+            // Keep the last 8 KB — quota / auth lines all land near the
+            // tail (after the spawn / model-config preamble).
+            combinedDetail = `${combinedDetail}\n${logContent.slice(-8192)}`;
+          } catch {
+            // Missing log file (agy didn't write it, mounted tmpfs is
+            // read-only, etc.) is fine — fall through to the generic
+            // empty-output message.
+          }
+        }
+        const authFailure = classifyAgentAuthFailure(agentId, combinedDetail);
+        const serviceFailure = !authFailure
+          ? classifyAgentServiceFailure(combinedDetail)
+          : null;
+        const isAntigravityQuota =
+          def.id === 'antigravity' && serviceFailure === 'RATE_LIMITED';
+        // Antigravity-only fallback: if neither classifier matched but
+        // the run was silent, lean on the empirical observation that
+        // an empty agy print-mode exit almost always means
+        // missing-OAuth (the only other silent path is quota, which
+        // the log-file check above already caught).
+        const useAntigravityAuthFallback =
+          !authFailure && !serviceFailure && def.id === 'antigravity';
+        const errorCode =
+          authFailure || useAntigravityAuthFallback
+            ? 'AGENT_AUTH_REQUIRED'
+            : isAntigravityQuota
+              ? 'RATE_LIMITED'
+              : 'AGENT_EXECUTION_FAILED';
+        const msg = authFailure
+          ? authFailure.message ?? `${def.name} authentication expired. Please re-authenticate and retry.`
+          : isAntigravityQuota
+            ? antigravityQuotaGuidance()
+            : useAntigravityAuthFallback
+              ? antigravityAuthGuidance()
+              : `${def.name} returned an empty response. This may indicate an expired session — try re-authenticating the agent.`;
+        send('error', createSseErrorPayload(
+          errorCode,
+          msg,
+          { retryable: true },
+        ));
+        return design.runs.finish(run, 'failed', 0, signal);
       }
       // ACP agents that don't shut down on stdin.end() (e.g. Devin for
       // Terminal) are forced to exit via SIGTERM from attachAcpSession after
@@ -11891,7 +12724,13 @@ export async function startServer({
         acpCleanCompletion,
         artifactQuietShutdownRequested,
       });
-      if (status === 'failed') {
+      // Skip the close-handler failure emit when the run is already
+      // terminal: the inactivity watchdog (failForInactivity) finishes the
+      // run — sending its error and clearing run.clients/eventsLogStream —
+      // before SIGTERM, so re-emitting here would double-send the error and
+      // reopen the closed events-log stream. The run is finalized below
+      // regardless (finish() no-ops once terminal).
+      if (status === 'failed' && !design.runs.isTerminal(run.status)) {
         const diagnostic = diagnoseClaudeCliFailure({
           agentId: def.id,
           exitCode: code,
@@ -11899,6 +12738,7 @@ export async function startServer({
           stderrTail: agentStderrTail,
           stdoutTail: agentStdoutTail,
           env: spawnedAgentEnv,
+          resolvedBin: agentLaunch.selectedPath,
         });
         // A non-zero exit whose output reads as an auth / quota / upstream
         // problem (typical of Claude Code, codex, …) gets the specific code
@@ -11920,6 +12760,38 @@ export async function startServer({
             detail || 'The model service returned an error.',
             { retryable: true },
           ));
+        } else {
+          // OpenCode swallows provider failures in headless mode: a 429
+          // usage-limit is marked retryable and retried silently with
+          // nothing on stdout/stderr, so the run only dies via the
+          // inactivity watchdog and the checks above find no signal. The
+          // real reason is recorded only in OpenCode's own session log,
+          // so recover it before falling back to the generic rewrite.
+          // See issue #982.
+          const openCodeFailure =
+            def.id === 'opencode'
+              ? readOpenCodeServiceFailure(spawnedAgentEnv, { since: run.createdAt })
+              : null;
+          if (openCodeFailure) {
+            send('error', createSseErrorPayload(
+              openCodeFailure.code,
+              openCodeFailure.message,
+              { retryable: true },
+            ));
+          } else {
+            const rewritten = rewriteKnownAgentStreamError(
+              def.id,
+              (agentStderrTail || agentStdoutTail || '').trim(),
+              `${agentStderrTail}\n${agentStdoutTail}`,
+            );
+            if (rewritten !== 'Agent stream error') {
+              send('error', createSseErrorPayload(
+                'AGENT_EXECUTION_FAILED',
+                rewritten,
+                { retryable: true },
+              ));
+            }
+          }
         }
       }
       // Reconcile any HTML artifacts that were written during this run
@@ -11943,7 +12815,7 @@ export async function startServer({
               try {
                 const filePath = path.join(dir, f.name);
                 const st = await fs.promises.stat(filePath);
-                if (st.mtimeMs < runStartTimeMs) continue;
+                if (!isRunTouchedProjectFile(st.mtimeMs, runStartTimeMs)) continue;
                 await reconcileHtmlArtifactManifest(
                   PROJECTS_DIR,
                   run.projectId,
@@ -11955,7 +12827,24 @@ export async function startServer({
           } catch { /* project-level best-effort */ }
         })();
       }
+      // Flush buffered plain-text stdout (antigravity) that was not
+      // suppressed by the auth-prompt guard above. Send each chunk in
+      // order before finishing so the assistant text arrives before the
+      // run's `finished` event.
+      for (const chunk of plaintextStdoutBuffer) {
+        send('stdout', { chunk });
+      }
       design.runs.finish(run, status, code, signal);
+      } finally {
+        // Best-effort cleanup of the per-run agy log file on every close
+        // path — successful, failed, cancelled, or non-zero exit — so
+        // /tmp doesn't accumulate one file per Antigravity run. The log
+        // is read inside the empty-output guard above before this finally
+        // runs, so the read always happens before the unlink.
+        if (agentLogFilePath) {
+          fs.promises.unlink(agentLogFilePath).catch(() => {});
+        }
+      }
     });
     if (writePromptToChildStdin && child.stdin) {
       const promptInputFormat = def.promptInputFormat ?? 'text';
@@ -12195,13 +13084,32 @@ export async function startServer({
     };
   });
 
+  function runToolBundleDeliveryTargetForProject(projectId, metadata) {
+    if (typeof projectId !== 'string' || !projectId || !isSafeId(projectId)) {
+      return 'none';
+    }
+    try {
+      const cwd = resolveProjectDir(PROJECTS_DIR, projectId, metadata, {
+        allowUnavailableSandboxImportedProject: true,
+      });
+      return isManagedProjectCwd(cwd, PROJECTS_DIR) ? 'managed-project' : 'external-project';
+    } catch {
+      return 'none';
+    }
+  }
+
   app.post('/api/runs', async (req, res) => {
     if (daemonShuttingDown) {
       return sendApiError(res, 503, 'UPSTREAM_UNAVAILABLE', 'daemon is shutting down');
     }
-    const mediaExecution = parseMediaExecutionPolicyInput(req.body?.mediaExecution);
+    const requestBody = req.body && typeof req.body === 'object' ? req.body : {};
+    const mediaExecution = parseMediaExecutionPolicyInput(requestBody.mediaExecution);
     if (!mediaExecution.ok) {
       return sendApiError(res, 400, 'BAD_REQUEST', mediaExecution.message);
+    }
+    const toolBundle = parseRunToolBundleForRequest(requestBody.toolBundle);
+    if (!toolBundle.ok) {
+      return sendApiError(res, 400, 'BAD_REQUEST', toolBundle.message);
     }
     // Plan §3.A1 / spec §11.5: resolve any pluginId / appliedPluginSnapshotId
     // before the run is created. The resolver returns null when the body
@@ -12218,7 +13126,7 @@ export async function startServer({
     // bundled scenario that is not installed leaves the run plugin-less,
     // which matches the legacy path.
     let resolvedSnapshot = null;
-    if (typeof req.body?.projectId === 'string' && req.body.projectId) {
+    if (typeof requestBody.projectId === 'string' && requestBody.projectId) {
       let registryView;
       try {
         registryView = await loadPluginRegistryView();
@@ -12226,26 +13134,26 @@ export async function startServer({
         return res.status(500).json({ error: String(err) });
       }
       const explicitPlugin =
-        req.body && (req.body.pluginId || req.body.appliedPluginSnapshotId);
-      let runResolveBody = req.body;
+        requestBody.pluginId || requestBody.appliedPluginSnapshotId;
+      let runResolveBody = requestBody;
       if (!explicitPlugin) {
-        const projectRow = getProject(db, req.body.projectId);
+        const projectRow = getProject(db, requestBody.projectId);
         const hasPin =
           typeof projectRow?.appliedPluginSnapshotId === 'string'
           && projectRow.appliedPluginSnapshotId.length > 0;
         if (!hasPin) {
           const fallbackPluginId = defaultScenarioPluginIdForProjectMetadata(projectRow?.metadata);
           if (fallbackPluginId && getInstalledPlugin(db, fallbackPluginId)) {
-            runResolveBody = { ...req.body, pluginId: fallbackPluginId };
+            runResolveBody = { ...requestBody, pluginId: fallbackPluginId };
           }
         }
       }
       const resolved = resolvePluginSnapshot({
         db,
         body: runResolveBody,
-        projectId: req.body.projectId,
-        conversationId: typeof req.body.conversationId === 'string'
-          ? req.body.conversationId
+        projectId: requestBody.projectId,
+        conversationId: typeof requestBody.conversationId === 'string'
+          ? requestBody.conversationId
           : null,
         registry: registryView,
         connectorProbe: buildConnectorProbe(connectorService),
@@ -12253,7 +13161,7 @@ export async function startServer({
       if (resolved && !resolved.ok) {
         if (!explicitPlugin) {
           console.warn(
-            `[plugins] default-scenario fallback skipped for run on project ${req.body.projectId}: ${resolved.body?.error?.code ?? 'unknown'}`,
+            `[plugins] default-scenario fallback skipped for run on project ${requestBody.projectId}: ${resolved.body?.error?.code ?? 'unknown'}`,
           );
         } else {
           return res.status(resolved.status).json(resolved.body);
@@ -12262,7 +13170,11 @@ export async function startServer({
         resolvedSnapshot = resolved;
       }
     }
-    const meta = { ...(req.body || {}), mediaExecution: mediaExecution.policy };
+    const meta = {
+      ...requestBody,
+      mediaExecution: mediaExecution.policy,
+      toolBundle: toolBundle.bundle,
+    };
     if (resolvedSnapshot?.ok) {
       meta.appliedPluginSnapshotId = resolvedSnapshot.snapshotId;
       if (!meta.pluginId) meta.pluginId = resolvedSnapshot.snapshot.pluginId;
@@ -12273,6 +13185,53 @@ export async function startServer({
         ).trim();
         if (renderedQuery.length > 0) meta.message = renderedQuery;
       }
+    }
+    let runProject = null;
+    if (typeof meta.projectId === 'string' && meta.projectId) {
+      try {
+        runProject = getProject(db, meta.projectId);
+        assertSandboxProjectRootAvailable(runProject?.metadata);
+      } catch (err) {
+        if (err instanceof SandboxImportedProjectError) {
+          return sendApiError(res, 400, 'BAD_REQUEST', err.message);
+        }
+        throw err;
+      }
+    }
+    // MCP / SDK callers may omit agentId. Resolve it before any run-create
+    // side effects so unsupported run-scoped tool bundles can fail cleanly.
+    if (typeof meta.agentId !== 'string' || !meta.agentId) {
+      try {
+        const appCfg = await readAppConfig(RUNTIME_DATA_DIR);
+        const cfgAgent = typeof appCfg.agentId === 'string' && appCfg.agentId
+          ? appCfg.agentId
+          : null;
+        const agents = await detectAgents(appCfg.agentCliEnv ?? {}).catch(() => []);
+        const cfgAgentAvailable = cfgAgent
+          ? agents.some((agent) => agent.id === cfgAgent && agent.available)
+          : false;
+        if (cfgAgent && cfgAgentAvailable) {
+          meta.agentId = cfgAgent;
+        } else {
+          const firstAvailable = agents.find((a) => a.available)?.id ?? null;
+          if (firstAvailable) meta.agentId = firstAvailable;
+        }
+      } catch (err) {
+        console.warn('[runs] agent id fallback failed', err);
+      }
+    }
+    const toolBundleSupport = validateRunToolBundleForAgent(
+      toolBundle.bundle,
+      typeof meta.agentId === 'string' ? getAgentDef(meta.agentId) : null,
+      {
+        deliveryTarget: runToolBundleDeliveryTargetForProject(
+          meta.projectId,
+          runProject?.metadata,
+        ),
+      },
+    );
+    if (!toolBundleSupport.ok) {
+      return sendApiError(res, 400, 'BAD_REQUEST', toolBundleSupport.message);
     }
     // MCP / SDK callers POST /api/runs with just a projectId — no
     // conversationId, no pre-created assistantMessageId — because they
@@ -12298,7 +13257,18 @@ export async function startServer({
     ) {
       try {
         const convs = listConversations(db, meta.projectId);
-        const defaultConv = Array.isArray(convs) && convs.length > 0 ? convs[0] : null;
+        // listConversations is ordered for the UI by recent activity; this
+        // fallback must bind to the seeded default conversation instead.
+        const defaultConv = Array.isArray(convs) && convs.length > 0
+          ? [...convs].sort((a, b) => {
+              const aCreated = Number(a?.createdAt);
+              const bCreated = Number(b?.createdAt);
+              if (Number.isFinite(aCreated) && Number.isFinite(bCreated) && aCreated !== bCreated) {
+                return aCreated - bCreated;
+              }
+              return String(a?.id ?? '').localeCompare(String(b?.id ?? ''));
+            })[0]
+          : null;
         if (defaultConv && typeof defaultConv.id === 'string' && defaultConv.id) {
           meta.conversationId = defaultConv.id;
           if (typeof meta.assistantMessageId !== 'string' || !meta.assistantMessageId) {
@@ -12320,27 +13290,6 @@ export async function startServer({
         }
       } catch (err) {
         console.warn('[runs] mcp conversation fallback failed', err);
-      }
-    }
-    // MCP / SDK callers may omit agentId. Resolve it from the saved
-    // app-config agent (the user's configured default) or the first
-    // available CLI so the run does not immediately fail with
-    // "unknown agent: undefined" inside startChatRun.
-    if (typeof meta.agentId !== 'string' || !meta.agentId) {
-      try {
-        const appCfg = await readAppConfig(RUNTIME_DATA_DIR);
-        const cfgAgent = typeof appCfg.agentId === 'string' && appCfg.agentId
-          ? appCfg.agentId
-          : null;
-        if (cfgAgent) {
-          meta.agentId = cfgAgent;
-        } else {
-          const agents = await detectAgents(appCfg.agentCliEnv ?? {}).catch(() => []);
-          const firstAvailable = agents.find((a) => a.available)?.id ?? null;
-          if (firstAvailable) meta.agentId = firstAvailable;
-        }
-      } catch (err) {
-        console.warn('[runs] agent id fallback failed', err);
       }
     }
     const run = design.runs.create(meta);
@@ -12573,11 +13522,17 @@ export async function startServer({
           ? (reqBody.attachments as unknown[]).length > 0
           : false,
         user_query_tokens: userQueryTokens,
-        model_id: typeof reqBody.model === 'string' ? reqBody.model : null,
-        agent_provider_id:
-          typeof reqBody.agentId === 'string'
-            ? agentIdToTracking(reqBody.agentId)
-            : null,
+        // `modelIdForTracking` buckets null/empty into `'default'` so the
+        // PostHog `model_id` column always has an analysable value. The
+        // user-picked model only lands here on `run_created` (the agent
+        // hasn't initialised yet); `run_finished` below upgrades this to
+        // the agent-reported model when available.
+        model_id: modelIdForTracking(
+          typeof reqBody.model === 'string' ? reqBody.model : null,
+        ),
+        agent_provider_id: agentIdToTracking(
+          typeof reqBody.agentId === 'string' ? reqBody.agentId : null,
+        ),
         skill_id: typeof reqBody.skillId === 'string' ? reqBody.skillId : null,
         mcp_id: null,
         token_count_source: userQueryTokens > 0 ? 'estimated' : 'unknown',
@@ -12603,26 +13558,22 @@ export async function startServer({
         // child close without error event, etc.).
         const result = runResultFromStatus(status.status);
         const errorCode = deriveRunErrorCode(status);
-        let inputTokens: number | undefined;
-        let outputTokens: number | undefined;
-        for (let i = run.events.length - 1; i >= 0; i -= 1) {
-          const ev = run.events[i];
-          const data = ev?.data as
-            | { type?: string; usage?: Record<string, unknown> | null }
-            | null
-            | undefined;
-          if (ev?.event === 'agent' && data?.type === 'usage' && data.usage) {
-            const u = data.usage;
-            if (typeof u.input_tokens === 'number') inputTokens = u.input_tokens;
-            if (typeof u.output_tokens === 'number') outputTokens = u.output_tokens;
-            if (inputTokens !== undefined || outputTokens !== undefined) break;
-          }
-        }
+        // ACP reports { type:'status', label:'model', model:<id> } after
+        // session/new; stream adapters report { type:'status',
+        // label:'initializing', model:<id> } at run start. The scan must
+        // not short-circuit on usage before reaching the model signal —
+        // see `scanRunEventsForFinishedProps` for the invariant.
+        const { inputTokens, outputTokens, agentReportedModel } =
+          scanRunEventsForFinishedProps(run.events, reqBody.model);
         const haveUsage = inputTokens !== undefined || outputTokens !== undefined;
         const totalTokens =
           inputTokens !== undefined && outputTokens !== undefined
             ? inputTokens + outputTokens
             : undefined;
+        const finishedModelId =
+          typeof reqBody.model === 'string' && reqBody.model.trim()
+            ? modelIdForTracking(reqBody.model)
+            : modelIdForTracking(agentReportedModel);
         design.analytics.capture({
           eventName: 'run_finished',
           context: analyticsContext,
@@ -12634,6 +13585,10 @@ export async function startServer({
             // `design_system_generation` to match the run_created shape.
             area: isDesignSystemRun ? 'design_system_generation' : 'chat_panel',
             result,
+            // `model_id` upgrades the request-side value with the
+            // agent-reported model on terminal state; see
+            // `finishedModelId` derivation above.
+            model_id: finishedModelId,
             // Incremental count of `.html` paths the run produced or
             // modified, deduped per file. Replaces the hard-coded `0`
             // that masked the "did this run actually generate an
@@ -12641,6 +13596,12 @@ export async function startServer({
             // for the dedup semantics; tested in
             // `tests/run-artifacts.test.ts`.
             artifact_count: countNewHtmlArtifacts(run.events),
+            // True when the run raised an AskUserQuestion clarification
+            // card. Clarification turns inherently produce no artifact, so
+            // the dashboard excludes them from the "run finished -> has
+            // artifact" funnel instead of counting them as failures. See
+            // `run-artifacts.ts`; tested in `tests/run-artifacts.test.ts`.
+            asked_user_question: runAskedUserQuestion(run.events),
             ...(isDesignSystemRun ? {
               // DS runs land a `DESIGN.md` write when generation
               // succeeded; the run-artifacts inspector reuses the
@@ -12751,11 +13712,45 @@ export async function startServer({
     if (daemonShuttingDown) {
       return sendApiError(res, 503, 'UPSTREAM_UNAVAILABLE', 'daemon is shutting down');
     }
-    const mediaExecution = parseMediaExecutionPolicyInput(req.body?.mediaExecution);
+    const requestBody = req.body && typeof req.body === 'object' ? req.body : {};
+    const mediaExecution = parseMediaExecutionPolicyInput(requestBody.mediaExecution);
     if (!mediaExecution.ok) {
       return sendApiError(res, 400, 'BAD_REQUEST', mediaExecution.message);
     }
-    const meta = { ...(req.body || {}), mediaExecution: mediaExecution.policy };
+    const toolBundle = parseRunToolBundleForRequest(requestBody.toolBundle);
+    if (!toolBundle.ok) {
+      return sendApiError(res, 400, 'BAD_REQUEST', toolBundle.message);
+    }
+    let chatProject = null;
+    if (typeof requestBody.projectId === 'string' && requestBody.projectId) {
+      try {
+        chatProject = getProject(db, requestBody.projectId);
+        assertSandboxProjectRootAvailable(chatProject?.metadata);
+      } catch (err) {
+        if (err instanceof SandboxImportedProjectError) {
+          return sendApiError(res, 400, 'BAD_REQUEST', err.message);
+        }
+        throw err;
+      }
+    }
+    const toolBundleSupport = validateRunToolBundleForAgent(
+      toolBundle.bundle,
+      typeof requestBody.agentId === 'string' ? getAgentDef(requestBody.agentId) : null,
+      {
+        deliveryTarget: runToolBundleDeliveryTargetForProject(
+          requestBody.projectId,
+          chatProject?.metadata,
+        ),
+      },
+    );
+    if (!toolBundleSupport.ok) {
+      return sendApiError(res, 400, 'BAD_REQUEST', toolBundleSupport.message);
+    }
+    const meta = {
+      ...requestBody,
+      mediaExecution: mediaExecution.policy,
+      toolBundle: toolBundle.bundle,
+    };
     const run = design.runs.create(meta);
     design.runs.stream(run, req, res);
     design.runs.start(run, () => startChatRun(meta, run));
@@ -12801,12 +13796,13 @@ export async function startServer({
     const stamp = formatLocalProjectTimestamp(new Date(now).toISOString());
     let projectId;
     let projectName;
-    if (routine.target.mode === 'reuse') {
-      const project = getProject(db, routine.target.projectId);
-      if (!project) throw new Error(`Routine target project ${routine.target.projectId} not found`);
-      projectId = project.id;
-      projectName = project.name;
-    } else {
+    const scheduledPlaceholderProjectId = `routine-pending-project-${runId}`;
+    const scheduledPlaceholderConversationId = `routine-pending-conv-${runId}`;
+    let createdProjectId: string | null = null;
+    let createdConversationId: string | null = null;
+    let previousProjectSnapshotId: string | null = null;
+    const createRoutineProject = () => {
+      if (createdProjectId) return;
       projectId = `routine-${randomUUID()}`;
       projectName = `${routine.name} · ${stamp}`;
       insertProject(db, {
@@ -12826,67 +13822,103 @@ export async function startServer({
         createdAt: now,
         updatedAt: now,
       });
+      createdProjectId = projectId;
+    };
+    if (routine.target.mode === 'reuse') {
+      const project = getProject(db, routine.target.projectId);
+      if (!project) throw new Error(`Routine target project ${routine.target.projectId} not found`);
+      assertSandboxProjectRootAvailable(project.metadata);
+      projectId = project.id;
+      projectName = project.name;
+      previousProjectSnapshotId = project.appliedPluginSnapshotId ?? null;
     }
 
-    const conversationId = `routine-conv-${randomUUID()}`;
-    const conversationTitle = routine.target.mode === 'reuse'
+    let conversationId = `routine-conv-${randomUUID()}`;
+    let conversationCreatedEvent: ProjectConversationCreatedSsePayload | null = null;
+    const routineConversationTitle = () => routine.target.mode === 'reuse'
       ? `${routine.name} · ${stamp}`
       : projectName;
-    insertConversation(db, {
-      id: conversationId,
-      projectId,
-      title: conversationTitle,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    // Notify any open `ProjectView` watching this project so its
-    // conversation list picks up the new routine conversation without
-    // requiring the user to leave and re-enter the project (#1361).
-    // For reuse-an-existing-project mode this is the only path the
-    // open view has to learn the conversation exists; for new-project
-    // mode this is harmless (no subscribers for a project that was
-    // just created milliseconds ago). The payload shape is the shared
-    // `ProjectConversationCreatedSsePayload` from `@open-design/contracts`
-    // so the daemon producer and the web consumer cannot drift.
-    /** @type {ProjectConversationCreatedSsePayload} */
-    const conversationCreatedEvent = {
-      type: 'conversation-created',
-      projectId,
-      conversationId,
-      title: conversationTitle,
-      createdAt: now,
+    const createRoutineConversation = () => {
+      if (createdConversationId) return;
+      if (!projectId) createRoutineProject();
+      if (!projectId) throw new Error('Routine project could not be prepared');
+      conversationId = `routine-conv-${randomUUID()}`;
+      insertConversation(db, {
+        id: conversationId,
+        projectId,
+        title: routineConversationTitle(),
+        createdAt: now,
+        updatedAt: now,
+      });
+      createdConversationId = conversationId;
+      conversationCreatedEvent = {
+        type: 'conversation-created',
+        projectId,
+        conversationId,
+        title: routineConversationTitle(),
+        createdAt: now,
+      };
     };
-    emitProjectEvent(projectId, conversationCreatedEvent);
 
     const assistantMessageId = `routine-assistant-${randomUUID()}`;
     let resolvedRoutineSnapshot = null;
+    // Tracks any snapshot id that `resolvePluginSnapshot()` already pinned
+    // to the reused project before the resolver threw on a later linking
+    // step. `finalizeOk()` performs `linkSnapshotToProject()` BEFORE
+    // `linkSnapshotToConversation()` / `linkSnapshotToRun()`, so a failure
+    // mid-resolve can leave `projects.applied_plugin_snapshot_id` repointed
+    // at a snapshot the routine never durably claimed. The rollback path in
+    // `discard()` falls back to this id when `resolvedRoutineSnapshot` is
+    // still null so the reused project pin is restored either way.
+    let partiallyAppliedSnapshotId: string | null = null;
     const primaryPluginId = routineContext.pluginIds?.[0] ?? null;
-    if (primaryPluginId) {
+    const resolveRoutinePluginSnapshot = async () => {
+      if (!primaryPluginId || resolvedRoutineSnapshot) return;
       const registry = await loadPluginRegistryView();
-      const resolved = resolvePluginSnapshot({
-        db,
-        body: {
-          pluginId: primaryPluginId,
-          pluginInputs: { prompt: routine.prompt },
-        },
-        projectId,
-        conversationId,
-        registry,
-        activeProjectDesignSystem:
-          typeof appConfig.designSystemId === 'string' && appConfig.designSystemId.length > 0
-            ? { id: appConfig.designSystemId }
-            : undefined,
-      });
+      const projectSnapshotBefore = routine.target.mode === 'reuse'
+        ? getProject(db, routine.target.projectId)?.appliedPluginSnapshotId ?? null
+        : null;
+      let resolved;
+      try {
+        resolved = resolvePluginSnapshot({
+          db,
+          body: {
+            pluginId: primaryPluginId,
+            pluginInputs: { prompt: routine.prompt },
+          },
+          projectId,
+          conversationId,
+          registry,
+          activeProjectDesignSystem:
+            typeof appConfig.designSystemId === 'string' && appConfig.designSystemId.length > 0
+              ? { id: appConfig.designSystemId }
+              : undefined,
+        });
+      } catch (resolverError) {
+        // `resolvePluginSnapshot()` may have already updated the reused
+        // project's pin via `linkSnapshotToProject()` before throwing on
+        // `linkSnapshotToConversation()` (or `linkSnapshotToRun()`). Capture
+        // whatever pin it left behind so `discard()` can roll it back even
+        // though `resolvedRoutineSnapshot` will stay null.
+        if (routine.target.mode === 'reuse') {
+          const after = getProject(db, routine.target.projectId)?.appliedPluginSnapshotId ?? null;
+          if (after && after !== projectSnapshotBefore) {
+            partiallyAppliedSnapshotId = after;
+          }
+        }
+        throw resolverError;
+      }
       if (resolved && !resolved.ok) {
+        // Non-throwing resolver failures cannot have called `finalizeOk()`,
+        // so the project pin is still the previous one — nothing to roll
+        // back beyond the loser cleanup the caller will perform.
         throw new Error(`Automation plugin ${primaryPluginId} could not be applied: ${JSON.stringify(resolved.body)}`);
       }
       resolvedRoutineSnapshot = resolved;
-    }
-
+    };
     const run = design.runs.create({
-      projectId,
-      conversationId,
+      projectId: projectId ?? scheduledPlaceholderProjectId,
+      conversationId: createdConversationId ? conversationId : scheduledPlaceholderConversationId,
       assistantMessageId,
       clientRequestId: `routine-${trigger}-${randomUUID()}`,
       agentId,
@@ -12897,48 +13929,115 @@ export async function startServer({
           }
         : {}),
     });
-    if (resolvedRoutineSnapshot?.ok) {
-      try {
+    const persistPreparedRun = async (routineRun = null) => {
+      if (!projectId) {
+        createRoutineProject();
+      }
+      if (projectId) {
+        run.projectId = projectId;
+        if (routineRun) {
+          routineRun.projectId = projectId;
+        }
+      }
+      createRoutineConversation();
+      run.conversationId = conversationId;
+      if (routineRun) {
+        routineRun.conversationId = conversationId;
+        routineRun.agentRunId = run.id;
+      }
+      await resolveRoutinePluginSnapshot();
+      if (resolvedRoutineSnapshot?.ok) {
+        run.appliedPluginSnapshotId = resolvedRoutineSnapshot.snapshotId;
+        run.pluginId = resolvedRoutineSnapshot.snapshot.pluginId;
         const { linkSnapshotToRun } = await import('./plugins/snapshots.js');
         linkSnapshotToRun(db, resolvedRoutineSnapshot.snapshotId, run.id);
-      } catch {
-        // Snapshot linking is best-effort; the in-memory run still carries it.
       }
-    }
-    upsertMessage(db, conversationId, {
-      id: `routine-user-${run.id}`,
-      role: 'user',
-      content: routine.prompt,
-    });
-    upsertMessage(db, conversationId, {
-      id: assistantMessageId,
-      role: 'assistant',
-      content: '',
-      agentId,
-      agentName: getAgentDef(agentId)?.name ?? agentId,
-      runId: run.id,
-      runStatus: 'queued',
-      startedAt: now,
-    });
+      upsertMessage(db, conversationId, {
+        id: `routine-user-${run.id}`,
+        role: 'user',
+        content: routine.prompt,
+      });
+      upsertMessage(db, conversationId, {
+        id: assistantMessageId,
+        role: 'assistant',
+        content: '',
+        agentId,
+        agentName: getAgentDef(agentId)?.name ?? agentId,
+        runId: run.id,
+        runStatus: 'queued',
+        startedAt: now,
+      });
+    };
 
     const modelPrefs = appConfig.agentModels?.[agentId] ?? {};
-    design.runs.start(run, () => startChatRun({
-      agentId,
-      projectId,
-      conversationId: run.conversationId,
-      assistantMessageId: run.assistantMessageId,
-      clientRequestId: run.clientRequestId,
-      skillId: routineSkillId,
-      designSystemId: appConfig.designSystemId ?? null,
-      context: routineContext,
-      model: modelPrefs.model ?? null,
-      reasoning: modelPrefs.reasoning ?? null,
-      message: routine.prompt,
-      systemPrompt: [
-        `You are running an unattended scheduled routine named "${routine.name}".`,
-        'Do not ask follow-up questions, do not emit <question-form>, and do not wait for user input. Pick reasonable defaults and finish the task.',
-      ].join('\n'),
-    }, run));
+    const start = () => {
+      // Notify any open `ProjectView` only after the routine run row has
+      // been accepted and preparation has completed, so failed setup does not
+      // surface phantom conversations (#1361).
+      if (conversationCreatedEvent) emitProjectEvent(projectId, conversationCreatedEvent);
+      design.runs.start(run, () => startChatRun({
+        agentId,
+        projectId,
+        conversationId: run.conversationId,
+        assistantMessageId: run.assistantMessageId,
+        clientRequestId: run.clientRequestId,
+        skillId: routineSkillId,
+        designSystemId: appConfig.designSystemId ?? null,
+        context: routineContext,
+        model: modelPrefs.model ?? null,
+        reasoning: modelPrefs.reasoning ?? null,
+        message: routine.prompt,
+        systemPrompt: [
+          `You are running an unattended scheduled routine named "${routine.name}".`,
+          'Do not ask follow-up questions, do not emit <question-form>, and do not wait for user input. Pick reasonable defaults and finish the task.',
+        ].join('\n'),
+      }, run));
+    };
+
+    // Tear-down for the case where the durable routine_run row was never
+    // inserted (sibling daemon won the slot, or insertRun threw). The
+    // in-memory chat run was created speculatively above, but the deferred
+    // `persistPreparedRun()` has not run yet — so no project / conversation
+    // / snapshot writes have to be rolled back. Dropping the run keeps it
+    // off `/api/runs` instead of leaving a phantom canceled entry there.
+    const discardUnstarted = () => {
+      design.runs.drop(run);
+    };
+
+    const discard = () => {
+      if (typeof run.projectId === 'string' && run.projectId.startsWith('routine-pending-')) {
+        run.projectId = null;
+      }
+      if (typeof run.conversationId === 'string' && run.conversationId.startsWith('routine-pending-')) {
+        run.conversationId = null;
+      }
+      design.runs.finish(run, 'canceled');
+      if (routine.target.mode === 'reuse') {
+        // Prefer the fully-resolved snapshot id; fall back to whatever id
+        // `resolvePluginSnapshot()` left pinned on the project if it threw
+        // partway through linking — see the comment on
+        // `partiallyAppliedSnapshotId` above.
+        const snapshotIdToDiscard =
+          resolvedRoutineSnapshot?.ok
+            ? resolvedRoutineSnapshot.snapshotId
+            : partiallyAppliedSnapshotId;
+        if (snapshotIdToDiscard) {
+          restoreProjectSnapshotLink(
+            db,
+            projectId,
+            snapshotIdToDiscard,
+            previousProjectSnapshotId,
+            run.id,
+          );
+        }
+      }
+      if (createdConversationId) {
+        deleteConversation(db, createdConversationId);
+      }
+      if (createdProjectId) {
+        dbDeleteProject(db, createdProjectId);
+      }
+    };
 
     const completion = (async () => {
       const finalStatus = await design.runs.wait(run);
@@ -12988,7 +14087,16 @@ export async function startServer({
       };
     })();
 
-    return { projectId, conversationId, agentRunId: run.id, completion };
+    return {
+      projectId: run.projectId,
+      conversationId: run.conversationId,
+      agentRunId: run.id,
+      completion,
+      prepare: persistPreparedRun,
+      start,
+      discard,
+      discardUnstarted,
+    };
   });
   routineService.start();
 
@@ -13027,6 +14135,7 @@ export async function startServer({
       mimeFor,
     },
     routines: { routineService },
+    projectPreviewScopes,
     validation: validationDeps,
     finalize: finalizeDeps,
     handoff: handoffDeps,
@@ -13088,7 +14197,8 @@ export async function startServer({
     };
     let server;
     try {
-      server = app.listen(port, host, () => {
+      server = app.listen(port, host);
+      server.once('listening', () => {
         // Widen the between-request idle window so kept-alive sockets
         // belonging to chat/SSE clients survive the gaps between bursts.
         //
@@ -13111,10 +14221,8 @@ export async function startServer({
         //
         // `headersTimeout` must exceed `keepAliveTimeout` per the Node
         // docs; otherwise a slow-loris client can stall request parsing.
-        if (server) {
-          server.keepAliveTimeout = 120_000;
-          server.headersTimeout = 125_000;
-        }
+        server.keepAliveTimeout = 120_000;
+        server.headersTimeout = 125_000;
         const address = server.address();
         // `address()` can in theory return `string | AddressInfo | null`. For
         // a TCP listener it's always `AddressInfo` with a `.port` — the guard

@@ -15,7 +15,7 @@ import {
 } from '../design-system-auto-prompt';
 import { latestTodoWriteInputForPinnedCard } from '../runtime/todos';
 import { TodoCard } from './ToolCard';
-import type { AppConfig, ChatAttachment, ChatCommentAttachment, ChatMessage, ChatMessageFeedbackChange, Conversation, DesignSystemSummary, PreviewComment, ProjectFile, ProjectMetadata, SkillSummary } from '../types';
+import type { AppConfig, ChatAttachment, ChatCommentAttachment, ChatMessage, ChatMessageFeedbackChange, Conversation, DesignSystemSummary, PreviewComment, Project, ProjectFile, ProjectMetadata, SkillSummary } from '../types';
 import { dayKey, dayLabel, exactDateTime, messageTime, relativeTimeLong } from '../utils/chatTime';
 import { commentTargetDisplayName, commentsToAttachments, simplePositionLabel } from '../comments';
 import { AssistantMessage } from './AssistantMessage';
@@ -281,6 +281,12 @@ interface Props {
   onOpenSettings?: (section?: SettingsSection) => void;
   onOpenAmrSettings?: () => void;
   onSwitchToAmrAndRetry?: (failedAssistant: ChatMessage) => void;
+  // PR #3157: Antigravity's `agy -p` can't complete OAuth on its own,
+  // so the auth banner offers a "Sign in via terminal" button that
+  // POSTs to /api/agents/antigravity/oauth-launch. Handler resolves
+  // after the daemon kicks off `osascript`/`x-terminal-emulator`/
+  // `cmd /c start` so the UI can disable the button while in flight.
+  onLaunchAntigravityOauth?: () => Promise<void>;
   // Same dialog, but landing on the External MCP tab. Forwarded to the
   // composer's `/mcp` slash and MCP picker button.
   onOpenMcpSettings?: () => void;
@@ -323,6 +329,12 @@ interface Props {
   byokImageModel?: string;
   onChangeByokImageModel?: (model: string) => void;
   composerFooterAccessory?: ReactNode;
+  // Forwarded straight to the chat composer's mid-chat design-system
+  // switcher. ProjectView owns the project record so the parent is the
+  // natural place to mirror the patched project after a PATCH lands.
+  currentDesignSystemId?: string | null;
+  onActiveDesignSystemChange?: (project: Project) => void;
+  onShowToast?: (message: string) => void;
 }
 
 type Tab = 'chat' | 'comments';
@@ -377,6 +389,7 @@ export function ChatPane({
   onOpenSettings,
   onOpenAmrSettings,
   onSwitchToAmrAndRetry,
+  onLaunchAntigravityOauth,
   onOpenMcpSettings,
   connectRepoNeeded,
   githubConnected,
@@ -398,6 +411,9 @@ export function ChatPane({
   byokImageModel,
   onChangeByokImageModel,
   composerFooterAccessory,
+  currentDesignSystemId,
+  onActiveDesignSystemChange,
+  onShowToast,
 }: Props) {
   const t = useT();
   const analytics = useAnalytics();
@@ -1192,6 +1208,26 @@ export function ChatPane({
                         >
                           {t('chat.amrError.authorizeCta')}
                         </button>
+                      ) : runFailureUi.primaryAction === 'launch-terminal-auth' ? (
+                        <button
+                          type="button"
+                          className="chat-error-action"
+                          onClick={() => {
+                            onLaunchAntigravityOauth?.();
+                          }}
+                        >
+                          {t('chat.antigravityError.launchTerminalCta')}
+                        </button>
+                      ) : runFailureUi.primaryAction === 'launch-terminal-switch-model' ? (
+                        <button
+                          type="button"
+                          className="chat-error-action"
+                          onClick={() => {
+                            onLaunchAntigravityOauth?.();
+                          }}
+                        >
+                          {t('chat.antigravityError.launchSwitchModelCta')}
+                        </button>
                       ) : runFailureUi.primaryAction === 'recharge' ? (
                         <button
                           type="button"
@@ -1293,6 +1329,9 @@ export function ChatPane({
             onProjectSkillChange={onProjectSkillChange}
             pinnedPluginId={activePluginSnapshot?.pluginId ?? null}
             footerAccessory={composerFooterAccessory}
+            currentDesignSystemId={currentDesignSystemId}
+            onActiveDesignSystemChange={onActiveDesignSystemChange}
+            onShowToast={onShowToast}
           />
         </>
       ) : null}
@@ -1987,6 +2026,16 @@ export function conversationMetaLabel(
   t: TranslateFn,
 ): string {
   const latestRun = conversation.latestRun;
+  if (
+    latestRun &&
+    (latestRun.status === 'succeeded' ||
+      latestRun.status === 'failed' ||
+      latestRun.status === 'canceled') &&
+    typeof conversation.totalDurationMs === 'number' &&
+    Number.isFinite(conversation.totalDurationMs)
+  ) {
+    return formatDurationShort(conversation.totalDurationMs);
+  }
   if (
     latestRun &&
     (latestRun.status === 'succeeded' ||

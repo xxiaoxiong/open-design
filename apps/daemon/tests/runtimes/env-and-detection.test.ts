@@ -1,6 +1,8 @@
 import { symlinkSync } from 'node:fs';
 import { test, vi } from 'vitest';
 import { homedir } from 'node:os';
+import { dirname, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as platform from '@open-design/platform';
 import {
   assert, chmodSync, detectAgents, inspectAgentExecutableResolution, join, minimalAgentDef, mkdirSync, mkdtempSync, opencode, resolveAgentExecutable, rmSync, spawnEnvForAgent, tmpdir, withEnvSnapshot, withPlatform, writeFileSync,
@@ -8,6 +10,7 @@ import {
 import { isCursorAuthFailureText } from '../../src/runtimes/auth.js';
 
 const fsTest = process.platform === 'win32' ? test.skip : test;
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 
 // Issue #398: Claude Code prefers ANTHROPIC_API_KEY over `claude login`
 // credentials, silently billing API usage. Strip it for the claude
@@ -53,6 +56,113 @@ test('spawnEnvForAgent applies configured Codex env without mutating the base en
   assert.equal(env.PATH, '/usr/bin');
   assert.equal('CODEX_HOME' in base, false);
   assert.equal('CODEX_BIN' in base, false);
+});
+
+test('spawnEnvForAgent reapplies sandbox state roots after configured env overrides', () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'od-agent-env-sandbox-'));
+  try {
+    const codexEnv = spawnEnvForAgent(
+      'codex',
+      {
+        OD_DATA_DIR: dataDir,
+        OD_SANDBOX_MODE: '1',
+        PATH: '/usr/bin',
+      },
+      {
+        CODEX_HOME: '/Users/test/.codex-host',
+      },
+    );
+    assert.equal(
+      codexEnv.CODEX_HOME,
+      join(dataDir, 'sandbox', 'agent-home', '.codex'),
+    );
+    assert.equal(codexEnv.HOME, join(dataDir, 'sandbox', 'agent-home'));
+
+    const claudeEnv = spawnEnvForAgent(
+      'claude',
+      {
+        OD_DATA_DIR: dataDir,
+        OD_SANDBOX_MODE: '1',
+        PATH: '/usr/bin',
+      },
+      {
+        CLAUDE_CONFIG_DIR: '/Users/test/.claude-host',
+      },
+    );
+    assert.equal(
+      claudeEnv.CLAUDE_CONFIG_DIR,
+      join(dataDir, 'sandbox', 'config', 'claude'),
+    );
+
+    const amrEnv = spawnEnvForAgent(
+      'amr',
+      {
+        OD_DATA_DIR: dataDir,
+        OD_SANDBOX_MODE: '1',
+        PATH: '/usr/bin',
+      },
+      {
+        OPENCODE_TEST_HOME: '/Users/test/.opencode-host',
+      },
+    );
+    assert.equal(
+      amrEnv.OPENCODE_TEST_HOME,
+      join(dataDir, 'sandbox', 'agent-home', '.opencode'),
+    );
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('spawnEnvForAgent keeps sandbox roots pinned to the base OD_DATA_DIR', () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'od-agent-env-sandbox-base-'));
+  try {
+    const env = spawnEnvForAgent(
+      'codex',
+      {
+        OD_DATA_DIR: dataDir,
+        OD_SANDBOX_MODE: '1',
+        PATH: '/usr/bin',
+      },
+      {
+        CODEX_HOME: '/Users/test/.codex-host',
+        OD_DATA_DIR: '/host/path/.od',
+      },
+    );
+
+    assert.equal(env.OD_DATA_DIR, dataDir);
+    assert.equal(env.CODEX_HOME, join(dataDir, 'sandbox', 'agent-home', '.codex'));
+    assert.equal(env.HOME, join(dataDir, 'sandbox', 'agent-home'));
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('spawnEnvForAgent resolves relative OD_DATA_DIR before applying sandbox roots', () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'od-agent-env-sandbox-relative-'));
+  try {
+    const relativeDataDir = relative(repoRoot, dataDir);
+    const env = spawnEnvForAgent(
+      'codex',
+      {
+        OD_DATA_DIR: relativeDataDir,
+        OD_SANDBOX_MODE: '1',
+        PATH: '/usr/bin',
+      },
+      {
+        CODEX_HOME: '/Users/test/.codex-host',
+      },
+    );
+
+    assert.equal(
+      env.CODEX_HOME,
+      join(dataDir, 'sandbox', 'agent-home', '.codex'),
+    );
+    assert.equal(env.CLAUDE_CONFIG_DIR, join(dataDir, 'sandbox', 'config', 'claude'));
+    assert.equal(env.HOME, join(dataDir, 'sandbox', 'agent-home'));
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
 });
 
 test('spawnEnvForAgent applies system proxy env to all agent runtimes before base env overrides', () => {
@@ -765,6 +875,70 @@ test('Cursor auth matcher covers current unauthenticated Cursor error records', 
   assert.equal(isCursorAuthFailureText('Error: [unauthenticated] Error'), true);
 });
 
+// agy's print mode (`-p -`) exits with code 0 but emits one of these
+// shapes when the keyring entry is missing or expired. Without the
+// matcher, the daemon treats this as a successful turn and shows the
+// raw OAuth URL as the agent's "reply" — but the user has no way to
+// complete OAuth from inside chat (agy `-p` has no input field to
+// paste the auth code into). The matcher converts each shape into
+// AGENT_AUTH_REQUIRED with actionable guidance.
+test('antigravity auth matcher covers agy print-mode + log-file auth signals', async () => {
+  const { isAntigravityAuthFailureText, antigravityAuthGuidance, classifyAgentAuthFailure } =
+    await import('../../src/runtimes/auth.js');
+
+  // print-mode stdout shape — user-visible
+  assert.equal(
+    isAntigravityAuthFailureText(
+      'Authentication required. Please visit the URL to log in: https://accounts.google.com/o/oauth2/auth?…',
+    ),
+    true,
+  );
+  assert.equal(
+    isAntigravityAuthFailureText('Waiting for authentication (timeout 30s)...\nError: authentication timed out.'),
+    true,
+  );
+
+  // `agy --log-file` shape — surfaces in stderr / log-file probes
+  assert.equal(
+    isAntigravityAuthFailureText(
+      'E log.go:398] Failed to poll ListExperiments: error getting token source: You are not logged into Antigravity.',
+    ),
+    true,
+  );
+
+  // Negative: prose mentioning "authentication" must not false-fire
+  assert.equal(
+    isAntigravityAuthFailureText('I added two-factor authentication to the login flow.'),
+    false,
+  );
+  assert.equal(isAntigravityAuthFailureText(''), false);
+
+  // Classifier wires the agy detector to the user-actionable guidance
+  // text so the chat surfaces a re-auth message rather than the raw
+  // OAuth URL the user can't act on from inside OD.
+  const cls = classifyAgentAuthFailure(
+    'antigravity',
+    'Authentication required. Please visit the URL to log in: https://example',
+  );
+  assert.ok(cls);
+  assert.equal(cls.status, 'missing');
+  assert.equal(cls.message, antigravityAuthGuidance());
+  assert.ok(
+    antigravityAuthGuidance().includes('open a terminal and run `agy` once'),
+    'guidance must tell the user exactly what one-time command to run',
+  );
+  assert.ok(
+    antigravityAuthGuidance().includes('keyring'),
+    'guidance must mention the keyring so users understand it persists',
+  );
+
+  // Non-matching text → null (don't claim auth failure on unrelated errors)
+  assert.equal(
+    classifyAgentAuthFailure('antigravity', 'rate limit exceeded'),
+    null,
+  );
+});
+
 // Windows env-var names are case-insensitive at the kernel level, but
 // spreading process.env into a plain object loses Node's case-insensitive
 // accessor — a `Anthropic_Api_Key` key would survive a literal
@@ -780,6 +954,22 @@ test('spawnEnvForAgent strips ANTHROPIC_API_KEY case-insensitively for the claud
     (k) => k.toUpperCase() === 'ANTHROPIC_API_KEY',
   );
   assert.deepEqual(remaining, []);
+  assert.equal(env.PATH, '/usr/bin');
+});
+
+test('spawnEnvForAgent preserves ANTHROPIC_API_KEY when claude resolves to OpenClaude fallback', () => {
+  const env = spawnEnvForAgent(
+    'claude',
+    {
+      ANTHROPIC_API_KEY: 'sk-openclaude',
+      PATH: '/usr/bin',
+    },
+    {},
+    {},
+    { resolvedBin: '/tools/openclaude' },
+  );
+
+  assert.equal(env.ANTHROPIC_API_KEY, 'sk-openclaude');
   assert.equal(env.PATH, '/usr/bin');
 });
 
