@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   APP_KEYS,
+  DESKTOP_UPDATE_ACTIONS,
+  DESKTOP_UPDATE_CHANNELS,
+  DESKTOP_UPDATE_MODES,
+  DESKTOP_UPDATE_STATES,
   normalizeDaemonSidecarMessage,
   normalizeDesktopSidecarMessage,
   normalizeNamespace,
@@ -36,6 +40,11 @@ describe("open-design sidecar contract", () => {
       namespace: STAMP_NAMESPACE_FLAG,
       source: STAMP_SOURCE_FLAG,
     });
+    expect(OPEN_DESIGN_SIDECAR_CONTRACT.updateActions).toBe(DESKTOP_UPDATE_ACTIONS);
+    expect(OPEN_DESIGN_SIDECAR_CONTRACT.updateChannels).toBe(DESKTOP_UPDATE_CHANNELS);
+    expect(Object.values(DESKTOP_UPDATE_CHANNELS)).toEqual(["beta", "nightly", "preview", "stable"]);
+    expect(OPEN_DESIGN_SIDECAR_CONTRACT.updateModes).toBe(DESKTOP_UPDATE_MODES);
+    expect(OPEN_DESIGN_SIDECAR_CONTRACT.updateStates).toBe(DESKTOP_UPDATE_STATES);
   });
 
   it("accepts the explicit namespace contract", () => {
@@ -73,6 +82,29 @@ describe("open-design sidecar contract", () => {
       type: SIDECAR_MESSAGES.REGISTER_DESKTOP_AUTH,
     };
     expect(normalizeDaemonSidecarMessage(message)).toEqual(message);
+  });
+
+  it("accepts a mint-import-token payload with a baseDir", () => {
+    const message = {
+      input: { baseDir: "/Users/u/project" },
+      type: SIDECAR_MESSAGES.MINT_IMPORT_TOKEN,
+    };
+    expect(normalizeDaemonSidecarMessage(message)).toEqual(message);
+  });
+
+  it("rejects malformed mint-import-token payloads", () => {
+    expect(() =>
+      normalizeDaemonSidecarMessage({
+        input: { baseDir: "" },
+        type: SIDECAR_MESSAGES.MINT_IMPORT_TOKEN,
+      }),
+    ).toThrow(/baseDir/i);
+    expect(() =>
+      normalizeDaemonSidecarMessage({
+        input: { baseDir: "/Users/u/project", extra: true },
+        type: SIDECAR_MESSAGES.MINT_IMPORT_TOKEN,
+      }),
+    ).toThrow(/extra/i);
   });
 
   it("rejects register-desktop-auth payloads that are not base64-shaped", () => {
@@ -160,5 +192,38 @@ describe("open-design sidecar contract", () => {
         type: SIDECAR_MESSAGES.EXPORT_PDF,
       }),
     ).toThrow();
+  });
+
+  it("validates desktop update IPC message inputs", () => {
+    expect(
+      normalizeDesktopSidecarMessage({
+        input: { action: DESKTOP_UPDATE_ACTIONS.CHECK },
+        type: SIDECAR_MESSAGES.UPDATE,
+      }),
+    ).toEqual({
+      input: { action: "check" },
+      type: "update",
+    });
+    expect(
+      normalizeDesktopSidecarMessage({
+        input: { action: DESKTOP_UPDATE_ACTIONS.INSTALL },
+        type: SIDECAR_MESSAGES.UPDATE,
+      }),
+    ).toEqual({
+      input: { action: "install" },
+      type: "update",
+    });
+    expect(() =>
+      normalizeDesktopSidecarMessage({
+        input: { action: "apply" },
+        type: SIDECAR_MESSAGES.UPDATE,
+      }),
+    ).toThrow(/unsupported desktop update action/);
+    expect(() =>
+      normalizeDesktopSidecarMessage({
+        input: { action: "status", path: "/tmp/update.dmg" },
+        type: SIDECAR_MESSAGES.UPDATE,
+      }),
+    ).toThrow(/unsupported fields/);
   });
 });

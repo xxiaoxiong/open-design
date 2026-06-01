@@ -12,6 +12,7 @@ interface Props {
 // only ships a rasterised icon on devin.ai). New brand: drop the optimised
 // file in that folder and add the id here.
 const ICON_EXT: Record<string, 'svg' | 'png'> = {
+  amr: 'svg',
   claude: 'svg',
   codex: 'svg',
   gemini: 'svg',
@@ -21,13 +22,18 @@ const ICON_EXT: Record<string, 'svg' | 'png'> = {
   qwen: 'svg',
   qoder: 'svg',
   deepseek: 'svg',
+  reasonix: 'svg',
   mimo: 'svg',
   hermes: 'svg',
+  'grok-build': 'svg',
   kimi: 'svg',
   pi: 'svg',
   kiro: 'svg',
   kilo: 'svg',
   vibe: 'svg',
+  antigravity: 'svg',
+  aider: 'png',
+  'trae-cli': 'png',
   devin: 'png',
 };
 
@@ -44,8 +50,8 @@ const MONO_ICONS = new Set([
   'opencode',
   'hermes',
   'mimo',
-  'pi',
   'kilo',
+  'grok-build',
 ]);
 
 export function AgentIcon({ id, size = 36, className }: Props) {

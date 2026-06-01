@@ -1,25 +1,161 @@
-import type { Express } from 'express';
+import { rm } from 'node:fs/promises';
+import path from 'node:path';
+import type { Express, Response } from 'express';
 import {
-  defaultScenarioPluginIdForKind,
+  defaultScenarioPluginIdForProjectMetadata,
   type PluginManifest,
 } from '@open-design/contracts';
+import { createProjectArtifactFile } from './artifact-create.js';
+import { ArtifactPublicationBlockedError } from './artifact-publication-guard.js';
 import { ArtifactRegressionError } from './artifact-stub-guard.js';
 import { listDesignSystems } from './design-systems.js';
 import {
   FIRST_PARTY_ATOMS,
+  buildConnectorProbe,
   getInstalledPlugin,
   listInstalledPlugins,
   resolvePluginSnapshot,
 } from './plugins/index.js';
+import { connectorService } from './connectors/service.js';
 import type { RouteDeps } from './server-context.js';
 import { listSkills } from './skills.js';
+import { isSafeId } from './projects.js';
+import {
+  BUILT_IN_PROJECT_LOCATION_ID,
+  allProjectLocations,
+  createLocationProjectDir,
+  ensureProjectLocation,
+  scanProjectLocation,
+  writeProjectManifest,
+} from './project-locations.js';
+import { auditDesignSystemPackage } from './tools-connectors-cli.js';
 
-export interface RegisterProjectRoutesDeps extends RouteDeps<'db' | 'design' | 'http' | 'paths' | 'projectStore' | 'projectFiles' | 'conversations' | 'templates' | 'status' | 'events' | 'ids' | 'telemetry'> {}
+export interface RegisterProjectRoutesDeps extends RouteDeps<'db' | 'design' | 'http' | 'paths' | 'projectStore' | 'projectFiles' | 'conversations' | 'templates' | 'status' | 'events' | 'ids' | 'telemetry' | 'appConfig' | 'validation'> {}
+
+function projectDetailResolvedDir(
+  projectsRoot: string,
+  project: any,
+  resolveProjectDir: (
+    projectsRoot: string,
+    projectId: string,
+    metadata?: unknown,
+    opts?: { allowUnavailableSandboxImportedProject?: boolean },
+  ) => string,
+): string {
+  const baseDir = typeof project?.metadata?.baseDir === 'string'
+    ? path.normalize(project.metadata.baseDir)
+    : null;
+  if (baseDir && path.isAbsolute(baseDir)) return baseDir;
+  return resolveProjectDir(projectsRoot, project.id, project.metadata, {
+    allowUnavailableSandboxImportedProject: true,
+  });
+}
+
+const URL_PREVIEW_SCROLL_BRIDGE = `<script data-od-url-scroll-bridge>
+(function(){
+  if (window.__odUrlScrollBridge) return;
+  window.__odUrlScrollBridge = true;
+  var pending = false;
+  function scrollElement(){
+    return document.querySelector('.design-canvas') || document.scrollingElement || document.documentElement;
+  }
+  function num(value){
+    var next = Number(value || 0);
+    return Number.isFinite(next) ? next : 0;
+  }
+  function post(){
+    var el = scrollElement();
+    if (!el) return;
+    var frame = document.scrollingElement || document.documentElement;
+    window.parent.postMessage({
+      type: 'od:preview-scroll',
+      canvasLeft: Math.round(el.scrollLeft || 0),
+      canvasTop: Math.round(el.scrollTop || 0),
+      frameLeft: Math.round(frame.scrollLeft || 0),
+      frameTop: Math.round(frame.scrollTop || 0)
+    }, '*');
+  }
+  function schedule(){
+    if (pending) return;
+    pending = true;
+    window.requestAnimationFrame(function(){
+      pending = false;
+      post();
+    });
+  }
+  function scrollTo(el, left, top){
+    if (!el) return;
+    if (typeof el.scrollTo === 'function') el.scrollTo(num(left), num(top));
+    else {
+      el.scrollLeft = num(left);
+      el.scrollTop = num(top);
+    }
+  }
+  function scrollBy(el, left, top){
+    if (!el) return;
+    var dx = num(left);
+    var dy = num(top);
+    if (!dx && !dy) return;
+    if (typeof el.scrollBy === 'function') el.scrollBy({ left: dx, top: dy, behavior: 'auto' });
+    else {
+      el.scrollLeft = (el.scrollLeft || 0) + dx;
+      el.scrollTop = (el.scrollTop || 0) + dy;
+    }
+  }
+  function requestRestore(){
+    window.parent.postMessage({ type: 'od:preview-scroll-request' }, '*');
+  }
+  window.addEventListener('message', function(ev){
+    var data = ev && ev.data;
+    if (!data || !data.type) return;
+    if (data.type === 'od:preview-scroll-restore') {
+      scrollTo(document.scrollingElement || document.documentElement, data.frameLeft, data.frameTop);
+      scrollTo(scrollElement(), data.canvasLeft, data.canvasTop);
+      setTimeout(post, 0);
+      return;
+    }
+    if (data.type === 'od:preview-scroll-by') {
+      scrollBy(scrollElement(), data.left, data.top);
+      schedule();
+    }
+  });
+  window.addEventListener('scroll', schedule, true);
+  document.addEventListener('scroll', schedule, true);
+  window.addEventListener('resize', schedule);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function(){
+      requestRestore();
+      schedule();
+    });
+  } else {
+    setTimeout(function(){
+      requestRestore();
+      schedule();
+    }, 0);
+  }
+})();
+</script>`;
+
+function wantsUrlPreviewScrollBridge(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(wantsUrlPreviewScrollBridge);
+  if (typeof value !== 'string') return false;
+  return value === 'scroll' || value === '1' || value === 'true';
+}
+
+function injectUrlPreviewScrollBridge(html: string): string {
+  if (html.includes('data-od-url-scroll-bridge')) return html;
+  const bodyCloseIndex = html.search(/<\/body\s*>/i);
+  if (bodyCloseIndex >= 0) {
+    return `${html.slice(0, bodyCloseIndex)}${URL_PREVIEW_SCROLL_BRIDGE}${html.slice(bodyCloseIndex)}`;
+  }
+  return `${html}${URL_PREVIEW_SCROLL_BRIDGE}`;
+}
 
 export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDeps) {
   const { db, design } = ctx;
   const { sendApiError, createSseResponse } = ctx.http;
   const { DESIGN_SYSTEMS_DIR, PROJECTS_DIR, SKILLS_DIR } = ctx.paths;
+  const { readAppConfig, writeAppConfig } = ctx.appConfig;
   const { insertProject, validateLinkedDirs, getProject, updateProject, dbDeleteProject, removeProjectDir } = ctx.projectStore;
   const { writeProjectFile, readProjectFile, ensureProject, listFiles, listTabs, setTabs, resolveProjectDir } = ctx.projectFiles;
   const { insertConversation, getConversation, listConversations, updateConversation, deleteConversation, listMessages, upsertMessage, listPreviewComments, upsertPreviewComment, updatePreviewCommentStatus, deletePreviewComment } = ctx.conversations;
@@ -27,6 +163,7 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
   const { listLatestProjectRunStatuses, listProjectsAwaitingInput, normalizeProjectDisplayStatus, composeProjectDisplayStatus, listProjects } = ctx.status;
   const { subscribeFileEvents, activeProjectEventSinks } = ctx.events;
   const { randomId } = ctx.ids;
+  const { validateProjectDesignSystemId, validateProjectSkillId } = ctx.validation;
   async function loadPluginRegistryView() {
     const [skills, designSystems] = await Promise.all([
       listSkills(SKILLS_DIR),
@@ -76,8 +213,199 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
     return Array.from(byTaskKind.values());
   }
 
-  app.get('/api/projects', (_req, res) => {
+  async function configuredProjectLocations() {
+    const config = await readAppConfig(ctx.paths.RUNTIME_DATA_DIR);
+    const all = allProjectLocations(PROJECTS_DIR, config.projectLocations);
+    const valid = all[0] ? [all[0]] : [];
+    for (const location of all.slice(1)) {
+      const validated = validateLinkedDirs([location.path]);
+      if (validated.error) continue;
+      const canonical = validated.dirs[0];
+      if (!canonical) continue;
+      if (locationOverlapsDaemonData(canonical)) continue;
+      valid.push({ ...location, path: canonical });
+    }
+    return valid;
+  }
+
+  function locationOverlapsDaemonData(locationPath: string): boolean {
+    const runtimeDir = ctx.paths.RUNTIME_DATA_DIR_CANONICAL || ctx.paths.RUNTIME_DATA_DIR;
+    const projectsDir = path.join(runtimeDir, 'projects');
+    const relativeToRuntime = pathRelative(runtimeDir, locationPath);
+    const runtimeInsideLocation = pathRelative(locationPath, runtimeDir);
+    const relativeToProjects = pathRelative(projectsDir, locationPath);
+    const projectsInsideLocation = pathRelative(locationPath, projectsDir);
+    return isInsideOrSame(relativeToRuntime) || isInsideOrSame(runtimeInsideLocation)
+      || isInsideOrSame(relativeToProjects) || isInsideOrSame(projectsInsideLocation);
+  }
+
+  function pathRelative(from: string, to: string): string {
+    return path.relative(from, to);
+  }
+
+  function isInsideOrSame(relative: string): boolean {
+    return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+  }
+
+  function projectBelongsToLocation(project: any, location: { id: string; path: string }): boolean {
+    const metadata = project?.metadata;
+    if (typeof metadata?.baseDir !== 'string') return metadata?.projectLocationId === location.id;
+    const relative = path.relative(location.path, metadata.baseDir);
+    return isInsideOrSame(relative) && relative !== '';
+  }
+
+  function isProjectLocationProject(project: any): boolean {
+    const metadata = project?.metadata;
+    return metadata?.importedFrom === 'project-location'
+      || typeof metadata?.projectLocationId === 'string';
+  }
+
+  function projectVisibleForLocations(
+    project: any,
+    locations: Array<{ id: string; path: string; builtIn?: boolean }>,
+  ): boolean {
+    if (!isProjectLocationProject(project)) return true;
+    return locations.some((location) => !location.builtIn && projectBelongsToLocation(project, location));
+  }
+
+  async function resolveCreateProjectLocationId(explicitProjectLocationId: unknown): Promise<string> {
+    if (typeof explicitProjectLocationId === 'string' && explicitProjectLocationId.trim()) {
+      return explicitProjectLocationId.trim();
+    }
+    const config = await readAppConfig(ctx.paths.RUNTIME_DATA_DIR);
+    const configuredDefault = typeof config.defaultProjectLocationId === 'string'
+      ? config.defaultProjectLocationId.trim()
+      : '';
+    if (!configuredDefault || configuredDefault === BUILT_IN_PROJECT_LOCATION_ID) {
+      return BUILT_IN_PROJECT_LOCATION_ID;
+    }
+    const locations = await configuredProjectLocations();
+    return locations.some((location) => !location.builtIn && location.id === configuredDefault)
+      ? configuredDefault
+      : BUILT_IN_PROJECT_LOCATION_ID;
+  }
+
+  function unregisterProjectsForRemovedLocations(
+    previousLocations: Array<{ id: string; path: string; builtIn?: boolean }>,
+    nextLocations: Array<{ id?: string; path: string }>,
+  ): string[] {
+    const nextIds = new Set(nextLocations.map((location) => location.id).filter(Boolean));
+    const nextPaths = new Set(nextLocations.map((location) => location.path));
+    const removed = previousLocations.filter(
+      (location) => !location.builtIn && !nextIds.has(location.id) && !nextPaths.has(location.path),
+    );
+    if (removed.length === 0) return [];
+    return listProjects(db)
+      .filter((project: any) => removed.some((location) => projectBelongsToLocation(project, location)))
+      .map((project: any) => project.id);
+  }
+
+  app.get('/api/project-locations', async (_req, res) => {
     try {
+      const locations = await configuredProjectLocations();
+      /** @type {import('@open-design/contracts').ProjectLocationsResponse} */
+      const body = { locations };
+      res.json(body);
+    } catch (err: any) {
+      sendApiError(res, 500, 'INTERNAL_ERROR', String(err));
+    }
+  });
+
+  app.put('/api/project-locations', async (req, res) => {
+    try {
+      const requested = Array.isArray(req.body?.locations) ? req.body.locations : null;
+      if (!requested) return sendApiError(res, 400, 'BAD_REQUEST', 'locations must be an array');
+      const previousLocations = await configuredProjectLocations();
+      const prepared = [];
+      for (const loc of requested) {
+        if (!loc || typeof loc !== 'object' || typeof loc.path !== 'string') continue;
+        const canonicalPath = await ensureProjectLocation(loc.path);
+        const validated = validateLinkedDirs([canonicalPath]);
+        if (validated.error) return sendApiError(res, 400, 'BAD_REQUEST', validated.error);
+        if (locationOverlapsDaemonData(canonicalPath)) {
+          return sendApiError(res, 400, 'BAD_REQUEST', 'project location cannot overlap daemon data');
+        }
+        prepared.push({
+          id: typeof loc.id === 'string' ? loc.id : undefined,
+          name: typeof loc.name === 'string' ? loc.name : undefined,
+          path: canonicalPath,
+        });
+      }
+      const config = await writeAppConfig(ctx.paths.RUNTIME_DATA_DIR, { projectLocations: prepared });
+      const locations = allProjectLocations(PROJECTS_DIR, config.projectLocations);
+      const removedProjectIds = unregisterProjectsForRemovedLocations(previousLocations, config.projectLocations ?? []);
+      /** @type {import('@open-design/contracts').ProjectLocationsResponse} */
+      const body = { locations, removedProjectIds };
+      res.json(body);
+    } catch (err: any) {
+      sendApiError(res, 400, 'BAD_REQUEST', String(err));
+    }
+  });
+
+  app.post('/api/project-locations/scan', async (_req, res) => {
+    try {
+      const locations = (await configuredProjectLocations()).filter((loc: any) => !loc.builtIn);
+      const imported = [];
+      const existing: string[] = [];
+      const skipped: Array<{ path: string; reason: string }> = [];
+      let scanned = 0;
+      const now = Date.now();
+      for (const location of locations) {
+        let found;
+        try {
+          found = await scanProjectLocation(location);
+        } catch (err: any) {
+          skipped.push({ path: location.path, reason: String(err?.message ?? err) });
+          continue;
+        }
+        scanned += found.length;
+        for (const entry of found) {
+          const { manifest } = entry;
+          if (getProject(db, manifest.id)) {
+            existing.push(manifest.id);
+            continue;
+          }
+          try {
+            const project = insertProject(db, {
+              id: manifest.id,
+              name: manifest.name,
+              skillId: manifest.skillId ?? null,
+              designSystemId: manifest.designSystemId ?? null,
+              pendingPrompt: null,
+              metadata: {
+                kind: 'prototype',
+                baseDir: entry.dir,
+                importedFrom: 'project-location',
+                projectLocationId: location.id,
+              },
+              customInstructions: null,
+              createdAt: manifest.createdAt,
+              updatedAt: manifest.updatedAt,
+            });
+            insertConversation(db, {
+              id: randomId(),
+              projectId: manifest.id,
+              title: null,
+              createdAt: now,
+              updatedAt: now,
+            });
+            if (project) imported.push(project);
+          } catch (err: any) {
+            skipped.push({ path: entry.dir, reason: String(err?.message ?? err) });
+          }
+        }
+      }
+      /** @type {import('@open-design/contracts').ScanProjectLocationsResponse} */
+      const body = { scanned, imported, existing, skipped };
+      res.json(body);
+    } catch (err: any) {
+      sendApiError(res, 400, 'BAD_REQUEST', String(err));
+    }
+  });
+
+  app.get('/api/projects', async (_req, res) => {
+    try {
+      const locations = await configuredProjectLocations();
       const latestRunStatuses = listLatestProjectRunStatuses(db);
       const awaitingInputProjects = listProjectsAwaitingInput(db);
       const activeRunStatuses = new Map();
@@ -98,15 +426,17 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
       }
       /** @type {import('@open-design/contracts').ProjectsResponse} */
       const body = {
-        projects: listProjects(db).map((project: any) => ({
-          ...project,
-          status: composeProjectDisplayStatus(
-            activeRunStatuses.get(project.id) ??
-              latestRunStatuses.get(project.id) ?? { value: 'not_started' },
-            awaitingInputProjects,
-            project.id,
-          ),
-        })),
+        projects: listProjects(db)
+          .filter((project: any) => projectVisibleForLocations(project, locations))
+          .map((project: any) => ({
+            ...project,
+            status: composeProjectDisplayStatus(
+              activeRunStatuses.get(project.id) ??
+                latestRunStatuses.get(project.id) ?? { value: 'not_started' },
+              awaitingInputProjects,
+              project.id,
+            ),
+          })),
       };
       res.json(body);
     } catch (err: any) {
@@ -124,9 +454,9 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
 
   app.post('/api/projects', async (req, res) => {
     try {
-      const { id, name, skillId, designSystemId, pendingPrompt, metadata, customInstructions, skipDiscoveryBrief } =
+      const { id, name, projectLocationId, skillId, designSystemId, pendingPrompt, metadata, customInstructions, skipDiscoveryBrief } =
         req.body || {};
-      if (typeof id !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(id)) {
+      if (typeof id !== 'string' || !isSafeId(id)) {
         return sendApiError(res, 400, 'BAD_REQUEST', 'invalid project id');
       }
       if (typeof name !== 'string' || !name.trim()) {
@@ -165,11 +495,45 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
       if (skipDiscoveryBrief !== undefined && typeof skipDiscoveryBrief !== 'boolean') {
         return sendApiError(res, 400, 'BAD_REQUEST', 'skipDiscoveryBrief must be a boolean');
       }
+      const designSystemValidation = await validateProjectDesignSystemId(designSystemId);
+      if (!designSystemValidation.ok) {
+        return sendApiError(
+          res,
+          400,
+          designSystemValidation.code,
+          designSystemValidation.message,
+        );
+      }
+      const normalizedDesignSystemId = designSystemValidation.id;
+      const skillValidation = await validateProjectSkillId(skillId);
+      if (!skillValidation.ok) {
+        return sendApiError(res, 400, skillValidation.code, skillValidation.message);
+      }
+      const normalizedSkillId = skillValidation.id;
+      const selectedLocationId = await resolveCreateProjectLocationId(projectLocationId);
+      let externalProjectDir: string | null = null;
+      if (selectedLocationId !== BUILT_IN_PROJECT_LOCATION_ID) {
+        const location = (await configuredProjectLocations()).find((loc: any) => loc.id === selectedLocationId);
+        if (!location || location.builtIn) {
+          return sendApiError(res, 400, 'BAD_REQUEST', 'unknown project location');
+        }
+        if (getProject(db, id)) {
+          return sendApiError(res, 400, 'BAD_REQUEST', 'project id already exists');
+        }
+        externalProjectDir = await createLocationProjectDir(location, id);
+      }
       const projectMetadata =
         metadata && typeof metadata === 'object'
           ? {
               ...metadata,
               ...(skipDiscoveryBrief === true ? { skipDiscoveryBrief: true } : {}),
+              ...(externalProjectDir
+                ? {
+                    baseDir: externalProjectDir,
+                    importedFrom: 'project-location',
+                    projectLocationId: selectedLocationId,
+                  }
+                : {}),
               ...(Array.isArray(metadata.linkedDirs)
                 ? (() => {
                     const v = validateLinkedDirs(metadata.linkedDirs);
@@ -178,23 +542,58 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
                 : {}),
             }
           : skipDiscoveryBrief === true
-            ? { skipDiscoveryBrief: true }
-            : null;
+            ? {
+                skipDiscoveryBrief: true,
+                ...(externalProjectDir
+                  ? {
+                      baseDir: externalProjectDir,
+                      importedFrom: 'project-location',
+                      projectLocationId: selectedLocationId,
+                    }
+                  : {}),
+              }
+            : externalProjectDir
+              ? {
+                  kind: 'prototype',
+                  baseDir: externalProjectDir,
+                  importedFrom: 'project-location',
+                  projectLocationId: selectedLocationId,
+                }
+              : null;
       const now = Date.now();
-      const project = insertProject(db, {
-        id,
-        name: name.trim(),
-        skillId: skillId ?? null,
-        designSystemId: designSystemId ?? null,
-        pendingPrompt: pendingPrompt || null,
-        metadata: projectMetadata,
-        customInstructions:
-          typeof customInstructions === 'string'
-            ? customInstructions
-            : null,
-        createdAt: now,
-        updatedAt: now,
-      });
+      let project;
+      try {
+        if (externalProjectDir) {
+          await writeProjectManifest(externalProjectDir, {
+            schemaVersion: 1,
+            id,
+            name: name.trim(),
+            createdAt: now,
+            updatedAt: now,
+            skillId: normalizedSkillId,
+            designSystemId: normalizedDesignSystemId,
+          });
+        }
+        project = insertProject(db, {
+          id,
+          name: name.trim(),
+          skillId: normalizedSkillId,
+          designSystemId: normalizedDesignSystemId,
+          pendingPrompt: pendingPrompt || null,
+          metadata: projectMetadata,
+          customInstructions:
+            typeof customInstructions === 'string'
+              ? customInstructions
+              : null,
+          createdAt: now,
+          updatedAt: now,
+        });
+      } catch (err) {
+        if (externalProjectDir) {
+          await rm(externalProjectDir, { recursive: true, force: true }).catch(() => {});
+        }
+        throw err;
+      }
       // Seed a default conversation so the UI always has somewhere to write.
       const cid = randomId();
       insertConversation(db, {
@@ -204,7 +603,6 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
         createdAt: now,
         updatedAt: now,
       });
-
       const explicitPlugin =
         typeof req.body?.pluginId === 'string' && req.body.pluginId.trim().length > 0
           ? true
@@ -213,9 +611,7 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
       let resolveBody =
         explicitPlugin ? (req.body as Record<string, unknown>) : null;
       if (!resolveBody) {
-        const fallbackPluginId = defaultScenarioPluginIdForKind(
-          projectMetadata?.kind,
-        );
+        const fallbackPluginId = defaultScenarioPluginIdForProjectMetadata(projectMetadata);
         if (fallbackPluginId && getInstalledPlugin(db, fallbackPluginId)) {
           resolveBody = { ...(req.body || {}), pluginId: fallbackPluginId };
         }
@@ -230,9 +626,10 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
           conversationId: cid,
           registry,
           activeProjectDesignSystem:
-            typeof designSystemId === 'string' && designSystemId.length > 0
-              ? { id: designSystemId }
+            typeof normalizedDesignSystemId === 'string' && normalizedDesignSystemId.length > 0
+              ? { id: normalizedDesignSystemId }
               : undefined,
+          connectorProbe: buildConnectorProbe(connectorService),
         });
         if (resolved && !resolved.ok) {
           if (!explicitPlugin) {
@@ -258,7 +655,7 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
       ) {
         const tpl = getTemplate(db, metadata.templateId);
         if (tpl && Array.isArray(tpl.files) && tpl.files.length > 0) {
-          await ensureProject(PROJECTS_DIR, id);
+          await ensureProject(PROJECTS_DIR, id, projectMetadata);
           for (const f of tpl.files) {
             if (
               !f ||
@@ -273,6 +670,8 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
                 id,
                 f.name,
                 Buffer.from(f.content, 'utf8'),
+                {},
+                projectMetadata,
               );
             } catch {
               // Skip individual file failures — the template snapshot is
@@ -295,17 +694,18 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
     }
   });
 
-  app.get('/api/projects/:id', (req, res) => {
+  app.get('/api/projects/:id', async (req, res) => {
     const project = getProject(db, req.params.id);
-    if (!project)
+    const locations = await configuredProjectLocations();
+    if (!project || !projectVisibleForLocations(project, locations))
       return sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'not found');
-    const resolvedDir = resolveProjectDir(PROJECTS_DIR, project.id, project.metadata);
+    const resolvedDir = projectDetailResolvedDir(PROJECTS_DIR, project, resolveProjectDir);
     /** @type {import('@open-design/contracts').ProjectResponse} */
     const body = { project, resolvedDir };
     res.json(body);
   });
 
-  app.patch('/api/projects/:id', (req, res) => {
+  app.patch('/api/projects/:id', async (req, res) => {
     try {
       const patch = req.body || {};
       // baseDir / folder-import state is privileged: it's set only by the
@@ -344,6 +744,12 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
             ...(existingMeta.importedFrom === 'folder'
               ? { importedFrom: 'folder' }
               : {}),
+            ...(existingMeta.importedFrom === 'project-location'
+              ? { importedFrom: 'project-location' }
+              : {}),
+            ...(typeof existingMeta.projectLocationId === 'string'
+              ? { projectLocationId: existingMeta.projectLocationId }
+              : {}),
             ...(existingMeta.fromTrustedPicker === true
               ? { fromTrustedPicker: true as const }
               : {}),
@@ -375,6 +781,25 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
       }
       if (typeof patch.customInstructions === 'string' && patch.customInstructions.length > 5000) {
         return sendApiError(res, 400, 'BAD_REQUEST', 'customInstructions exceeds 5 000 character limit');
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'designSystemId')) {
+        const designSystemValidation = await validateProjectDesignSystemId(patch.designSystemId);
+        if (!designSystemValidation.ok) {
+          return sendApiError(
+            res,
+            400,
+            designSystemValidation.code,
+            designSystemValidation.message,
+          );
+        }
+        patch.designSystemId = designSystemValidation.id;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'skillId')) {
+        const skillValidation = await validateProjectSkillId(patch.skillId);
+        if (!skillValidation.ok) {
+          return sendApiError(res, 400, skillValidation.code, skillValidation.message);
+        }
+        patch.skillId = skillValidation.id;
       }
       const project = updateProject(db, req.params.id, patch);
       if (!project)
@@ -771,7 +1196,7 @@ export function registerProjectArtifactRoutes(app: Express, ctx: RegisterProject
 
 }
 
-export interface RegisterProjectFileRoutesDeps extends RouteDeps<'db' | 'http' | 'paths' | 'uploads' | 'node' | 'projectStore' | 'projectFiles' | 'documents' | 'artifacts'> {}
+export interface RegisterProjectFileRoutesDeps extends RouteDeps<'db' | 'http' | 'paths' | 'uploads' | 'node' | 'projectStore' | 'projectFiles' | 'documents' | 'artifacts' | 'projectPreviewScopes'> {}
 
 export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFileRoutesDeps) {
   const { db } = ctx;
@@ -780,9 +1205,108 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
   const { upload } = ctx.uploads;
   const { fs } = ctx.node;
   const { getProject } = ctx.projectStore;
-  const { listFiles, searchProjectFiles, readProjectFile, resolveProjectFilePath, parseByteRange, renameProjectFile, deleteProjectFile, writeProjectFile, sanitizeName, ensureProject } = ctx.projectFiles;
+  const { listFiles, searchProjectFiles, readProjectFile, resolveProjectDir, resolveProjectFilePath, parseByteRange, renameProjectFile, deleteProjectFile, writeProjectFile, sanitizeName, ensureProject } = ctx.projectFiles;
   const { buildDocumentPreview } = ctx.documents;
   const { validateArtifactManifestInput } = ctx.artifacts;
+  const { projectPreviewScopes } = ctx;
+  const projectPreviewIframeSandbox = 'allow-scripts allow-forms';
+  const projectPreviewCsp = [
+    `sandbox ${projectPreviewIframeSandbox}`,
+    "default-src 'self' data: blob:",
+    "img-src 'self' data: blob:",
+    "media-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "style-src 'self' 'unsafe-inline'",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+    "connect-src 'none'",
+    "form-action 'none'",
+    "base-uri 'none'",
+    "object-src 'none'",
+  ].join('; ');
+  const previewScopeRe = /^[A-Za-z0-9_-]{8,128}$/u;
+
+  function setProjectPreviewHeaders(res: Response) {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', projectPreviewCsp);
+  }
+
+  async function sendProjectFile(
+    req: any,
+    res: Response,
+    projectId: string,
+    relPath: string,
+    metadata?: unknown,
+    beforeSend?: (mime: string) => void,
+    transformFile?: (file: { mime: string; buffer: Buffer }) => Buffer | string,
+  ) {
+    const meta = await resolveProjectFilePath(
+      PROJECTS_DIR,
+      projectId,
+      relPath,
+      metadata,
+    );
+    beforeSend?.(meta.mime);
+
+    if (meta.mime.startsWith('video/') || meta.mime.startsWith('audio/')) {
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Content-Type', meta.mime);
+
+      if (meta.size === 0) {
+        res.setHeader('Content-Length', '0');
+        return res.status(200).end();
+      }
+
+      const range = parseByteRange(req.headers.range, meta.size);
+
+      if (range === 'unsatisfiable') {
+        res.setHeader('Content-Range', `bytes */${meta.size}`);
+        return res.status(416).end();
+      }
+
+      let start;
+      let end;
+      let statusCode;
+      if (range) {
+        ({ start, end } = range);
+        statusCode = 206;
+        res.setHeader('Content-Range', `bytes ${start}-${end}/${meta.size}`);
+        res.setHeader('Content-Length', String(end - start + 1));
+      } else {
+        start = 0;
+        end = meta.size - 1;
+        statusCode = 200;
+        res.setHeader('Content-Length', String(meta.size));
+      }
+
+      res.status(statusCode);
+      const stream = fs.createReadStream(meta.filePath, { start, end });
+      stream.on('error', (streamErr: any) => {
+        if (!res.headersSent) {
+          sendApiError(res, 500, 'STREAM_ERROR', String(streamErr));
+        } else {
+          res.destroy(streamErr);
+        }
+      });
+      stream.pipe(res);
+      return;
+    }
+
+    const file = await readProjectFile(PROJECTS_DIR, projectId, relPath, metadata);
+    res.type(file.mime).send(transformFile ? transformFile(file) : file.buffer);
+  }
+
+  function previewFilePathForProject(project: any, queryFile: unknown): string {
+    if (typeof queryFile === 'string' && queryFile.trim().length > 0) {
+      return queryFile;
+    }
+    const entryFile = project?.metadata?.entryFile;
+    return typeof entryFile === 'string' && entryFile.length > 0 ? entryFile : 'index.html';
+  }
+
+  function encodeProjectPathForUrl(filePath: string): string {
+    return filePath.split('/').map((segment) => encodeURIComponent(segment)).join('/');
+  }
 
   // Project files. Each project owns a flat folder under .od/projects/<id>/
   // containing every file the user has uploaded, pasted, sketched, or that
@@ -825,84 +1349,47 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
     }
   });
 
-
-  // Preflight for the raw file route. Current artifact fetches are simple GETs
-  // (no preflight needed), but an explicit handler future-proofs the route if
-  // artifacts ever add custom request headers.
-  app.options('/api/projects/:id/raw/*', (req, res) => {
-    if (req.headers.origin === 'null') {
-      res.header('Access-Control-Allow-Origin', '*');
-      res.header('Access-Control-Allow-Methods', 'GET');
-      res.header('Access-Control-Allow-Headers', 'Content-Type');
-    }
-    res.sendStatus(204);
-  });
-
-  app.get('/api/projects/:id/raw/*', async (req, res) => {
+  app.get('/api/projects/:id/design-system-package-audit', async (req, res) => {
     try {
-      const relPath = (req.params as any)[0];
       const project = getProject(db, req.params.id);
-      // PreviewModal loads artifact HTML via srcdoc, giving the iframe Origin: "null".
-      // data: URIs, file://, and some sandboxed iframes also send null — all are
-      // local-only callers, so this is safe. Real cross-origin sites send a real
-      // origin and remain blocked by the browser's same-origin policy.
-      if (req.headers.origin === 'null') {
-        res.header('Access-Control-Allow-Origin', '*');
-      }
-
-      const meta = await resolveProjectFilePath(
-        PROJECTS_DIR,
-        req.params.id,
-        relPath,
-        project?.metadata,
-      );
-
-      if (meta.mime.startsWith('video/') || meta.mime.startsWith('audio/')) {
-        res.setHeader('Accept-Ranges', 'bytes');
-        res.setHeader('Content-Type', meta.mime);
-
-        if (meta.size === 0) {
-          res.setHeader('Content-Length', '0');
-          return res.status(200).end();
-        }
-
-        const range = parseByteRange(req.headers.range, meta.size);
-
-        if (range === 'unsatisfiable') {
-          res.setHeader('Content-Range', `bytes */${meta.size}`);
-          return res.status(416).end();
-        }
-
-        let start;
-        let end;
-        let statusCode;
-        if (range) {
-          ({ start, end } = range);
-          statusCode = 206;
-          res.setHeader('Content-Range', `bytes ${start}-${end}/${meta.size}`);
-          res.setHeader('Content-Length', String(end - start + 1));
-        } else {
-          start = 0;
-          end = meta.size - 1;
-          statusCode = 200;
-          res.setHeader('Content-Length', String(meta.size));
-        }
-
-        res.status(statusCode);
-        const stream = fs.createReadStream(meta.filePath, { start, end });
-        stream.on('error', (streamErr: any) => {
-          if (!res.headersSent) {
-            sendApiError(res, 500, 'STREAM_ERROR', String(streamErr));
-          } else {
-            res.destroy(streamErr);
-          }
-        });
-        stream.pipe(res);
+      if (!project) {
+        sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'project not found');
         return;
       }
+      const projectRoot = resolveProjectDir(PROJECTS_DIR, project.id, project.metadata);
+      const audit = await auditDesignSystemPackage(projectRoot);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ audit });
+    } catch (err: any) {
+      sendApiError(res, 400, 'BAD_REQUEST', String(err));
+    }
+  });
 
-      const file = await readProjectFile(PROJECTS_DIR, req.params.id, relPath, project?.metadata);
-      res.type(file.mime).send(file.buffer);
+  app.get('/api/projects/:id/preview-url', async (req, res) => {
+    try {
+      const project = getProject(db, req.params.id);
+      if (!project) {
+        sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'project not found');
+        return;
+      }
+      const requestedPath = previewFilePathForProject(project, req.query.file);
+      const meta = await resolveProjectFilePath(
+        PROJECTS_DIR,
+        project.id,
+        requestedPath,
+        project.metadata,
+      );
+      const scope = projectPreviewScopes.mint(project.id);
+      /** @type {import('@open-design/contracts').ProjectPreviewUrlResponse} */
+      const body = {
+        url: `/api/projects/${encodeURIComponent(project.id)}/preview/${scope}/${encodeProjectPathForUrl(meta.name)}`,
+        file: meta.name,
+        csp: projectPreviewCsp,
+        iframeSandbox: projectPreviewIframeSandbox,
+        opaqueOrigin: true,
+      };
+      res.setHeader('Cache-Control', 'no-store');
+      res.json(body);
     } catch (err: any) {
       const status = err && err.code === 'ENOENT' ? 404 : 400;
       sendApiError(
@@ -914,10 +1401,109 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
     }
   });
 
-  app.delete('/api/projects/:id/raw/*', async (req, res) => {
+  app.get(/^\/api\/projects\/([^/]+)\/preview\/([^/]+)\/(.+)$/u, async (req, res) => {
     try {
-      const project = getProject(db, req.params.id);
-      await deleteProjectFile(PROJECTS_DIR, req.params.id, (req.params as any)[0], project?.metadata);
+      const params = req.params as unknown as { 0?: string; 1?: string; 2?: string };
+      const projectId = String(params[0] ?? '');
+      const scope = String(params[1] ?? '');
+      const relPath = String(params[2] ?? '');
+      if (!previewScopeRe.test(scope)) {
+        sendApiError(res, 400, 'BAD_REQUEST', 'invalid preview scope');
+        return;
+      }
+      const project = getProject(db, projectId);
+      if (!project) {
+        sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'project not found');
+        return;
+      }
+      if (!projectPreviewScopes.validate(project.id, scope)) {
+        sendApiError(res, 404, 'PREVIEW_SCOPE_NOT_FOUND', 'preview scope not found');
+        return;
+      }
+      if (req.headers.origin === 'null') {
+        res.header('Access-Control-Allow-Origin', '*');
+      }
+      await sendProjectFile(
+        req,
+        res,
+        project.id,
+        relPath,
+        project.metadata,
+        () => setProjectPreviewHeaders(res),
+      );
+    } catch (err: any) {
+      const status = err && err.code === 'ENOENT' ? 404 : 400;
+      sendApiError(
+        res,
+        status,
+        status === 404 ? 'FILE_NOT_FOUND' : 'BAD_REQUEST',
+        String(err),
+      );
+    }
+  });
+
+
+  // Preflight for the raw file route. Current artifact fetches are simple GETs
+  // (no preflight needed), but an explicit handler future-proofs the route if
+  // artifacts ever add custom request headers.
+  app.options(/^\/api\/projects\/([^/]+)\/raw\/(.+)$/u, (req, res) => {
+    if (req.headers.origin === 'null') {
+      res.header('Access-Control-Allow-Origin', '*');
+      res.header('Access-Control-Allow-Methods', 'GET');
+      res.header('Access-Control-Allow-Headers', 'Content-Type');
+    }
+    res.sendStatus(204);
+  });
+
+  app.get(/^\/api\/projects\/([^/]+)\/raw\/(.+)$/u, async (req, res) => {
+    try {
+      const params = req.params as unknown as { 0?: string; 1?: string };
+      const projectId = String(params[0] ?? '');
+      const relPath = String(params[1] ?? '');
+      const project = getProject(db, projectId);
+      // PreviewModal loads artifact HTML via srcdoc, giving the iframe Origin: "null".
+      // data: URIs, file://, and some sandboxed iframes also send null — all are
+      // local-only callers, so this is safe. Real cross-origin sites send a real
+      // origin and remain blocked by the browser's same-origin policy.
+      if (req.headers.origin === 'null') {
+        res.header('Access-Control-Allow-Origin', '*');
+      }
+
+      await sendProjectFile(
+        req,
+        res,
+        projectId,
+        relPath,
+        project?.metadata,
+        undefined,
+        (file) => {
+          if (
+            wantsUrlPreviewScrollBridge(req.query.odPreviewBridge) &&
+            /^text\/html(?:;|$)/i.test(file.mime)
+          ) {
+            return injectUrlPreviewScrollBridge(file.buffer.toString('utf8'));
+          }
+          return file.buffer;
+        },
+      );
+    } catch (err: any) {
+      const status = err && err.code === 'ENOENT' ? 404 : 400;
+      sendApiError(
+        res,
+        status,
+        status === 404 ? 'FILE_NOT_FOUND' : 'BAD_REQUEST',
+        String(err),
+      );
+    }
+  });
+
+  app.delete(/^\/api\/projects\/([^/]+)\/raw\/(.+)$/u, async (req, res) => {
+    try {
+      const params = req.params as unknown as { 0?: string; 1?: string };
+      const projectId = String(params[0] ?? '');
+      const rawSplat = String(params[1] ?? '');
+      const project = getProject(db, projectId);
+      await deleteProjectFile(PROJECTS_DIR, projectId, rawSplat, project?.metadata);
       /** @type {import('@open-design/contracts').DeleteProjectFileResponse} */
       const body = { ok: true };
       res.json(body);
@@ -959,13 +1545,16 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
     }
   });
 
-  app.get('/api/projects/:id/files/*', async (req, res) => {
+  app.get(/^\/api\/projects\/([^/]+)\/files\/(.+)$/u, async (req, res) => {
     try {
-      const project = getProject(db, req.params.id);
+      const params = req.params as unknown as { 0?: string; 1?: string };
+      const projectId = String(params[0] ?? '');
+      const fileSplat = String(params[1] ?? '');
+      const project = getProject(db, projectId);
       const file = await readProjectFile(
         PROJECTS_DIR,
-        req.params.id,
-        (req.params as any)[0],
+        projectId,
+        fileSplat,
         project?.metadata,
       );
       res.type(file.mime).send(file.buffer);
@@ -1013,7 +1602,7 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
           const body = { file: meta };
           return res.json(body);
         }
-        const { name, content, encoding, artifactManifest } = req.body || {};
+        const { name, content, encoding, artifactManifest, artifact, overwrite } = req.body || {};
         if (typeof name !== 'string' || typeof content !== 'string') {
           return sendApiError(
             res,
@@ -1040,14 +1629,25 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
           encoding === 'base64'
             ? Buffer.from(content, 'base64')
             : Buffer.from(content, 'utf8');
-        const meta = await writeProjectFile(
-          PROJECTS_DIR,
-          req.params.id,
-          name,
-          buf,
-          { artifactManifest },
-          uploadProject?.metadata,
-        );
+        const meta = artifact === true
+          ? await createProjectArtifactFile({
+              projectsRoot: PROJECTS_DIR,
+              projectId: req.params.id,
+              input: { name, content, encoding, artifactManifest },
+              metadata: uploadProject?.metadata,
+              writeProjectFile,
+            })
+          : await writeProjectFile(
+              PROJECTS_DIR,
+              req.params.id,
+              name,
+              buf,
+              {
+                artifactManifest,
+                ...(overwrite === false ? { overwrite: false } : {}),
+              },
+              uploadProject?.metadata,
+            );
         /** @type {import('@open-design/contracts').ProjectFileResponse} */
         const body = { file: meta };
         res.json(body);
@@ -1061,6 +1661,20 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
               priorName: err.priorName,
             },
           });
+        }
+        if (err instanceof ArtifactPublicationBlockedError) {
+          return sendApiError(res, 422, 'ARTIFACT_PUBLICATION_BLOCKED', err.message, {
+            details: { placeholders: err.placeholders },
+          });
+        }
+        if (err?.code === 'EEXIST') {
+          return sendApiError(res, 409, 'FILE_EXISTS', 'file already exists');
+        }
+        if (err?.code === 'ARTIFACT_MANIFEST_REQUIRED') {
+          return sendApiError(res, 400, 'ARTIFACT_MANIFEST_REQUIRED', err.message);
+        }
+        if (err?.code === 'ARTIFACT_MANIFEST_INVALID') {
+          return sendApiError(res, 400, 'BAD_REQUEST', err.message);
         }
         sendApiError(res, 500, 'INTERNAL_ERROR', 'upload failed');
       }

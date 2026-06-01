@@ -3,6 +3,7 @@ import type { Dialog, Page, Request, Response } from '@playwright/test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { T } from '@/timeouts';
 import { automatedUiScenarios } from '@/playwright/resources';
 import type { UiScenario } from '@/playwright/resources';
 
@@ -11,55 +12,10 @@ const APP_OWNED_SCENARIO_FLOWS = new Set([
   'design-files-upload',
   'design-files-delete',
   'design-files-tab-persistence',
+  'uploaded-image-renders-in-preview',
+  'python-source-preview',
   'example-use-prompt',
 ]);
-const QUERY_PLUGIN_MANIFEST = {
-  $schema: 'https://open-design.ai/schemas/plugin.v1.json',
-  name: 'query-plugin',
-  title: 'Query Plugin',
-  version: '1.0.0',
-  description: 'E2E fixture for import, apply, and query rendering.',
-  license: 'MIT',
-  tags: ['e2e', 'query'],
-  od: {
-    kind: 'skill',
-    taskKind: 'new-generation',
-    useCase: {
-      query: 'Generate a {{topic}} brief for {{audience}}.',
-    },
-    inputs: [
-      {
-        name: 'topic',
-        type: 'string',
-        required: true,
-        default: 'release QA',
-        label: 'Topic',
-      },
-      {
-        name: 'audience',
-        type: 'string',
-        required: false,
-        default: 'general',
-        label: 'Audience',
-      },
-    ],
-    capabilities: ['prompt:inject'],
-  },
-};
-const QUERY_PLUGIN_SKILL = [
-  '---',
-  'name: query-plugin',
-  'description: E2E fixture for plugin import and query rendering.',
-  'od:',
-  '  kind: skill',
-  '  taskKind: new-generation',
-  '---',
-  '',
-  '# Query Plugin',
-  '',
-  'Use this fixture to verify that a user-installed plugin can render a starter query and bind that query to a project run.',
-].join('\n');
-
 test.describe.configure({ timeout: 45_000 });
 
 test.beforeEach(async ({ page }) => {
@@ -124,24 +80,6 @@ for (const entry of automatedUiScenarios().filter(
       });
     });
 
-    if (entry.flow === 'design-system-selection') {
-      await page.route('**/api/design-systems', async (route) => {
-        await route.fulfill({
-          json: {
-            designSystems: [
-              {
-                id: 'nexu-soft-tech',
-                title: 'Nexu Soft Tech',
-                category: 'Product',
-                summary: 'Warm utility system for product interfaces.',
-                swatches: ['#F7F4EE', '#D6CBBF', '#1F2937', '#D97757'],
-              },
-            ],
-          },
-        });
-      });
-    }
-
     if (entry.flow === 'example-use-prompt') {
       const exampleSummary = {
         id: 'warm-utility-example',
@@ -172,6 +110,47 @@ for (const entry of automatedUiScenarios().filter(
       // gallery card the test clicks actually renders.
       await page.route('**/api/design-templates', async (route) => {
         await route.fulfill({ json: { designTemplates: [exampleSummary] } });
+      });
+    }
+
+    if (entry.flow === 'hyperframes-project-routing') {
+      await page.route('**/api/skills', async (route) => {
+        await route.fulfill({
+          json: {
+            skills: [
+              {
+                id: 'video-shortform',
+                name: 'Video shortform',
+                description: 'Shortform video skill',
+                mode: 'video',
+                surface: 'video',
+                previewType: 'video',
+                designSystemRequired: false,
+                defaultFor: [],
+                triggers: [],
+                upstream: null,
+                hasBody: true,
+                examplePrompt: '',
+                aggregatesExamples: false,
+              },
+              {
+                id: 'hyperframes',
+                name: 'HyperFrames',
+                description: 'HTML-in-canvas video',
+                mode: 'video',
+                surface: 'video',
+                previewType: 'video',
+                designSystemRequired: false,
+                defaultFor: [],
+                triggers: [],
+                upstream: null,
+                hasBody: true,
+                examplePrompt: '',
+                aggregatesExamples: false,
+              },
+            ],
+          },
+        });
       });
     }
 
@@ -313,25 +292,36 @@ for (const entry of automatedUiScenarios().filter(
       });
     }
 
+    if (entry.flow === 'file-mention') {
+      await routeMockSuccessfulRun(page, 'file-mention-run');
+    }
+
     await gotoEntryHome(page);
 
-    if (entry.flow === 'design-system-selection') {
-      await runDesignSystemSelectionFlow(page, entry);
-      return;
-    }
     if (entry.flow === 'example-use-prompt') {
       await runExampleUsePromptFlow(page, entry);
       return;
     }
-    if (entry.flow === 'plugin-create-import') {
-      await runPluginCreateImportFlow(page, entry);
+    if (entry.flow === 'hyperframes-project-routing') {
+      await runHyperframesProjectRoutingFlow(page, entry);
       return;
     }
-    if (entry.flow === 'home-rail-generation') {
-      await runHomeRailGenerationFlow(page, entry);
+    if (entry.flow === 'image-project-routing') {
+      await runImageProjectRoutingFlow(page, entry);
       return;
     }
-
+    if (entry.flow === 'video-project-routing') {
+      await runVideoProjectRoutingFlow(page, entry);
+      return;
+    }
+    if (entry.flow === 'audio-project-routing') {
+      await runAudioProjectRoutingFlow(page, entry);
+      return;
+    }
+    if (entry.flow === 'live-artifact-project-routing') {
+      await runLiveArtifactProjectRoutingFlow(page, entry);
+      return;
+    }
     await createProject(page, entry);
     await expectWorkspaceReady(page);
 
@@ -384,8 +374,104 @@ for (const entry of automatedUiScenarios().filter(
     if (entry.mockArtifact) {
       await expectArtifactVisible(page, entry);
     }
+    const { projectId } = await getCurrentProjectContext(page);
+    await expectScenarioProjectState(page, entry, projectId);
   });
 }
+
+test('sending preview comments keeps the preview live and refreshes it with the follow-up artifact', async ({ page }) => {
+  const entry = automatedUiScenarios().find((scenario) => scenario.id === 'comment-attachment-flow');
+  if (!entry?.mockArtifact) {
+    throw new Error('comment-attachment-flow scenario fixture is missing');
+  }
+
+  await routeMockAgents(page);
+
+  let requestCount = 0;
+  await page.route('**/api/runs', async (route) => {
+    requestCount += 1;
+    await route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({ runId: `mock-run-${requestCount}` }),
+    });
+  });
+  await page.route('**/api/runs/*/events', async (route) => {
+    const revisedHtml =
+      '<!doctype html><html><body><main data-od-id="hero-section">' +
+      '<h1 data-od-id="hero-title" data-screen-label="Hero title">Revised headline</h1>' +
+      '<p data-od-id="hero-copy">Preview copy refreshed after comment send.</p>' +
+      '</main></body></html>';
+    const artifactTitle = requestCount === 1 ? entry.mockArtifact!.title : 'Commentable Artifact Revised';
+    const artifactHtml = requestCount === 1 ? entry.mockArtifact!.html : revisedHtml;
+    const body = [
+      'event: start',
+      'data: {"bin":"mock-agent"}',
+      '',
+      'event: stdout',
+      `data: ${JSON.stringify({
+        chunk:
+          `<artifact identifier="${entry.mockArtifact!.identifier}" type="text/html" title="${artifactTitle}">` +
+          artifactHtml +
+          '</artifact>',
+      })}`,
+      '',
+      'event: end',
+      'data: {"code":0,"status":"succeeded"}',
+      '',
+      '',
+    ].join('\n');
+
+    await route.fulfill({
+      status: 200,
+      headers: {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+      },
+      body,
+    });
+  });
+
+  await gotoEntryHome(page);
+  await createProject(page, entry);
+  await expectWorkspaceReady(page);
+
+  await sendPrompt(page, entry.prompt);
+  await expectArtifactVisible(page, entry);
+
+  await page.getByTestId('board-mode-toggle').click();
+  await page.getByTestId('comment-panel-toggle').click();
+  const frame = page.frameLocator('[data-testid="artifact-preview-frame"]');
+  await frame.locator('[data-od-id="hero-title"]').click();
+  await expect(page.getByTestId('comment-popover')).toBeVisible();
+  await page.getByTestId('comment-popover-input').fill('Make the headline more specific.');
+  await page.getByTestId('comment-popover-save').click();
+  await expect(page.getByTestId('comment-saved-marker-hero-title')).toBeVisible();
+
+  const sidePanel = page.getByTestId('comment-side-panel');
+  await expect(sidePanel).toBeVisible();
+  await sidePanel.getByTestId('comment-side-item').filter({ hasText: 'Make the headline more specific.' })
+    .getByRole('button', { name: 'Select' })
+    .click();
+  await expect(page.getByTestId('comment-side-send-claude')).toBeVisible();
+
+  const runRequest = page.waitForRequest(isCreateRunRequest);
+  await page.getByTestId('comment-side-send-claude').click();
+  const body = (await runRequest).postDataJSON() as {
+    commentAttachments?: Array<{ elementId?: string; comment?: string; filePath?: string }>;
+  };
+  expect(body.commentAttachments).toEqual([
+    expect.objectContaining({
+      elementId: 'hero-title',
+      comment: 'Make the headline more specific.',
+      filePath: 'commentable-artifact.html',
+    }),
+  ]);
+
+  await expect(page.getByTestId('artifact-preview-frame')).toBeVisible();
+  await expect(frame.getByRole('heading', { name: 'Revised headline' })).toBeVisible();
+  await expect(frame.getByText('Preview copy refreshed after comment send.')).toBeVisible();
+});
 
 async function routeMockAgents(page: Page) {
   await page.route('**/api/agents', async (route) => {
@@ -439,20 +525,9 @@ async function routeMockSuccessfulRun(page: Page, runId: string) {
   });
 }
 
-async function createQueryPluginFixture(): Promise<string> {
-  const folder = await mkdtemp(path.join(tmpdir(), 'od-query-plugin-'));
-  await writeFile(
-    path.join(folder, 'open-design.json'),
-    `${JSON.stringify(QUERY_PLUGIN_MANIFEST, null, 2)}\n`,
-    'utf8',
-  );
-  await writeFile(path.join(folder, 'SKILL.md'), `${QUERY_PLUGIN_SKILL}\n`, 'utf8');
-  return folder;
-}
-
 async function createEmptyProject(page: Page, name: string): Promise<string> {
-  await page.goto('/');
-  await expect(page.getByTestId('new-project-panel')).toBeVisible();
+  await gotoEntryHome(page);
+  await openNewProjectModal(page);
   await page.getByTestId('new-project-name').fill(name);
   await page.getByTestId('create-project').click();
   await expect(page).toHaveURL(/\/projects\//);
@@ -569,45 +644,18 @@ async function expectProjectShellReady(page: Page) {
   await expect(page.getByTestId('file-workspace')).toBeVisible();
 }
 
-async function sendPrompt(
-  page: Page,
-  prompt: string,
-) {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const input = page.getByTestId('chat-composer-input');
-    const sendButton = page.getByTestId('chat-send');
-    await expect(input).toBeVisible({ timeout: 3_000 });
-    await input.click();
-    await input.fill(prompt);
-    try {
-      await expect(input).toHaveValue(prompt, { timeout: 1500 });
-      await expect(sendButton).toBeEnabled({ timeout: 1500 });
-      await Promise.all([
-        page.waitForResponse(isCreateRunResponse, { timeout: 5_000 }),
-        sendButton.evaluate((button: HTMLButtonElement) => button.click()),
-      ]);
-      return;
-    } catch (error) {
-      const retryInput = page.getByTestId('chat-composer-input');
-      const retrySendButton = page.getByTestId('chat-send');
-      await expect(retryInput).toBeVisible({ timeout: 3_000 });
-      await retryInput.click();
-      await retryInput.press(`${process.platform === 'darwin' ? 'Meta' : 'Control'}+A`);
-      await retryInput.press('Backspace');
-      await retryInput.pressSequentially(prompt);
-      try {
-        await expect(retryInput).toHaveValue(prompt, { timeout: 1500 });
-        await expect(retrySendButton).toBeEnabled({ timeout: 1500 });
-        await Promise.all([
-          page.waitForResponse(isCreateRunResponse, { timeout: 5_000 }),
-          retrySendButton.evaluate((button: HTMLButtonElement) => button.click()),
-        ]);
-        return;
-      } catch (retryError) {
-        if (attempt === 2) throw retryError;
-      }
-    }
-  }
+async function sendPrompt(page: Page, prompt: string) {
+  const input = page.getByTestId('chat-composer-input');
+  const sendButton = page.getByTestId('chat-send');
+  await expect(input).toBeVisible({ timeout: T.short });
+  await input.click();
+  await input.fill(prompt);
+  await expect(input).toHaveValue(prompt, { timeout: T.short });
+  await expect(sendButton).toBeEnabled({ timeout: T.short });
+  await Promise.all([
+    page.waitForResponse(isCreateRunResponse, { timeout: 5_000 }),
+    sendButton.evaluate((button: HTMLButtonElement) => button.click()),
+  ]);
 }
 
 function isCreateRunResponse(resp: Response): boolean {
@@ -628,23 +676,6 @@ function isCreateRunRequest(request: Request): boolean {
 function isCreateProjectRequest(request: Request): boolean {
   const url = new URL(request.url());
   return url.pathname === '/api/projects' && request.method() === 'POST';
-}
-
-async function runDesignSystemSelectionFlow(
-  page: Page,
-  entry: UiScenario,
-) {
-  await createProjectNameOnly(page, entry);
-  await page.getByTestId('design-system-trigger').click();
-  await expect(page.getByTestId('design-system-search')).toBeVisible();
-  await page.getByTestId('design-system-search').fill('Nexu');
-  await page.getByRole('option', { name: /Nexu Soft Tech/i }).click();
-  await expect(page.getByTestId('design-system-trigger')).toContainText('Nexu Soft Tech');
-  await page.getByTestId('create-project').click();
-
-  await expect(page).toHaveURL(/\/projects\//);
-  await expect(page.getByTestId('project-meta')).toContainText('Nexu Soft Tech');
-  await expect(page.getByTestId('chat-composer')).toBeVisible();
 }
 
 async function runExampleUsePromptFlow(
@@ -668,157 +699,164 @@ async function runExampleUsePromptFlow(
   await expect(page.getByTestId('project-meta')).toContainText('Warm Utility Example');
 }
 
-async function runHomeRailGenerationFlow(
+async function runHyperframesProjectRoutingFlow(
   page: Page,
   entry: UiScenario,
 ) {
-  const chipId = entry.create.railChip;
-  const expectedProjectKind = entry.create.expectedProjectKind;
-  const expectedPluginId = entry.create.expectedPluginId;
-  const artifact = entry.mockArtifact;
-  if (!chipId || !expectedProjectKind || !expectedPluginId || !artifact) {
-    throw new Error(`home rail scenario ${entry.id} is missing required test data`);
-  }
+  await createProjectNameOnly(page, entry);
 
-  await expect(page.getByTestId('home-hero-rail')).toBeVisible();
-  const chip = page.getByTestId(`home-hero-rail-${chipId}`);
-  await expect(chip).toBeVisible();
-  await expect(chip).toBeEnabled();
-  await chip.click();
-  await expect(chip).toHaveAttribute('aria-pressed', 'true', { timeout: 10_000 });
-  await expect(page.getByTestId('home-hero-active-plugin')).toBeVisible();
-
-  const input = page.getByTestId('home-hero-input');
-  await input.fill(entry.prompt);
-  await expect(input).toHaveValue(entry.prompt);
-  await expect(page.getByTestId('home-hero-submit')).toBeEnabled();
-
+  const createProjectRequest = page.waitForRequest(isCreateProjectRequest);
   const createProjectResponse = page.waitForResponse(isCreateProjectResponse);
-  const runRequest = page.waitForRequest(isCreateRunRequest);
-  const runResponse = page.waitForResponse(isCreateRunResponse);
-  await page.getByTestId('home-hero-submit').click();
+  await page.getByTestId('create-project').click();
 
-  const createResponse = await createProjectResponse;
-  expect(createResponse.ok()).toBeTruthy();
-  const createBody = (await createResponse.json()) as {
-    project: { id: string };
-    appliedPluginSnapshotId?: string;
+  const request = await createProjectRequest;
+  const body = request.postDataJSON() as {
+    skillId?: string;
+    metadata?: {
+      kind?: string;
+      videoModel?: string;
+    };
   };
-  expect(createBody.appliedPluginSnapshotId).toBeTruthy();
+  expect(body.skillId).toBe('hyperframes');
+  expect(body.metadata?.kind).toBe('video');
+  expect(body.metadata?.videoModel).toBe('hyperframes-html');
 
-  await expectProjectShellReady(page);
+  const response = await createProjectResponse;
+  expect(response.ok(), `${response.status()} ${await response.text()}`).toBeTruthy();
 
-  const request = await runRequest;
-  const runBody = request.postDataJSON() as {
-    projectId?: string;
-    message?: string;
+  await expectWorkspaceReady(page);
+  await sendPrompt(page, entry.prompt);
+  await expectArtifactVisible(page, entry);
+  const { projectId } = await getCurrentProjectContext(page);
+  await expectScenarioProjectState(page, entry, projectId);
+}
+
+async function runImageProjectRoutingFlow(
+  page: Page,
+  entry: UiScenario,
+) {
+  await createProjectNameOnly(page, entry);
+
+  const createProjectRequest = page.waitForRequest(isCreateProjectRequest);
+  const createProjectResponse = page.waitForResponse(isCreateProjectResponse);
+  await page.getByTestId('create-project').click();
+
+  const request = await createProjectRequest;
+  const body = request.postDataJSON() as {
+    metadata?: {
+      kind?: string;
+      imageModel?: string;
+    };
   };
-  expect(runBody.projectId).toBe(createBody.project.id);
-  expect(runBody.message).toContain(entry.prompt);
+  expect(body.metadata?.kind).toBe('image');
+  expect(body.metadata?.imageModel).toBe('gpt-image-2');
 
-  const response = await runResponse;
+  const response = await createProjectResponse;
+  expect(response.ok(), `${response.status()} ${await response.text()}`).toBeTruthy();
+
+  await expectWorkspaceReady(page);
+  const { projectId } = await getCurrentProjectContext(page);
+  await expectScenarioProjectState(page, entry, projectId);
+}
+
+async function runVideoProjectRoutingFlow(
+  page: Page,
+  entry: UiScenario,
+) {
+  await createProjectNameOnly(page, entry);
+
+  const createProjectRequest = page.waitForRequest(isCreateProjectRequest);
+  const createProjectResponse = page.waitForResponse(isCreateProjectResponse);
+  await page.getByTestId('create-project').click();
+
+  const request = await createProjectRequest;
+  const body = request.postDataJSON() as {
+    metadata?: {
+      kind?: string;
+      videoModel?: string;
+      videoAspect?: string;
+      videoLength?: number;
+    };
+  };
+  expect(body.metadata?.kind).toBe('video');
+  expect(body.metadata?.videoModel).toBe('doubao-seedance-2-0-260128');
+  expect(body.metadata?.videoAspect).toBe('16:9');
+  expect(body.metadata?.videoLength).toBe(5);
+
+  const response = await createProjectResponse;
   expect(response.ok()).toBeTruthy();
 
-  await expectArtifactVisible(page, entry);
-
+  await expectWorkspaceReady(page);
   const { projectId } = await getCurrentProjectContext(page);
-  expect(projectId).toBe(createBody.project.id);
-
-  const project = await fetchProjectFromApi(page, projectId);
-  expect(project.metadata?.kind).toBe(expectedProjectKind);
-  expect(project.appliedPluginSnapshotId).toBe(createBody.appliedPluginSnapshotId);
-
-  const snapshot = await fetchAppliedPluginSnapshotFromApi(
-    page,
-    project.appliedPluginSnapshotId!,
-  );
-  expect(snapshot.pluginId).toBe(expectedPluginId);
-
-  await expect(page.getByTestId('msg-plugin-chip')).toBeVisible();
-  await expect(page.getByTestId('msg-plugin-chip')).toContainText(snapshot.pluginTitle);
-  await expectProjectFileToContain(page, projectId, artifact.fileName, artifact.heading);
-
-  await page.reload();
-  await expectProjectShellReady(page);
-  await expectProjectFileToContain(page, projectId, artifact.fileName, artifact.heading);
-  await expect(page.getByText(artifact.fileName, { exact: true })).toBeVisible();
+  await expectScenarioProjectState(page, entry, projectId);
 }
 
-async function runPluginCreateImportFlow(
+async function runAudioProjectRoutingFlow(
   page: Page,
   entry: UiScenario,
 ) {
-  await routeMockSuccessfulRun(page, 'plugin-create-import-run');
+  await createProjectNameOnly(page, entry);
 
-  await page.getByTestId('entry-nav-plugins').click();
-  await expect(page.getByTestId('plugins-create-button')).toBeVisible();
+  const createProjectRequest = page.waitForRequest(isCreateProjectRequest);
+  const createProjectResponse = page.waitForResponse(isCreateProjectResponse);
+  await page.getByTestId('create-project').click();
 
-  await page.getByTestId('plugins-create-button').click();
-  const homeInput = page.getByTestId('home-hero-input');
-  await expect(homeInput).toHaveValue(/Create an Open Design plugin/);
-  await expect(page.getByTestId('home-hero-active-plugin')).toContainText('Create plugin');
-
-  await page.getByTestId('entry-nav-plugins').click();
-  await expect(page.getByTestId('plugins-import-button')).toBeVisible();
-  await page.getByTestId('plugins-import-button').click();
-
-  const dialog = page.getByRole('dialog', { name: 'Import a plugin' });
-  await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole('button', { name: /From GitHub/i })).toBeVisible();
-
-  const queryPluginFixture = await createQueryPluginFixture();
-  try {
-    await dialog.getByLabel('GitHub, archive, or marketplace source').fill(queryPluginFixture);
-    const installResponse = page.waitForResponse(
-      (resp) =>
-        new URL(resp.url()).pathname === '/api/plugins/install' &&
-        resp.request().method() === 'POST',
-    );
-    await dialog.getByRole('button', { name: 'Import', exact: true }).click();
-    expect((await installResponse).ok()).toBeTruthy();
-
-    await expect(page.getByText('Installed Query Plugin.')).toBeVisible();
-    await expect(page.getByTestId('plugins-tab-installed')).toHaveAttribute('aria-selected', 'true');
-    await expect(page.locator('[data-plugin-id="query-plugin"]')).toBeVisible();
-
-    await page.goto('/');
-    await expect(page.getByTestId('home-hero')).toBeVisible();
-    await homeInput.click();
-    await homeInput.fill('@query');
-    const picker = page.getByTestId('home-hero-plugin-picker');
-    await expect(picker).toBeVisible();
-    const queryOption = picker.getByRole('option', { name: /Query Plugin/ });
-    await expect(queryOption).toBeEnabled();
-    await queryOption.click();
-
-    await expect(page.getByRole('button', { name: '@Query Plugin' }).first()).toBeVisible();
-    await expect(homeInput).toHaveValue(/@Query Plugin/);
-    await homeInput.fill(entry.prompt);
-    await expect(page.getByTestId('home-hero-submit')).toBeEnabled();
-
-    const projectRequestPromise = page.waitForRequest(isCreateProjectRequest);
-    const runRequestPromise = page.waitForRequest(isCreateRunRequest);
-    await page.getByTestId('home-hero-submit').click();
-
-    const projectRequest = await projectRequestPromise;
-    const projectBody = projectRequest.postDataJSON() as {
-      pluginId?: string;
-      pendingPrompt?: string;
-      metadata?: { kind?: string };
+  const request = await createProjectRequest;
+  const body = request.postDataJSON() as {
+    metadata?: {
+      kind?: string;
+      audioKind?: string;
+      audioModel?: string;
+      audioDuration?: number;
     };
-    expect(projectBody.pendingPrompt).toBe(entry.prompt);
-    expect(projectBody.metadata?.kind).toBe('other');
+  };
+  expect(body.metadata?.kind).toBe('audio');
+  expect(body.metadata?.audioKind).toBe('sfx');
+  expect(body.metadata?.audioModel).toBe('elevenlabs-sfx');
+  expect(typeof body.metadata?.audioDuration).toBe('number');
+  expect((body.metadata?.audioDuration ?? 0)).toBeGreaterThan(0);
 
-    await expect(page).toHaveURL(/\/projects\//);
+  const response = await createProjectResponse;
+  expect(response.ok()).toBeTruthy();
 
-    const runRequest = await runRequestPromise;
-    const runBody = runRequest.postDataJSON() as { message?: string };
-    expect(runBody.message).toContain(entry.prompt);
-    await expect(page.locator('.msg.user .user-text').filter({ hasText: entry.prompt }).first()).toBeVisible();
-  } finally {
-    await rm(queryPluginFixture, { recursive: true, force: true });
-  }
+  await expectWorkspaceReady(page);
+  const { projectId } = await getCurrentProjectContext(page);
+  const project = await fetchProjectFromApi(page, projectId);
+  await expectScenarioProjectState(page, entry, projectId);
+  const metadata = project.metadata as Record<string, unknown> | undefined;
+  expect(metadata?.audioDuration).toBe(body.metadata?.audioDuration);
 }
+
+async function runLiveArtifactProjectRoutingFlow(
+  page: Page,
+  entry: UiScenario,
+) {
+  await createProjectNameOnly(page, entry);
+
+  const createProjectRequest = page.waitForRequest(isCreateProjectRequest);
+  const createProjectResponse = page.waitForResponse(isCreateProjectResponse);
+  await page.getByTestId('create-project').click();
+
+  const request = await createProjectRequest;
+  const body = request.postDataJSON() as {
+    metadata?: {
+      kind?: string;
+      intent?: string;
+      fidelity?: string;
+    };
+  };
+  expect(body.metadata?.kind).toBe('prototype');
+  expect(body.metadata?.intent).toBe('live-artifact');
+  expect(body.metadata?.fidelity).toBe('high-fidelity');
+
+  const response = await createProjectResponse;
+  expect(response.ok()).toBeTruthy();
+
+  await expectWorkspaceReady(page);
+  const { projectId } = await getCurrentProjectContext(page);
+  await expectScenarioProjectState(page, entry, projectId);
+}
+
 
 async function runQuestionFormSelectionLimitFlow(
   page: Page,
@@ -861,7 +899,10 @@ async function runQuestionFormSubmitPersistenceFlow(
   page: Page,
   entry: UiScenario,
 ) {
+  const firstRunRequestPromise = page.waitForRequest(isCreateRunRequest);
   await sendPrompt(page, entry.prompt);
+  const firstRunBody = (await firstRunRequestPromise).postDataJSON() as Record<string, unknown>;
+  expectScenarioRunRequest(firstRunBody, entry);
 
   const form = page.locator('.question-form').first();
   await expect(form).toBeVisible();
@@ -911,7 +952,8 @@ async function runGenerationDoesNotCreateExtraFileFlow(
 
   const reloadedFiles = await listProjectFilesFromApi(page, projectId);
   expect(reloadedFiles.map((file) => file.name)).toEqual(initialFiles.map((file) => file.name));
-  await expect(page.getByText(entry.mockArtifact!.fileName, { exact: true })).toBeVisible();
+  await expect(page.getByText(entry.mockArtifact!.fileName, { exact: true }).first()).toBeVisible();
+  await expectScenarioProjectState(page, entry, projectId);
 }
 
 async function runCommentAttachmentFlow(
@@ -922,7 +964,7 @@ async function runCommentAttachmentFlow(
   await expectArtifactVisible(page, entry);
 
   await page.getByTestId('board-mode-toggle').click();
-  await page.getByTestId('comment-mode-toggle').click();
+  await page.getByTestId('comment-panel-toggle').click();
   const frame = page.frameLocator('[data-testid="artifact-preview-frame"]');
   await frame.locator('[data-od-id="hero-title"]').click();
   await expect(page.getByTestId('comment-popover')).toBeVisible();
@@ -1067,6 +1109,16 @@ async function createProjectNameOnly(
   if (entry.create.tab) {
     await page.getByTestId(`new-project-tab-${entry.create.tab}`).click();
   }
+  if (entry.create.tab === 'media' && entry.create.mediaSurface) {
+    await page.getByTestId(`new-project-media-surface-${entry.create.mediaSurface}`).click();
+  }
+  if (entry.create.tab === 'media' && entry.create.mediaSurface === 'video' && entry.create.videoModel) {
+    await page.getByTestId('model-picker-trigger').click();
+    await page.getByTestId(`model-picker-option-${entry.create.videoModel}`).click();
+  }
+  if (entry.create.tab === 'media' && entry.create.mediaSurface === 'audio' && entry.create.audioKind === 'sfx') {
+    await page.getByRole('button', { name: 'SFX' }).click();
+  }
   await page.getByTestId('new-project-name').fill(entry.create.projectName);
 }
 
@@ -1074,7 +1126,7 @@ async function gotoEntryHome(page: Page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await waitForLoadingToClear(page);
   const privacyDialog = page.getByRole('dialog').filter({ hasText: 'Help us improve Open Design' });
-  if (await privacyDialog.isVisible().catch(() => false)) {
+  if (await privacyDialog.isVisible()) {
     await privacyDialog.getByRole('button', { name: /not now/i }).click();
     await expect(privacyDialog).toHaveCount(0);
   }
@@ -1084,12 +1136,12 @@ async function gotoEntryHome(page: Page) {
 
 async function openNewProjectModal(page: Page) {
   await page.getByTestId('entry-nav-new-project').click();
+  await expect(page.getByTestId('new-project-modal')).toBeVisible();
   await expect(page.getByTestId('new-project-panel')).toBeVisible();
 }
 
 async function waitForLoadingToClear(page: Page) {
-  const loading = page.getByText('Loading Open Design…');
-  await loading.waitFor({ state: 'detached', timeout: 10_000 }).catch(() => {});
+  await page.getByText('Loading Open Design…').waitFor({ state: 'hidden', timeout: T.medium });
 }
 
 async function getCurrentProjectContext(
@@ -1132,15 +1184,6 @@ async function fetchProjectFromApi(
   return project;
 }
 
-async function fetchAppliedPluginSnapshotFromApi(
-  page: Page,
-  snapshotId: string,
-): Promise<{ pluginId: string; pluginTitle: string }> {
-  const response = await page.request.get(`/api/applied-plugins/${snapshotId}`);
-  expect(response.ok()).toBeTruthy();
-  return (await response.json()) as { pluginId: string; pluginTitle: string };
-}
-
 async function listProjectFilesFromApi(
   page: Page,
   projectId: string,
@@ -1149,6 +1192,93 @@ async function listProjectFilesFromApi(
   expect(response.ok()).toBeTruthy();
   const { files } = (await response.json()) as { files: Array<{ name: string; kind: string }> };
   return files;
+}
+
+async function expectScenarioProjectState(
+  page: Page,
+  entry: UiScenario,
+  projectId: string,
+) {
+  await expectScenarioProjectMetadata(page, entry, projectId);
+  await expectScenarioFiles(page, entry, projectId);
+  await expectScenarioPreviewText(page, entry);
+}
+
+async function expectScenarioProjectMetadata(
+  page: Page,
+  entry: UiScenario,
+  projectId: string,
+) {
+  if (!entry.expectedProjectMetadata) return;
+  const project = await fetchProjectFromApi(page, projectId);
+  const metadata = project.metadata as Record<string, unknown> | undefined;
+  expect(metadata).toBeDefined();
+  expectObjectContaining(metadata ?? {}, entry.expectedProjectMetadata);
+}
+
+async function expectScenarioFiles(
+  page: Page,
+  entry: UiScenario,
+  projectId: string,
+) {
+  if (!entry.expectedFiles?.length) return;
+  const files = await listProjectFilesFromApi(page, projectId);
+  for (const expectedFile of entry.expectedFiles) {
+    const actual = files.find((file) => file.name === expectedFile.name);
+    expect(actual, `missing expected file ${expectedFile.name}`).toBeDefined();
+    if (expectedFile.kind) {
+      expect(actual?.kind).toBe(expectedFile.kind);
+    }
+    if (expectedFile.previewText) {
+      await expectProjectFileToContain(page, projectId, expectedFile.name, expectedFile.previewText);
+    }
+  }
+}
+
+async function expectScenarioPreviewText(
+  page: Page,
+  entry: UiScenario,
+) {
+  if (!entry.expectedPreviewText) return;
+  const frame = page.frameLocator('[data-testid="artifact-preview-frame"]');
+  await expect(frame.getByText(entry.expectedPreviewText, { exact: false })).toBeVisible();
+}
+
+function expectScenarioRunRequest(
+  requestBody: Record<string, unknown>,
+  entry: UiScenario,
+) {
+  if (!entry.expectedRunRequest) return;
+  const normalizedActual = {
+    ...requestBody,
+    attachments: Array.isArray(requestBody.attachments)
+      ? requestBody.attachments
+      : [],
+  };
+  expectObjectContaining(normalizedActual, entry.expectedRunRequest);
+}
+
+function expectObjectContaining(
+  actual: Record<string, unknown>,
+  expected: Record<string, unknown>,
+) {
+  for (const [key, value] of Object.entries(expected)) {
+    const actualValue = actual[key];
+    if (Array.isArray(value)) {
+      expect(actualValue).toEqual(expect.arrayContaining(value));
+      continue;
+    }
+    if (value && typeof value === 'object') {
+      expect(actualValue).toBeTruthy();
+      expectObjectContaining(actualValue as Record<string, unknown>, value as Record<string, unknown>);
+      continue;
+    }
+    if (typeof value === 'string' && typeof actualValue === 'string') {
+      expect(actualValue).toContain(value);
+      continue;
+    }
+    expect(actualValue).toBe(value);
+  }
 }
 
 async function expectProjectFileToContain(
@@ -1171,8 +1301,15 @@ async function expectArtifactVisible(
   entry: UiScenario,
 ) {
   const artifact = entry.mockArtifact!;
-  await expect(page.getByText(artifact.fileName, { exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: new RegExp(`${artifact.fileName.replace('.', '\\.')}$`, 'i') })).toBeVisible();
   await expect(page.getByTestId('artifact-preview-frame')).toBeVisible();
+  if (entry.kind === 'deck') {
+    await expect(page.getByLabel('Previous slide')).toBeVisible();
+    await expect(page.getByLabel('Next slide')).toBeVisible();
+    const { projectId } = await getCurrentProjectContext(page);
+    await expectProjectFileToContain(page, projectId, artifact.fileName, artifact.heading);
+    return;
+  }
   const frame = page.frameLocator('[data-testid="artifact-preview-frame"]');
   await expect(frame.getByRole('heading', { name: artifact.heading })).toBeVisible();
 }
@@ -1184,6 +1321,8 @@ async function runConversationPersistenceFlow(
   await sendPrompt(page, entry.prompt);
   await expect(page.getByText(entry.prompt, { exact: true })).toBeVisible();
   await expectArtifactVisible(page, entry);
+  const firstContext = await getCurrentProjectContext(page);
+  const firstConversationId = firstContext.conversationId;
 
   await page.getByTestId('new-conversation').click();
   await expect(page.getByTestId('chat-composer-input')).toBeVisible();
@@ -1192,6 +1331,9 @@ async function runConversationPersistenceFlow(
   const nextPrompt = entry.secondaryPrompt!;
   await sendPrompt(page, nextPrompt);
   await expect(page.getByText(nextPrompt, { exact: true })).toBeVisible();
+  const secondContext = await getCurrentProjectContext(page);
+  const secondConversationId = secondContext.conversationId;
+  expect(secondConversationId).not.toBe(firstConversationId);
 
   await page.reload();
   await expect(page.getByTestId('chat-composer')).toBeVisible();
@@ -1209,6 +1351,15 @@ async function runConversationPersistenceFlow(
     .click();
 
   await expect(page.getByText(entry.prompt, { exact: true })).toBeVisible();
+  await expect(page.getByText(nextPrompt, { exact: true })).toHaveCount(0);
+  const { projectId } = await getCurrentProjectContext(page);
+  const conversationsResponse = await page.request.get(`/api/projects/${projectId}/conversations`);
+  expect(conversationsResponse.ok()).toBeTruthy();
+  const { conversations } = (await conversationsResponse.json()) as { conversations: Array<{ id: string }> };
+  expect(conversations.map((conversation) => conversation.id)).toEqual(
+    expect.arrayContaining([firstConversationId, secondConversationId]),
+  );
+  await expectScenarioProjectState(page, entry, projectId);
 }
 
 async function runFileMentionFlow(
@@ -1241,6 +1392,14 @@ async function runFileMentionFlow(
   await expect(page.getByTestId('staged-attachments')).toBeVisible();
   await expect(page.getByTestId('staged-attachments').getByText('reference.txt', { exact: true })).toBeVisible();
   await expect(page.getByTestId('chat-send')).toBeEnabled();
+
+  const runRequestPromise = page.waitForRequest(isCreateRunRequest);
+  await page.getByTestId('chat-send').click();
+  const runBody = (await runRequestPromise).postDataJSON() as Record<string, unknown>;
+  expectScenarioRunRequest(runBody, entry);
+  await expect(page.locator('.msg.user').filter({ hasText: 'Review @reference.txt' }).first()).toBeVisible();
+  await expect(page.locator('.user-attachments').getByText('reference.txt', { exact: true })).toBeVisible();
+  await expectScenarioProjectState(page, entry, projectId);
 }
 
 async function runDeepLinkPreviewFlow(
@@ -1269,12 +1428,14 @@ async function runDeepLinkPreviewFlow(
   await expect(page.getByTestId('artifact-preview-frame')).toBeVisible();
   const frame = page.frameLocator('[data-testid="artifact-preview-frame"]');
   await expect(frame.getByRole('heading', { name: entry.mockArtifact!.heading })).toBeVisible();
+  await expectScenarioProjectState(page, entry, projectId);
 }
 
 async function runFileUploadSendFlow(
   page: Page,
   entry: UiScenario,
 ) {
+  const { projectId } = await getCurrentProjectContext(page);
   const uploadResponse = page.waitForResponse(
     (resp: Response) => resp.url().includes('/upload') && resp.request().method() === 'POST',
     { timeout: 5000 },
@@ -1295,6 +1456,7 @@ async function runFileUploadSendFlow(
   await sendPrompt(page, entry.prompt);
   await expect(page.getByText(entry.prompt, { exact: true })).toBeVisible();
   await expect(page.locator('.user-attachments').getByText('reference.txt', { exact: true })).toBeVisible();
+  await expectScenarioProjectState(page, entry, projectId);
 }
 
 async function runConversationDeleteRecoveryFlow(

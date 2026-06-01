@@ -1,7 +1,11 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
+import { checkDesignSystemManifests } from "./check-design-system-manifests.ts";
+import { checkDesignSystemPackageQuality } from "./check-design-system-package-quality.ts";
+import { checkDesignSystemComponentFixtureReport } from "./check-components-fixtures.ts";
 import { checkDesignSystemFlagParity } from "./check-design-system-flag-parity.ts";
+import { checkComponentsManifestExtraction } from "./check-components-manifest-extraction.ts";
 import {
   checkDesignSystemA1RequiredTokens,
   checkDesignSystemA2DefaultsParity,
@@ -16,6 +20,7 @@ const repoRoot = path.resolve(import.meta.dirname, "..");
 const allowedE2eScripts = new Set([
   "e2e/scripts/playwright.ts",
   "e2e/scripts/release-smoke.ts",
+  "e2e/scripts/visual-report.ts",
 ]);
 
 type GuardCheck = {
@@ -53,6 +58,9 @@ const residualAllowedExactPaths = new Set([
   // dist output exists.
   "packages/agui-adapter/esbuild.config.mjs",
   "packages/contracts/esbuild.config.mjs",
+  "packages/diagnostics/esbuild.config.mjs",
+  "packages/download/esbuild.config.mjs",
+  "packages/host/esbuild.config.mjs",
   "packages/platform/esbuild.config.mjs",
   "packages/plugin-runtime/esbuild.config.mjs",
   "packages/registry-protocol/esbuild.config.mjs",
@@ -62,6 +70,8 @@ const residualAllowedExactPaths = new Set([
   // executed directly by Node and are not loaded by the app runtime.
   "scripts/import-prompt-templates.mjs",
   "scripts/postinstall.mjs",
+  // Checked-in bin shim so pnpm can link `od` before daemon dist output exists.
+  "apps/daemon/bin/od.mjs",
   "apps/packaged/esbuild.config.mjs",
   // Browser service workers must be served as JavaScript files.
   "apps/web/public/od-notifications-sw.js",
@@ -71,12 +81,20 @@ const residualAllowedExactPaths = new Set([
   "scripts/scaffold-html-ppt-skills.mjs",
   "scripts/sync-hyperframes-skill.mjs",
   "scripts/verify-media-models.mjs",
+  // AMR (vela) verifier: ad-hoc dev runner that imports the daemon's compiled
+  // `dist/acp.js` and drives a real `vela agent run` against a live model.
+  // Kept as .mjs so it can be invoked directly via Node without any transform.
+  "apps/daemon/scripts/verify-amr-real-vela.mjs",
+  // Fake `vela agent run --runtime opencode` ACP stdio stub used by the AMR
+  // integration tests. The Vitest test spawns it via `child_process.spawn`,
+  // which needs a directly-executable file (shebang + .mjs).
+  "apps/daemon/tests/fixtures/fake-vela.mjs",
   "tools/dev/bin/tools-dev.mjs",
   "tools/dev/esbuild.config.mjs",
   "tools/pack/bin/tools-pack.mjs",
   "tools/pack/esbuild.config.mjs",
-  "tools/pr/bin/tools-pr.mjs",
-  "tools/pr/esbuild.config.mjs",
+  "tools/serve/bin/tools-serve.mjs",
+  "tools/serve/esbuild.config.mjs",
   "tools/pack/resources/mac/notarize.cjs",
   // electron-builder hook path; CJS compatibility entry used by tools-pack desktop builds.
   "tools/pack/resources/web-standalone-after-pack.cjs",
@@ -101,6 +119,17 @@ const residualAllowedPathPrefixes = [
   "design-templates/last30days/scripts/lib/vendor/",
   // Vendored upstream html-ppt runtime assets (lewislulu/html-ppt-skill, design template).
   "design-templates/html-ppt/assets/",
+  // Replay-based mock CLIs that impersonate the agent CLIs OD spawns
+  // (opencode/claude/codex/gemini/cursor-agent + ACP family). Need to
+  // be directly executable via Node so `child_process.spawn` from test
+  // harnesses and PATH-overlay shells work without any transform step.
+  // `mocks/scripts/` holds the maintainer-facing helpers (manifest math,
+  // fetch from R2) which are also pure-node single-file modules — same
+  // precedent as `apps/daemon/tests/fixtures/fake-vela.mjs` (an ACP
+  // stdio stub, allowlisted individually above). See `mocks/README.md`.
+  "mocks/lib/",
+  "mocks/mock-agent.mjs",
+  "mocks/scripts/",
   "test-results/",
   "vendor/",
 ];
@@ -176,6 +205,197 @@ async function checkResidualJavaScript(): Promise<boolean> {
   }
 
   console.log("Residual JavaScript check passed: project-owned code is TypeScript-only.");
+  return true;
+}
+
+const sourcePackageManifestRootPaths = ["package.json", "e2e/package.json"];
+const sourcePackageManifestScopedDirectories = ["apps", "packages", "tools"];
+const packageDependencySections = [
+  "dependencies",
+  "devDependencies",
+  "peerDependencies",
+  "optionalDependencies",
+];
+const packageManagerOverridePaths = ["pnpm.overrides", "overrides", "resolutions"];
+const exactVersionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+const exactNpmAliasPattern = /^npm:(?:@[^/]+\/)?[^@]+@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
+type DependencySpecViolation = {
+  filePath: string;
+  fieldPath: string;
+  name: string;
+  spec: unknown;
+  reason: string;
+};
+
+type DependencySpecStats = {
+  exact: number;
+  manifests: number;
+  total: number;
+  workspace: number;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isAllowedDependencySpec(spec: string): boolean {
+  return spec === "workspace:*" || exactVersionPattern.test(spec) || exactNpmAliasPattern.test(spec);
+}
+
+function dependencySpecReason(spec: string): string {
+  if (spec.startsWith("workspace:") && spec !== "workspace:*") {
+    return "workspace dependencies must use exactly workspace:*";
+  }
+
+  return "dependency specs must be exact versions like 1.2.3 or workspace:*";
+}
+
+function dependencySpecFieldValue(value: unknown): string {
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+async function collectScopedPackageManifestPaths(scopeDirectory: string): Promise<string[]> {
+  const scopeRoot = path.join(repoRoot, scopeDirectory);
+  const entries = await readdir(scopeRoot, { withFileTypes: true });
+  const manifestPaths: string[] = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+
+    const packageDirectory = path.join(scopeRoot, entry.name);
+    const packageEntries = await readdir(packageDirectory, { withFileTypes: true });
+    if (packageEntries.some((packageEntry) => packageEntry.isFile() && packageEntry.name === "package.json")) {
+      manifestPaths.push(`${scopeDirectory}/${entry.name}/package.json`);
+    }
+  }
+
+  return manifestPaths;
+}
+
+async function collectSourcePackageManifestPaths(): Promise<string[]> {
+  const scopedManifestPaths = (
+    await Promise.all(sourcePackageManifestScopedDirectories.map((scope) => collectScopedPackageManifestPaths(scope)))
+  ).flat();
+
+  return [...sourcePackageManifestRootPaths, ...scopedManifestPaths].sort();
+}
+
+function getPackageJsonField(packageJson: Record<string, unknown>, fieldPath: string): unknown {
+  let current: unknown = packageJson;
+  for (const part of fieldPath.split(".")) {
+    if (!isRecord(current)) return undefined;
+    current = current[part];
+  }
+  return current;
+}
+
+function checkDependencySpecRecord(
+  record: Record<string, unknown>,
+  filePath: string,
+  fieldPath: string,
+  violations: DependencySpecViolation[],
+  stats: DependencySpecStats,
+): void {
+  for (const [name, spec] of Object.entries(record).sort(([left], [right]) => left.localeCompare(right))) {
+    if (isRecord(spec)) {
+      checkDependencySpecRecord(spec, filePath, `${fieldPath}.${name}`, violations, stats);
+      continue;
+    }
+
+    stats.total += 1;
+    if (typeof spec !== "string") {
+      violations.push({
+        filePath,
+        fieldPath,
+        name,
+        spec,
+        reason: "dependency specs must be strings",
+      });
+      continue;
+    }
+
+    if (spec === "workspace:*") {
+      stats.workspace += 1;
+      continue;
+    }
+
+    if (isAllowedDependencySpec(spec)) {
+      stats.exact += 1;
+      continue;
+    }
+
+    violations.push({
+      filePath,
+      fieldPath,
+      name,
+      spec,
+      reason: dependencySpecReason(spec),
+    });
+  }
+}
+
+async function checkPackageDependencySpecs(): Promise<boolean> {
+  const manifestPaths = await collectSourcePackageManifestPaths();
+  const violations: DependencySpecViolation[] = [];
+  const stats: DependencySpecStats = {
+    exact: 0,
+    manifests: manifestPaths.length,
+    total: 0,
+    workspace: 0,
+  };
+
+  for (const manifestPath of manifestPaths) {
+    const packageJson = JSON.parse(await readFile(path.join(repoRoot, manifestPath), "utf8")) as Record<string, unknown>;
+
+    for (const section of packageDependencySections) {
+      const value = packageJson[section];
+      if (value === undefined) continue;
+      if (!isRecord(value)) {
+        violations.push({
+          filePath: manifestPath,
+          fieldPath: section,
+          name: section,
+          spec: value,
+          reason: "dependency sections must be objects",
+        });
+        continue;
+      }
+
+      checkDependencySpecRecord(value, manifestPath, section, violations, stats);
+    }
+
+    for (const overridePath of packageManagerOverridePaths) {
+      const value = getPackageJsonField(packageJson, overridePath);
+      if (value === undefined) continue;
+      if (!isRecord(value)) {
+        violations.push({
+          filePath: manifestPath,
+          fieldPath: overridePath,
+          name: overridePath,
+          spec: value,
+          reason: "package-manager override sections must be objects",
+        });
+        continue;
+      }
+
+      checkDependencySpecRecord(value, manifestPath, overridePath, violations, stats);
+    }
+  }
+
+  if (violations.length > 0) {
+    console.error("Package dependency spec violations found:");
+    for (const violation of violations) {
+      console.error(
+        `- ${violation.filePath} ${violation.fieldPath}.${violation.name}=${dependencySpecFieldValue(violation.spec)} -> ${violation.reason}`,
+      );
+    }
+    return false;
+  }
+
+  console.log(
+    `Package dependency spec check passed: ${stats.manifests} package.json files, ${stats.exact} exact specs, ${stats.workspace} workspace:* specs.`,
+  );
   return true;
 }
 
@@ -294,6 +514,7 @@ async function checkE2eLayout(): Promise<boolean> {
       repositoryPath === "e2e/tsconfig.json" ||
       repositoryPath === "e2e/vitest.config.ts" ||
       repositoryPath === "e2e/playwright.config.ts" ||
+      repositoryPath === "e2e/playwright.visual.config.ts" ||
       repositoryPath === "e2e/AGENTS.md"
     ) {
       continue;
@@ -389,7 +610,7 @@ const toolsRootAllowlist = new Map<string, "directory" | "file">([
   ["AGENTS.md", "file"],
   ["dev", "directory"],
   ["pack", "directory"],
-  ["pr", "directory"],
+  ["serve", "directory"],
 ]);
 
 async function checkToolsLayout(): Promise<boolean> {
@@ -403,7 +624,7 @@ async function checkToolsLayout(): Promise<boolean> {
     const repositoryPath = `tools/${entry.name}${entry.isDirectory() ? "/" : ""}`;
 
     if (expected == null) {
-      violations.push(`${repositoryPath} -> tools/ top-level entries are allowlisted; expected only AGENTS.md, dev/, pack/, and pr/`);
+      violations.push(`${repositoryPath} -> tools/ top-level entries are allowlisted; expected only AGENTS.md, dev/, pack/, and serve/`);
       continue;
     }
 
@@ -699,11 +920,15 @@ async function checkStylePolicy(): Promise<boolean> {
 
 const checks: GuardCheck[] = [
   { name: "residual JavaScript", run: checkResidualJavaScript },
+  { name: "package dependency specs", run: checkPackageDependencySpecs },
   { name: "test layout", run: checkTestLayout },
   { name: "e2e layout", run: checkE2eLayout },
   { name: "web test layout", run: checkWebTestLayout },
   { name: "tools layout", run: checkToolsLayout },
   { name: "style policy", run: checkStylePolicy },
+  { name: "design system manifests", run: checkDesignSystemManifests },
+  { name: "design system package quality", run: checkDesignSystemPackageQuality },
+  { name: "design system component fixture report", run: checkDesignSystemComponentFixtureReport },
   { name: "design system token-fixture sync", run: checkDesignSystemTokenFixtureSync },
   { name: "design system A1 required tokens", run: checkDesignSystemA1RequiredTokens },
   { name: "design system A2 required tokens", run: checkDesignSystemA2RequiredTokens },
@@ -711,6 +936,7 @@ const checks: GuardCheck[] = [
   { name: "design system unknown token allowlist", run: checkDesignSystemUnknownTokens },
   { name: "design system A2 defaults parity", run: checkDesignSystemA2DefaultsParity },
   { name: "design system flag parity", run: checkDesignSystemFlagParity },
+  { name: "design system component manifest extraction", run: checkComponentsManifestExtraction },
 ];
 
 const results: boolean[] = [];

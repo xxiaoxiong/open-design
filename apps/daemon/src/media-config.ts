@@ -40,6 +40,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { MEDIA_PROVIDERS } from './media-models.js';
 import { expandHomePrefix } from './home-expansion.js';
+import { resolveXAIBearer } from './xai-credentials.js';
+import { isSandboxModeEnabled } from './sandbox-mode.js';
 
 const PROVIDER_IDS = MEDIA_PROVIDERS.map((p) => p.id);
 type ProviderEntry = { apiKey?: string; baseUrl?: string; model?: string };
@@ -86,6 +88,7 @@ const ENV_KEYS: Record<string, string[]> = {
   grok: ['OD_GROK_API_KEY', 'XAI_API_KEY'],
   nanobanana: ['OD_NANOBANANA_API_KEY', 'GOOGLE_API_KEY', 'GEMINI_API_KEY'],
   imagerouter: ['OD_IMAGEROUTER_API_KEY', 'IMAGEROUTER_API_KEY'],
+  openrouter: ['OD_OPENROUTER_API_KEY', 'OPENROUTER_API_KEY'],
   'custom-image': ['OD_CUSTOM_IMAGE_API_KEY', 'CUSTOM_IMAGE_API_KEY'],
   bfl: ['OD_BFL_API_KEY', 'BFL_API_KEY'],
   fal: ['OD_FAL_KEY', 'FAL_KEY'],
@@ -134,13 +137,21 @@ function envOverrideDir(envName: string, projectRoot: string): string | null {
   return trimmed ? resolveOverrideDir(trimmed, projectRoot) : null;
 }
 
-function configFile(projectRoot: string): string {
-  // Precedence: explicit media-config override > general data dir > default.
-  const dir =
+/**
+ * Resolve the directory media-config.json (and credentials living next to
+ * it, like xai-tokens.json) actually live in. Precedence: explicit
+ * media-config override > general data dir > default.
+ */
+export function mediaConfigDir(projectRoot: string): string {
+  return (
     envOverrideDir('OD_MEDIA_CONFIG_DIR', projectRoot)
     ?? envOverrideDir('OD_DATA_DIR', projectRoot)
-    ?? path.join(projectRoot, '.od');
-  return path.join(dir, 'media-config.json');
+    ?? path.join(projectRoot, '.od')
+  );
+}
+
+function configFile(projectRoot: string): string {
+  return path.join(mediaConfigDir(projectRoot), 'media-config.json');
 }
 
 /**
@@ -277,54 +288,58 @@ async function readJsonIfPresent(file: string): Promise<JsonRecord | null> {
   }
 }
 
-function tokenFromHermesAuth(data: unknown): string {
-  const providerToken = readNestedString(data, [
-    'providers',
-    'openai-codex',
-    'tokens',
-    'access_token',
-  ]);
-  if (providerToken) return providerToken;
-
-  const pool =
-    isRecord(data) && isRecord(data.credential_pool)
-      ? data.credential_pool['openai-codex']
-      : null;
-  if (Array.isArray(pool)) {
-    for (const item of pool) {
-      const token = readNestedString(item, ['access_token']);
-      if (token) return token;
-    }
-  }
-  return '';
+function apiKeyFromCodexAuth(data: unknown): string {
+  return readNestedString(data, ['OPENAI_API_KEY']);
 }
 
-function tokenFromCodexAuth(data: unknown): { token: string; source: string } | null {
-  const oauthToken = readNestedString(data, ['tokens', 'access_token']);
-  if (oauthToken) return { token: oauthToken, source: 'oauth-codex' };
-
-  const apiKey = readNestedString(data, ['OPENAI_API_KEY']);
-  if (apiKey) return { token: apiKey, source: 'codex-auth' };
+async function resolveOpenAIAuthFileCredential(): Promise<OAuthCredential | null> {
+  if (isSandboxModeEnabled(process.env)) return null;
+  const home = os.homedir();
+  const codexAuth = await readJsonIfPresent(
+    path.join(home, '.codex', 'auth.json'),
+  );
+  const apiKey = apiKeyFromCodexAuth(codexAuth);
+  if (apiKey) {
+    return { apiKey, source: 'codex-auth' };
+  }
 
   return null;
 }
 
-async function resolveOpenAIOAuthCredential(): Promise<OAuthCredential | null> {
+async function resolveXAIOAuthCredential(
+  projectRoot: string,
+): Promise<OAuthCredential | null> {
+  // 1. OD-native xAI OAuth tokens (written by the daemon's own
+  //    xai-oauth.ts client when the user authorizes inside OD).
+  const odBearer = await resolveXAIBearer(mediaConfigDir(projectRoot)).catch(
+    () => null,
+  );
+  if (odBearer) {
+    return {
+      apiKey: odBearer.accessToken,
+      source: `oauth-xai-${odBearer.source}`,
+    };
+  }
+
+  if (isSandboxModeEnabled(process.env)) return null;
+
+  // 2. Borrow the xAI OAuth token Hermes wrote to ~/.hermes/auth.json
+  //    when the user ran `hermes auth add xai-oauth`. A user who has already authorized
+  //    Hermes doesn't have to run a second OAuth dance inside OD.
+  //    (No proactive refresh here — Hermes itself maintains the token,
+  //    and we only borrow what is currently fresh.)
   const home = os.homedir();
   const hermesAuth = await readJsonIfPresent(
     path.join(home, '.hermes', 'auth.json'),
   );
-  const hermesToken = tokenFromHermesAuth(hermesAuth);
-  if (hermesToken) {
-    return { apiKey: hermesToken, source: 'oauth-hermes' };
-  }
-
-  const codexAuth = await readJsonIfPresent(
-    path.join(home, '.codex', 'auth.json'),
-  );
-  const codexToken = tokenFromCodexAuth(codexAuth);
-  if (codexToken) {
-    return { apiKey: codexToken.token, source: codexToken.source };
+  const hermesXaiToken = readNestedString(hermesAuth, [
+    'providers',
+    'xai-oauth',
+    'tokens',
+    'access_token',
+  ]);
+  if (hermesXaiToken) {
+    return { apiKey: hermesXaiToken, source: 'oauth-hermes-xai' };
   }
 
   return null;
@@ -332,19 +347,25 @@ async function resolveOpenAIOAuthCredential(): Promise<OAuthCredential | null> {
 
 /**
  * Resolve credentials for a provider. Env vars win, then stored config,
- * then OpenAI/Codex OAuth for the OpenAI media provider.
+ * then provider-specific external credential stores. OpenAI only trusts
+ * explicit API keys from Codex auth files; Codex/Hermes OAuth tokens are
+ * not valid proof that the Images API can be called.
  * Returns { apiKey, baseUrl } where either may be empty string.
  */
 export async function resolveProviderConfig(projectRoot: string, providerId: string): Promise<ProviderEntry> {
   const stored = await readStored(projectRoot);
   const entry = stored[providerId] || {};
   const envKey = readEnvKey(providerId);
-  const oauth =
-    providerId === 'openai' && !envKey && !entry.apiKey
-      ? await resolveOpenAIOAuthCredential()
-      : null;
+  const needsExternalCredential = !envKey && !entry.apiKey;
+  const externalCredential = needsExternalCredential
+    ? providerId === 'openai'
+      ? await resolveOpenAIAuthFileCredential()
+      : providerId === 'grok'
+        ? await resolveXAIOAuthCredential(projectRoot)
+        : null
+    : null;
   return {
-    apiKey: envKey || entry.apiKey || oauth?.apiKey || '',
+    apiKey: envKey || entry.apiKey || externalCredential?.apiKey || '',
     baseUrl: entry.baseUrl || '',
     ...(typeof entry.model === 'string' && entry.model.trim()
       ? { model: entry.model.trim() }
@@ -375,16 +396,20 @@ export async function readMaskedConfig(projectRoot: string): Promise<MaskedConfi
     const entry = stored[id] || {};
     const envKey = readEnvKey(id);
     const hasStoredKey = typeof entry.apiKey === 'string' && entry.apiKey.length > 0;
-    const oauth =
-      id === 'openai' && !envKey && !hasStoredKey
-        ? await resolveOpenAIOAuthCredential()
-        : null;
+    const needsExternalCredential = !envKey && !hasStoredKey;
+    const externalCredential = needsExternalCredential
+      ? id === 'openai'
+        ? await resolveOpenAIAuthFileCredential()
+        : id === 'grok'
+          ? await resolveXAIOAuthCredential(projectRoot)
+          : null
+      : null;
     providers[id] = {
-      configured: Boolean(envKey || hasStoredKey || oauth?.apiKey),
-      source: envKey ? 'env' : hasStoredKey ? 'stored' : oauth?.source || 'unset',
+      configured: Boolean(envKey || hasStoredKey || externalCredential?.apiKey),
+      source: envKey ? 'env' : hasStoredKey ? 'stored' : externalCredential?.source || 'unset',
       // Show last 4 chars only when stored locally; never echo env-var
-      // or OAuth secrets so power users don't accidentally see them in
-      // the DOM.
+      // or borrowed auth-file/OAuth secrets so power users don't
+      // accidentally see them in the DOM.
       apiKeyTail: hasStoredKey && entry.apiKey ? entry.apiKey.slice(-4) : '',
       baseUrl: entry.baseUrl || '',
       ...(typeof entry.model === 'string' && entry.model.trim()
@@ -464,4 +489,54 @@ export async function writeConfig(projectRoot: string, body: unknown) {
   }
   await writeStored(projectRoot, next);
   return readMaskedConfig(projectRoot);
+}
+
+/**
+ * Idempotent "seed if empty" write for a single provider slot. The chat
+ * proxy uses this to mirror a BYOK key into media-config so the agent's
+ * image / TTS path picks up the same credential without the user having
+ * to paste it twice. Strict rules:
+ *   * No-op when an apiKey is ALREADY stored for `providerId` (the user
+ *     may have configured Media independently and we never overwrite).
+ *   * No-op when an env-var key resolves for `providerId` (env wins
+ *     regardless of disk state — seeding would be invisible).
+ *   * No-op when the incoming `apiKey` is empty (we only seed values
+ *     the chat layer has just verified upstream).
+ *   * Otherwise merge `{ [providerId]: entry }` into the existing
+ *     provider map and persist. All other provider slots and aliases
+ *     are preserved byte-for-byte.
+ *
+ * Returns `true` when a write happened (caller can log), `false` when
+ * the call was a no-op. Errors are surfaced — the caller decides
+ * whether to swallow them (fire-and-forget) or propagate.
+ */
+export async function seedProviderIfMissing(
+  projectRoot: string,
+  providerId: string,
+  entry: { apiKey?: string; baseUrl?: string; model?: string },
+): Promise<boolean> {
+  if (!PROVIDER_IDS.includes(providerId)) return false;
+  const apiKey = entry.apiKey?.trim() ?? '';
+  if (!apiKey) return false;
+  // Env var wins at resolution time, so seeding when env is set would
+  // be invisible to the user. Skip to avoid confusing on-disk state.
+  if (readEnvKey(providerId)) return false;
+
+  const prior = await readStored(projectRoot);
+  const priorApiKey =
+    typeof prior[providerId]?.apiKey === 'string' && prior[providerId].apiKey.trim()
+      ? prior[providerId].apiKey.trim()
+      : '';
+  if (priorApiKey) return false;
+
+  const baseUrl = entry.baseUrl?.trim() ?? '';
+  const model = entry.model?.trim() ?? '';
+  const next: ProviderMap = { ...prior };
+  next[providerId] = {
+    apiKey,
+    ...(baseUrl ? { baseUrl } : {}),
+    ...(model ? { model } : {}),
+  };
+  await writeStored(projectRoot, next);
+  return true;
 }

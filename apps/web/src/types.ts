@@ -21,6 +21,15 @@ import type {
   DeployConfigResponse,
   DeployProjectFileResponse,
   DesignSystemDetail,
+  DesignSystemFileDetail,
+  DesignSystemFileSummary,
+  DesignSystemGenerationJob,
+  DesignSystemPackageAudit,
+  DesignSystemPackageAuditIssue,
+  DesignSystemProvenance,
+  DesignSystemRevision,
+  DesignSystemRevisionJobRequest,
+  DesignSystemRevisionStatus,
   DesignSystemSummary,
   LiveArtifact,
   LiveArtifactDetailResponse,
@@ -41,8 +50,10 @@ import type {
   ProviderModelsRequest,
   ProviderModelsResponse,
   Project,
+  ProjectLocationPrefs,
   ProjectPlatform,
   PreviewCommentMember,
+  PreviewAnnotationStyle,
   PreviewCommentSelectionKind,
   PreviewComment,
   PreviewCommentStatus,
@@ -76,13 +87,15 @@ export type {
   ChatCommentSelectionKind,
   OrbitRunSummary,
   OrbitStatusResponse,
+  ProjectLocation,
   PreviewCommentMember,
+  PreviewAnnotationStyle,
   PreviewCommentSelectionKind,
   PreviewVisualMarkKind,
 } from '@open-design/contracts';
 
 export type ExecMode = 'daemon' | 'api';
-export type ApiProtocol = 'anthropic' | 'openai' | 'azure' | 'google' | 'ollama';
+export type ApiProtocol = 'anthropic' | 'openai' | 'azure' | 'google' | 'ollama' | 'senseaudio';
 
 export type LiveArtifactTabId = `live:${string}`;
 export type ProjectWorkspaceTabId = string | LiveArtifactTabId;
@@ -163,6 +176,7 @@ export interface MediaProviderCredentials {
   model?: string;
   apiKeyConfigured?: boolean;
   apiKeyTail?: string;
+  source?: string;
 }
 
 export interface ApiProtocolConfig {
@@ -171,6 +185,13 @@ export interface ApiProtocolConfig {
   model: string;
   apiVersion?: string;
   apiProviderBaseUrl?: string | null;
+  /** SenseAudio BYOK only — default image model the daemon-side
+   *  `generate_image` tool uses when the LLM doesn't pass one. Carries
+   *  one of the SenseAudio image model ids (`senseaudio-image-2.0-260319`,
+   *  `senseaudio-image-1.0-260319`, `doubao-seedream-5-0-260128`). Stored
+   *  per-protocol so flipping between BYOK tabs doesn't reset the
+   *  SenseAudio image-model choice. */
+  byokImageModel?: string;
 }
 
 // Per-CLI model + reasoning the user picked in the model menu. Each agent
@@ -285,6 +306,11 @@ export interface AppConfig {
   model: string;
   apiProtocol?: ApiProtocol;
   apiVersion?: string;
+  /** SenseAudio BYOK only — default image model for the daemon-side
+   *  generate_image tool. Mirrors apiProtocolConfigs.senseaudio.byokImageModel
+   *  so the active protocol's value lives at the top level (consistent
+   *  with how apiKey / baseUrl / model are projected onto AppConfig). */
+  byokImageModel?: string;
   apiProtocolConfigs?: Partial<Record<ApiProtocol, ApiProtocolConfig>>;
   /** Internal config schema/migration version for localStorage upgrades. */
   configMigrationVersion?: number;
@@ -334,10 +360,19 @@ export interface AppConfig {
   // rotate or clear the anonymous id without re-opening the consent banner.
   privacyDecisionAt?: number | null;
   // Privacy preferences governing what (if anything) is shipped to the
-  // Langfuse-backed telemetry endpoint. All three default to off until the
-  // user makes an explicit choice.
+  // PostHog / Langfuse telemetry endpoints. `metrics` and `content`
+  // default ON (set by `DEFAULT_CONFIG.telemetry` in state/config.ts) so
+  // the onboarding funnel actually captures the first-run events the
+  // user hasn't had a chance to consent to yet; the post-onboarding
+  // disclosure modal explains this and Settings → Privacy is the
+  // one-click opt-out. `artifactManifest` stays off until the user
+  // turns it on explicitly. A daemon-stored override always wins over
+  // these client defaults — once the user picks a value the modal /
+  // PrivacySection persist it through `syncConfigToDaemon`.
   telemetry?: TelemetryConfig;
   customInstructions?: string;
+  projectLocations?: ProjectLocationPrefs[];
+  defaultProjectLocationId?: string | null;
 }
 
 export interface TelemetryConfig {
@@ -439,6 +474,15 @@ export type {
   DeployConfigResponse,
   DeployProjectFileResponse,
   DesignSystemDetail,
+  DesignSystemFileDetail,
+  DesignSystemFileSummary,
+  DesignSystemGenerationJob,
+  DesignSystemPackageAudit,
+  DesignSystemPackageAuditIssue,
+  DesignSystemProvenance,
+  DesignSystemRevision,
+  DesignSystemRevisionJobRequest,
+  DesignSystemRevisionStatus,
   DesignSystemSummary,
   LiveArtifact,
   LiveArtifactDetailResponse,
@@ -483,4 +527,5 @@ export type {
 export interface OpenTabsState {
   tabs: ProjectWorkspaceTabId[];
   active: ProjectWorkspaceTabId | null;
+  hasSavedState?: boolean;
 }

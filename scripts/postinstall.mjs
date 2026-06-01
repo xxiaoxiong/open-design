@@ -8,15 +8,19 @@ const repoRoot = resolve(scriptDir, "..");
 
 const buildTargets = [
   "packages/contracts",
+  "packages/platform",
+  "packages/download",
+  "packages/host",
   "packages/registry-protocol",
   "packages/agui-adapter",
   "packages/plugin-runtime",
   "packages/sidecar-proto",
   "packages/sidecar",
-  "packages/platform",
+  "packages/diagnostics",
+  "apps/daemon",
   "tools/dev",
   "tools/pack",
-  "tools/pr",
+  "tools/serve",
 ];
 
 const jsExtensions = new Set([".js", ".cjs", ".mjs"]);

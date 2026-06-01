@@ -3,7 +3,7 @@
 // we want a single source of truth for "what file is open" — encoding
 // that in the URL is the simplest way to make it deep-linkable.
 
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 
 // Entry-shell sub-views. The home/project landing renders one of three
 // columns and each sub-view now owns a top-level path so the browser
@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 // state isn't trapped behind a `useState` boundary.
 export type EntryHomeView =
   | 'home'
+  | 'onboarding'
   | 'projects'
   | 'tasks'
   | 'plugins'
@@ -19,6 +20,8 @@ export type EntryHomeView =
 
 export type Route =
   | { kind: 'home'; view: EntryHomeView }
+  | { kind: 'design-system-create' }
+  | { kind: 'design-system-detail'; designSystemId: string }
   | {
       kind: 'project';
       projectId: string;
@@ -38,6 +41,9 @@ export type Route =
 export function parseRoute(pathname: string): Route {
   const parts = pathname.replace(/\/+$/, '').split('/').filter(Boolean);
   if (parts.length === 0) return { kind: 'home', view: 'home' };
+  if (parts[0] === 'onboarding') {
+    return { kind: 'home', view: 'onboarding' };
+  }
   if (parts[0] === 'projects') {
     if (parts[1]) {
       const projectId = decodeURIComponent(parts[1]);
@@ -68,6 +74,12 @@ export function parseRoute(pathname: string): Route {
     return { kind: 'home', view: 'projects' };
   }
   if (parts[0] === 'design-systems') {
+    if (parts[1] === 'create') {
+      return { kind: 'design-system-create' };
+    }
+    if (parts[1]) {
+      return { kind: 'design-system-detail', designSystemId: decodeURIComponent(parts[1]) };
+    }
     return { kind: 'home', view: 'design-systems' };
   }
   if (parts[0] === 'automations' || parts[0] === 'tasks') {
@@ -95,6 +107,7 @@ export function parseRoute(pathname: string): Route {
 
 export function buildPath(route: Route): string {
   if (route.kind === 'home') {
+    if (route.view === 'onboarding') return '/onboarding';
     if (route.view === 'projects') return '/projects';
     if (route.view === 'tasks') return '/automations';
     if (route.view === 'plugins') return '/plugins';
@@ -104,6 +117,10 @@ export function buildPath(route: Route): string {
   }
   if (route.kind === 'marketplace') return '/marketplace';
   if (route.kind === 'marketplace-detail') return `/marketplace/${encodeURIComponent(route.pluginId)}`;
+  if (route.kind === 'design-system-create') return '/design-systems/create';
+  if (route.kind === 'design-system-detail') {
+    return `/design-systems/${encodeURIComponent(route.designSystemId)}`;
+  }
   const id = encodeURIComponent(route.projectId);
   const file = route.fileName
     ? route.fileName.split('/').map((s) => encodeURIComponent(s)).join('/')
@@ -120,6 +137,14 @@ export function buildPath(route: Route): string {
 // Centralized navigation. Components call this instead of mutating
 // `window.location` directly so we can fan the change out to any
 // `useRoute()` subscriber via a custom event.
+//
+// The `popstate` dispatch is deferred to a microtask so that callers
+// can safely invoke `navigate()` from inside a `useState` updater or
+// during a render commit phase without triggering React's
+// "Cannot update a component while rendering a different component"
+// warning. The `history` API call itself stays synchronous so the URL
+// bar updates immediately; only the `useRoute()` subscriber updates
+// are deferred past the current render.
 export function navigate(route: Route, opts: { replace?: boolean } = {}): void {
   const target = buildPath(route);
   const current = window.location.pathname;
@@ -129,15 +154,28 @@ export function navigate(route: Route, opts: { replace?: boolean } = {}): void {
   } else {
     window.history.pushState(null, '', target);
   }
-  window.dispatchEvent(new PopStateEvent('popstate'));
+  queueMicrotask(() => {
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+}
+
+let cachedPathname: string | null = null;
+let cachedRoute: Route | null = null;
+
+function getRouteSnapshot(): Route {
+  const pathname = window.location.pathname;
+  if (cachedPathname !== pathname || cachedRoute === null) {
+    cachedPathname = pathname;
+    cachedRoute = parseRoute(pathname);
+  }
+  return cachedRoute;
+}
+
+function subscribeToRouteChanges(onStoreChange: () => void): () => void {
+  window.addEventListener('popstate', onStoreChange);
+  return () => window.removeEventListener('popstate', onStoreChange);
 }
 
 export function useRoute(): Route {
-  const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
-  useEffect(() => {
-    const onPop = () => setRoute(parseRoute(window.location.pathname));
-    window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
-  }, []);
-  return route;
+  return useSyncExternalStore(subscribeToRouteChanges, getRouteSnapshot, getRouteSnapshot);
 }
