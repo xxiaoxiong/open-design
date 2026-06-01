@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { Locator, Page } from '@playwright/test';
+import type { Locator, Page, Request } from '@playwright/test';
 
 const STORAGE_KEY = 'open-design:config';
 
@@ -53,6 +53,10 @@ test.beforeEach(async ({ page }) => {
   }, STORAGE_KEY);
 
   await page.route('**/api/app-config', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.continue();
+      return;
+    }
     await route.fulfill({
       json: {
         config: {
@@ -97,6 +101,7 @@ test('new project tabs switch visible form sections and preserve drafts', async 
   });
 
   await page.goto('/');
+  await openNewProjectPanel(page);
   await expect(page.getByTestId('new-project-tab-prototype')).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('.newproj-title')).toContainText('New prototype');
   await expect(page.getByTestId('design-system-trigger')).toBeVisible();
@@ -123,9 +128,12 @@ test('new project tabs switch visible form sections and preserve drafts', async 
   await expect(page.locator('.newproj-title')).toContainText('New prototype');
   await expect(page.getByTestId('new-project-name')).toHaveValue('Prototype draft survives');
 
-  await page.getByRole('button', { name: 'Scroll project types right' }).click();
-  await page.getByTestId('new-project-tab-image').click();
-  await expect(page.getByTestId('new-project-tab-image')).toHaveAttribute('aria-selected', 'true');
+  // Playwright auto-scrolls the tab into view; the consolidated media flow
+  // keeps image/video/audio as inner segmented surfaces.
+  await page.getByTestId('new-project-tab-media').click();
+  await expect(page.getByTestId('new-project-tab-media')).toHaveAttribute('aria-selected', 'true');
+  await page.getByTestId('new-project-media-surface-image').click();
+  await expect(page.getByTestId('new-project-media-surface-image')).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('.newproj-title')).toContainText('New image');
   await expect(page.getByTestId('design-system-picker')).toHaveCount(0);
   await expect(page.getByText('Model', { exact: true })).toBeVisible();
@@ -138,6 +146,7 @@ test('design system multi-select stores primary and inspiration metadata', async
   });
 
   await page.goto('/');
+  await openNewProjectPanel(page);
   await page.getByTestId('new-project-tab-prototype').click();
   await page.getByTestId('new-project-name').fill('Design system multi select metadata');
   await expect(page.getByTestId('design-system-trigger')).toContainText('Nexu Soft Tech');
@@ -151,13 +160,20 @@ test('design system multi-select stores primary and inspiration metadata', async
 
   await expect(page.getByTestId('design-system-trigger')).toContainText('Nexu Soft Tech');
   await expect(page.getByTestId('design-system-trigger')).toContainText('+2');
-  await page.keyboard.press('Escape');
-  await page.getByTestId('create-project').click();
-  await expectWorkspaceReady(page);
-
-  const project = await fetchCurrentProject(page);
-  expect(project.designSystemId).toBe('nexu-soft-tech');
-  expect(project.metadata?.inspirationDesignSystemIds).toEqual([
+  await page.getByTestId('design-system-trigger').click();
+  await expect(page.locator('.ds-picker-popover')).toHaveCount(0);
+  const createProjectRequest = page.waitForRequest(isCreateProjectRequest);
+  await expect(page.getByTestId('create-project')).toBeEnabled();
+  await page.getByTestId('create-project').click({ force: true });
+  const request = await createProjectRequest;
+  const body = request.postDataJSON() as {
+    designSystemId?: string | null;
+    metadata?: {
+      inspirationDesignSystemIds?: string[];
+    };
+  };
+  expect(body.designSystemId).toBe('nexu-soft-tech');
+  expect(body.metadata?.inspirationDesignSystemIds).toEqual([
     'editorial-noir',
     'data-mist',
   ]);
@@ -169,6 +185,7 @@ test('design system picker searches and switches the single selected system', as
   });
 
   await page.goto('/');
+  await openNewProjectPanel(page);
   await page.getByTestId('new-project-tab-prototype').click();
   await page.getByTestId('new-project-name').fill('Design system single switch flow');
   await expect(page.getByTestId('design-system-trigger')).toBeVisible();
@@ -181,12 +198,18 @@ test('design system picker searches and switches the single selected system', as
 
   await expect(page.getByTestId('design-system-trigger')).toContainText('Data Mist');
   await expect(page.getByTestId('design-system-trigger')).toContainText('Analytics');
-  await page.getByTestId('create-project').click();
-  await expectWorkspaceReady(page);
-
-  const project = await fetchCurrentProject(page);
-  expect(project.designSystemId).toBe('data-mist');
-  expect(project.metadata?.inspirationDesignSystemIds).toBeUndefined();
+  const createProjectRequest = page.waitForRequest(isCreateProjectRequest);
+  await expect(page.getByTestId('create-project')).toBeEnabled();
+  await page.getByTestId('create-project').click({ force: true });
+  const request = await createProjectRequest;
+  const body = request.postDataJSON() as {
+    designSystemId?: string | null;
+    metadata?: {
+      inspirationDesignSystemIds?: string[];
+    };
+  };
+  expect(body.designSystemId).toBe('data-mist');
+  expect(body.metadata?.inspirationDesignSystemIds).toBeUndefined();
 });
 
 test('project title rename persists after reload and ignores blank titles', async ({ page }) => {
@@ -245,25 +268,30 @@ test('home design card deletion supports cancel and confirm flows', async ({ pag
 
   const { projectId } = getProjectContextFromUrl(page);
   await page.getByRole('button', { name: /back to projects/i }).click();
-  await expect(page.getByTestId('new-project-panel')).toBeVisible();
+  await expectDesignsView(page);
 
   const designCard = homeDesignCard(page, projectName);
   await expect(designCard).toBeVisible();
 
-  page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain(projectName);
-    await dialog.dismiss();
-  });
+  // Cancel flow: open the overflow menu, choose Delete, then dismiss the confirm modal.
   await designCard.hover();
-  await designCard.getByRole('button', { name: new RegExp(`delete project ${escapeRegExp(projectName)}`, 'i') }).click();
+  await designCard.getByRole('button', { name: /more actions/i }).click();
+  await page.getByRole('menuitem', { name: /^delete$/i }).click();
+  const confirmDialog = page.locator('.modal-confirm');
+  await expect(confirmDialog).toBeVisible();
+  await expect(confirmDialog).toContainText(projectName);
+  await confirmDialog.getByRole('button', { name: /^cancel$/i }).click();
+  await expect(confirmDialog).toHaveCount(0);
   await expect(designCard).toBeVisible();
 
-  page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain(projectName);
-    await dialog.accept();
-  });
+  // Confirm flow: same trigger, this time accept the confirm modal.
   await designCard.hover();
-  await designCard.getByRole('button', { name: new RegExp(`delete project ${escapeRegExp(projectName)}`, 'i') }).click();
+  await designCard.getByRole('button', { name: /more actions/i }).click();
+  await page.getByRole('menuitem', { name: /^delete$/i }).click();
+  const confirmDialog2 = page.locator('.modal-confirm');
+  await expect(confirmDialog2).toBeVisible();
+  await expect(confirmDialog2).toContainText(projectName);
+  await confirmDialog2.getByRole('button', { name: /^delete$/i }).click();
   await expect(homeDesignCard(page, projectName)).toHaveCount(0);
 
   const response = await page.request.get(`/api/projects/${projectId}`);
@@ -275,9 +303,10 @@ test('home designs view toggle switches between grid and kanban and persists', a
   await page.goto('/');
   await createProject(page, projectName);
   await expectWorkspaceReady(page);
+  const { projectId } = getProjectContextFromUrl(page);
 
   await page.getByRole('button', { name: /back to projects/i }).click();
-  await expect(page.getByTestId('new-project-panel')).toBeVisible();
+  await expectDesignsView(page);
   await expect(homeDesignCard(page, projectName)).toBeVisible();
   await expect(page.locator('.design-grid')).toBeVisible();
   await expect(page.locator('.design-kanban-board')).toHaveCount(0);
@@ -290,9 +319,11 @@ test('home designs view toggle switches between grid and kanban and persists', a
   await expect(page.locator('.design-kanban-card', { hasText: projectName })).toBeVisible();
 
   await page.reload();
-  await expect(page.getByTestId('new-project-panel')).toBeVisible();
+  await expectDesignsView(page);
   await expect(page.locator('.design-kanban-board')).toBeVisible();
   await expect(page.getByTestId('designs-view-kanban')).toHaveAttribute('aria-pressed', 'true');
+  const projectsAfterReload = await listProjectsFromApi(page);
+  expect(projectsAfterReload.some((project) => project.id === projectId && project.name === projectName)).toBe(true);
 
   await page.getByTestId('designs-view-grid').click();
   await expect(page.locator('.design-grid')).toBeVisible();
@@ -308,13 +339,15 @@ test('home designs search filters projects and recovers from no results', async 
 
   await createProject(page, alphaName);
   await expectWorkspaceReady(page);
+  const alphaProjectId = getProjectContextFromUrl(page).projectId;
   await page.getByRole('button', { name: /back to projects/i }).click();
-  await expect(page.getByTestId('new-project-panel')).toBeVisible();
+  await expectDesignsView(page);
 
   await createProject(page, betaName);
   await expectWorkspaceReady(page);
+  const betaProjectId = getProjectContextFromUrl(page).projectId;
   await page.getByRole('button', { name: /back to projects/i }).click();
-  await expect(page.getByTestId('new-project-panel')).toBeVisible();
+  await expectDesignsView(page);
   await expect(homeDesignCard(page, alphaName)).toBeVisible();
   await expect(homeDesignCard(page, betaName)).toBeVisible();
 
@@ -331,6 +364,446 @@ test('home designs search filters projects and recovers from no results', async 
   await search.fill('');
   await expect(homeDesignCard(page, alphaName)).toBeVisible();
   await expect(homeDesignCard(page, betaName)).toBeVisible();
+  const projects = await listProjectsFromApi(page);
+  expect(projects).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ id: alphaProjectId, name: alphaName }),
+      expect.objectContaining({ id: betaProjectId, name: betaName }),
+    ]),
+  );
+});
+
+test('projects sub tabs switch between Recent and Your designs ordering', async ({ page }) => {
+  const now = Date.now();
+  const projects = [
+    makeProjectsTabProject({
+      id: 'proj-alpha',
+      name: 'Sort Alpha',
+      createdAt: now - 3 * 60_000,
+      updatedAt: now - 1 * 60_000,
+    }),
+    makeProjectsTabProject({
+      id: 'proj-beta',
+      name: 'Sort Beta',
+      createdAt: now - 1 * 60_000,
+      updatedAt: now - 3 * 60_000,
+    }),
+    makeProjectsTabProject({
+      id: 'proj-gamma',
+      name: 'Sort Gamma',
+      createdAt: now - 2 * 60_000,
+      updatedAt: now - 2 * 60_000,
+    }),
+  ];
+
+  await page.route('**/api/projects', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ json: { projects } });
+      return;
+    }
+    await route.continue();
+  });
+  await page.route('**/api/live-artifacts?projectId=*', async (route) => {
+    await route.fulfill({ json: { liveArtifacts: [] } });
+  });
+
+  await page.goto('/projects');
+  await expectDesignsView(page);
+
+  await expect(page.locator('.design-grid .design-card .design-card-name').nth(0)).toContainText(
+    'Sort Alpha',
+  );
+  await expect(page.locator('.design-grid .design-card .design-card-name').nth(1)).toContainText(
+    'Sort Gamma',
+  );
+  await expect(page.locator('.design-grid .design-card .design-card-name').nth(2)).toContainText(
+    'Sort Beta',
+  );
+
+  await page.getByRole('button', { name: 'Your designs' }).click();
+  await expect(page.locator('.design-grid .design-card .design-card-name').nth(0)).toContainText(
+    'Sort Beta',
+  );
+  await expect(page.locator('.design-grid .design-card .design-card-name').nth(1)).toContainText(
+    'Sort Gamma',
+  );
+  await expect(page.locator('.design-grid .design-card .design-card-name').nth(2)).toContainText(
+    'Sort Alpha',
+  );
+});
+
+test('projects grid card rename updates the card title and persists after reload', async ({ page }) => {
+  const originalName = `Projects rename flow ${Date.now()}`;
+  const renamedName = `${originalName} renamed`;
+  await page.goto('/');
+  await createProject(page, originalName);
+  await expectWorkspaceReady(page);
+  const { projectId } = getProjectContextFromUrl(page);
+
+  await page.getByRole('button', { name: /back to projects/i }).click();
+  await expectDesignsView(page);
+
+  const card = homeDesignCard(page, originalName);
+  await card.hover();
+  await card.getByRole('button', { name: /more actions/i }).click();
+  await page.getByRole('menuitem', { name: /^rename$/i }).click();
+
+  const renameModal = page.locator('.modal-rename');
+  await expect(renameModal).toBeVisible();
+  const renameInput = renameModal.getByRole('textbox');
+  await expect(renameInput).toHaveValue(originalName);
+  await renameInput.fill(renamedName);
+  await renameModal.locator('button.primary').click();
+
+  await expect(homeDesignCard(page, renamedName)).toBeVisible();
+  await expect(homeDesignCard(page, originalName)).toHaveCount(0);
+
+  await page.reload();
+  await expectDesignsView(page);
+  await expect(homeDesignCard(page, renamedName)).toBeVisible();
+  const project = await fetchProjectById(page, projectId);
+  expect(project.name).toBe(renamedName);
+});
+
+test('projects select mode supports multi-select delete with cancel and confirm', async ({ page }) => {
+  const firstName = `Batch delete A ${Date.now()}`;
+  const secondName = `Batch delete B ${Date.now()}`;
+  await page.goto('/');
+
+  await createProject(page, firstName);
+  await expectWorkspaceReady(page);
+  const firstProjectId = getProjectContextFromUrl(page).projectId;
+  await page.getByRole('button', { name: /back to projects/i }).click();
+  await expectDesignsView(page);
+
+  await createProject(page, secondName);
+  await expectWorkspaceReady(page);
+  const secondProjectId = getProjectContextFromUrl(page).projectId;
+  await page.getByRole('button', { name: /back to projects/i }).click();
+  await expectDesignsView(page);
+
+  await page.locator('.designs-select-toggle').click();
+  await homeDesignCard(page, firstName).click();
+  await homeDesignCard(page, secondName).click();
+  await expect(page.locator('.designs-select-bar')).toBeVisible();
+  await expect(page.locator('.design-card.is-selected')).toHaveCount(2);
+
+  await page.getByRole('button', { name: /Delete selected/i }).click();
+  const confirmDialog = page.locator('.modal-confirm');
+  await expect(confirmDialog).toBeVisible();
+  await confirmDialog.getByRole('button', { name: /^cancel$/i }).click();
+  await expect(confirmDialog).toHaveCount(0);
+  await expect(homeDesignCard(page, firstName)).toBeVisible();
+  await expect(homeDesignCard(page, secondName)).toBeVisible();
+
+  await page.getByRole('button', { name: /Delete selected/i }).click();
+  const confirmDialog2 = page.locator('.modal-confirm');
+  await expect(confirmDialog2).toBeVisible();
+  await confirmDialog2.getByRole('button', { name: /^delete/i }).click();
+  await expect(homeDesignCard(page, firstName)).toHaveCount(0);
+  await expect(homeDesignCard(page, secondName)).toHaveCount(0);
+  await expect(page.locator('.designs-select-bar')).toHaveCount(0);
+
+  const firstResponse = await page.request.get(`/api/projects/${firstProjectId}`);
+  const secondResponse = await page.request.get(`/api/projects/${secondProjectId}`);
+  expect(firstResponse.status()).toBe(404);
+  expect(secondResponse.status()).toBe(404);
+});
+
+test('projects kanban cards open projects and support delete cancel and confirm', async ({ page }) => {
+  const projectName = `Kanban flow ${Date.now()}`;
+  await page.goto('/');
+  await createProject(page, projectName);
+  await expectWorkspaceReady(page);
+
+  const { projectId } = getProjectContextFromUrl(page);
+  await page.getByRole('button', { name: /back to projects/i }).click();
+  await expectDesignsView(page);
+
+  await page.getByTestId('designs-view-kanban').click();
+  await expect(page.locator('.design-kanban-board')).toBeVisible();
+
+  const kanbanCard = page.locator('.design-kanban-card', { hasText: projectName });
+  await expect(kanbanCard).toBeVisible();
+
+  await kanbanCard.click();
+  await expect(page).toHaveURL(new RegExp(`/projects/${projectId}(/conversations/[^/]+)?$`));
+  await expect(page.getByTestId('project-title')).toContainText(projectName);
+  const openedProject = await fetchCurrentProject(page);
+  expect(openedProject.name).toBe(projectName);
+
+  await page.getByRole('button', { name: /back to projects/i }).click();
+  await expectDesignsView(page);
+  await expect(page.locator('.design-kanban-board')).toBeVisible();
+
+  const kanbanCardAgain = page.locator('.design-kanban-card', { hasText: projectName });
+  await kanbanCardAgain.locator('.design-card-close').click();
+  const confirmDialog = page.locator('.modal-confirm');
+  await expect(confirmDialog).toBeVisible();
+  await confirmDialog.getByRole('button', { name: /^cancel$/i }).click();
+  await expect(kanbanCardAgain).toBeVisible();
+
+  await kanbanCardAgain.locator('.design-card-close').click();
+  const confirmDialog2 = page.locator('.modal-confirm');
+  await expect(confirmDialog2).toBeVisible();
+  await confirmDialog2.getByRole('button', { name: /^delete/i }).click();
+  await expect(page.locator('.design-kanban-card', { hasText: projectName })).toHaveCount(0);
+
+  const response = await page.request.get(`/api/projects/${projectId}`);
+  expect(response.status()).toBe(404);
+});
+
+test('projects page shows the empty state when there are no projects', async ({ page }) => {
+  await page.route('**/api/projects', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ json: { projects: [] } });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.goto('/projects');
+  await expect(page).toHaveURL(/\/projects$/);
+  await expect(page.locator('.tab-empty')).toBeVisible();
+  await expect(page.locator('.tab-empty')).toContainText('No projects yet');
+  await expect(page.locator('.design-grid')).toHaveCount(0);
+  await expect(page.locator('.design-kanban-board')).toHaveCount(0);
+});
+
+test('projects page shows the no-results state and recovers when search is cleared', async ({ page }) => {
+  const projects = [
+    makeProjectsTabProject({
+      id: 'proj-search-1',
+      name: 'Searchable Prototype',
+      createdAt: Date.now() - 10_000,
+      updatedAt: Date.now() - 5_000,
+    }),
+  ];
+
+  await page.route('**/api/projects', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ json: { projects } });
+      return;
+    }
+    await route.continue();
+  });
+  await page.route('**/api/live-artifacts?projectId=*', async (route) => {
+    await route.fulfill({ json: { liveArtifacts: [] } });
+  });
+
+  await page.goto('/projects');
+  await expectDesignsView(page);
+  await expect(homeDesignCard(page, 'Searchable Prototype')).toBeVisible();
+
+  const search = page.locator('.tab-panel-toolbar .toolbar-search input');
+  await search.fill('does-not-exist');
+  await expect(page.locator('.tab-empty')).toBeVisible();
+  await expect(page.locator('.tab-empty')).toContainText('No projects match your search');
+  await expect(homeDesignCard(page, 'Searchable Prototype')).toHaveCount(0);
+
+  await search.fill('');
+  await expect(homeDesignCard(page, 'Searchable Prototype')).toBeVisible();
+});
+
+test('projects grid overflow menu closes on outside click and Escape', async ({ page }) => {
+  const projects = [
+    makeProjectsTabProject({
+      id: 'proj-menu-1',
+      name: 'Menu Close Project',
+      createdAt: Date.now() - 10_000,
+      updatedAt: Date.now() - 5_000,
+    }),
+  ];
+
+  await page.route('**/api/projects', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ json: { projects } });
+      return;
+    }
+    await route.continue();
+  });
+  await page.route('**/api/live-artifacts?projectId=*', async (route) => {
+    await route.fulfill({ json: { liveArtifacts: [] } });
+  });
+
+  await page.goto('/projects');
+  await expectDesignsView(page);
+
+  const card = homeDesignCard(page, 'Menu Close Project');
+  await card.hover();
+  await card.getByRole('button', { name: /more actions/i }).click();
+  const menu = page.locator('.design-card-menu');
+  await expect(menu).toBeVisible();
+
+  await page.mouse.click(20, 20);
+  await expect(menu).toHaveCount(0);
+
+  await card.hover();
+  await card.getByRole('button', { name: /more actions/i }).click();
+  await expect(menu).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+});
+
+test('projects kanban view groups cards into status columns', async ({ page }) => {
+  const now = Date.now();
+  const projects = [
+    makeProjectsTabProject({
+      id: 'proj-not-started',
+      name: 'Not Started Card',
+      createdAt: now - 50_000,
+      updatedAt: now - 45_000,
+      status: { value: 'not_started' },
+    }),
+    makeProjectsTabProject({
+      id: 'proj-running',
+      name: 'Running Card',
+      createdAt: now - 40_000,
+      updatedAt: now - 35_000,
+      status: { value: 'running' },
+    }),
+    makeProjectsTabProject({
+      id: 'proj-awaiting',
+      name: 'Awaiting Input Card',
+      createdAt: now - 30_000,
+      updatedAt: now - 25_000,
+      status: { value: 'awaiting_input' },
+    }),
+    makeProjectsTabProject({
+      id: 'proj-succeeded',
+      name: 'Succeeded Card',
+      createdAt: now - 20_000,
+      updatedAt: now - 15_000,
+      status: { value: 'succeeded' },
+    }),
+    makeProjectsTabProject({
+      id: 'proj-failed',
+      name: 'Failed Card',
+      createdAt: now - 10_000,
+      updatedAt: now - 5_000,
+      status: { value: 'failed' },
+    }),
+  ];
+
+  await page.route('**/api/projects', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ json: { projects } });
+      return;
+    }
+    await route.continue();
+  });
+  await page.route('**/api/live-artifacts?projectId=*', async (route) => {
+    await route.fulfill({ json: { liveArtifacts: [] } });
+  });
+
+  await page.goto('/projects');
+  await expectDesignsView(page);
+  await page.getByTestId('designs-view-kanban').click();
+  await expect(page.locator('.design-kanban-board')).toBeVisible();
+
+  await expect(page.locator('.design-kanban-card.status-not_started')).toHaveCount(1);
+  await expect(page.locator('.design-kanban-card.status-running')).toHaveCount(1);
+  await expect(page.locator('.design-kanban-card.status-awaiting_input')).toHaveCount(1);
+  await expect(page.locator('.design-kanban-card.status-succeeded')).toHaveCount(1);
+  await expect(page.locator('.design-kanban-card.status-failed')).toHaveCount(1);
+  await expect(page.locator('.design-kanban-empty')).toHaveCount(1);
+
+  await expect(page.locator('.design-kanban-card.status-running')).toContainText('Running Card');
+  await expect(page.locator('.design-kanban-card.status-awaiting_input')).toContainText(
+    'Awaiting Input Card',
+  );
+  await expect(page.locator('.design-kanban-card.status-succeeded')).toContainText(
+    'Succeeded Card',
+  );
+});
+
+test('projects page shows live artifact cards, supports search, and opens the live artifact project', async ({ page }) => {
+  const liveProject = makeProjectsTabProject({
+    id: 'proj-live',
+    name: 'Orbit Daily Digest',
+    createdAt: Date.now() - 60_000,
+    updatedAt: Date.now() - 30_000,
+    skillId: 'live-artifact',
+    metadata: { kind: 'orbit', intent: 'live-artifact' },
+    status: { value: 'succeeded' },
+  });
+  const regularProject = makeProjectsTabProject({
+    id: 'proj-regular',
+    name: 'Regular Prototype',
+    createdAt: Date.now() - 120_000,
+    updatedAt: Date.now() - 90_000,
+  });
+  const liveArtifact = {
+    id: 'artifact-1',
+    projectId: 'proj-live',
+    title: 'Orbit Daily Digest — 2026-05-15',
+    slug: 'orbit-daily-digest',
+    status: 'ready',
+    refreshStatus: 'succeeded',
+    pinned: false,
+    hasDocument: true,
+    updatedAt: new Date(Date.now() - 20_000).toISOString(),
+    createdAt: new Date(Date.now() - 50_000).toISOString(),
+    preview: {
+      kind: 'rendered',
+      url: '',
+    },
+  };
+
+  await page.route('**/api/projects', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ json: { projects: [liveProject, regularProject] } });
+      return;
+    }
+    await route.continue();
+  });
+  await page.route('**/api/projects/proj-live', async (route) => {
+    await route.fulfill({ json: { project: liveProject } });
+  });
+  await page.route('**/api/projects/proj-live/files', async (route) => {
+    await route.fulfill({ json: { files: [] } });
+  });
+  await page.route('**/api/live-artifacts?projectId=*', async (route) => {
+    const url = new URL(route.request().url());
+    const projectId = url.searchParams.get('projectId');
+    await route.fulfill({
+      json: {
+        liveArtifacts: projectId === 'proj-live' ? [liveArtifact] : [],
+      },
+    });
+  });
+  await page.route('**/api/live-artifacts/artifact-1', async (route) => {
+    await route.fulfill({ json: { liveArtifact } });
+  });
+  await page.route('**/api/live-artifacts/artifact-1/refreshes?projectId=*', async (route) => {
+    await route.fulfill({ json: { refreshes: [] } });
+  });
+  await page.route('**/api/live-artifacts/artifact-1/preview?projectId=*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'text/html' },
+      body: '<!doctype html><html><body><h1>Orbit Daily Digest</h1></body></html>',
+    });
+  });
+
+  await page.goto('/projects');
+  await expectDesignsView(page);
+
+  const liveCard = page.locator('.live-artifact-card', {
+    has: page.locator('.design-card-name', { hasText: 'Orbit Daily Digest' }),
+  });
+  await expect(liveCard).toBeVisible();
+  await expect(liveCard).toContainText(/Live Artifact/i);
+  await expect(liveCard).toContainText(/LIVE|Refreshed/i);
+
+  const search = page.locator('.tab-panel-toolbar .toolbar-search input');
+  await search.fill('digest');
+  await expect(liveCard).toBeVisible();
+  await expect(homeDesignCard(page, 'Regular Prototype')).toHaveCount(0);
+
+  await liveCard.click();
+  await expect(page).toHaveURL(/\/projects\/proj-live$/);
+  await expect(page.getByTestId('project-title')).toContainText('Orbit Daily Digest');
 });
 
 test('change pet opens pet settings and updates the custom companion draft', async ({ page }) => {
@@ -340,16 +813,8 @@ test('change pet opens pet settings and updates the custom companion draft', asy
   });
 
   await page.goto('/');
-  await expect(page.getByTestId('new-project-panel')).toBeVisible();
-
-  await page
-    .locator('.entry-side-foot')
-    .getByRole('button', { name: /change pet/i })
-    .click();
-
-  const dialog = page.getByRole('dialog');
-  await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole('heading', { level: 3, name: 'Pets' })).toBeVisible();
+  const dialog = await openEntrySettingsDialog(page, /^Pets\b/);
+  await expect(dialog.getByRole('heading', { level: 2, name: 'Pets' })).toBeVisible();
 
   await dialog.getByRole('tab', { name: 'Custom' }).click();
   const customPanel = dialog.locator('.pet-custom');
@@ -369,17 +834,50 @@ async function createProject(
   page: Page,
   projectName: string,
 ) {
+  await openNewProjectPanel(page);
   await expect(page.getByTestId('new-project-panel')).toBeVisible();
   await page.getByTestId('new-project-tab-prototype').click();
   await page.getByTestId('new-project-name').fill(projectName);
   await page.getByTestId('create-project').click();
 }
 
+async function openNewProjectPanel(page: Page) {
+  if (await page.getByTestId('new-project-panel').isVisible()) return;
+  await page.getByTestId('entry-nav-new-project').click();
+  await expect(page.getByTestId('new-project-modal')).toBeVisible();
+  await expect(page.getByTestId('new-project-panel')).toBeVisible();
+}
+
+async function expectDesignsView(page: Page) {
+  if (!/\/projects$/.test(new URL(page.url()).pathname)) {
+    await page.getByTestId('entry-nav-projects').click();
+  }
+  await expect(page).toHaveURL(/\/projects$/);
+  await expect(page.locator('.design-grid, .design-kanban-board')).toBeVisible();
+}
+
+async function openEntrySettingsDialog(page: Page, sectionName?: RegExp | string): Promise<Locator> {
+  const settingsButton = page.getByRole('button', { name: /open settings/i });
+  await settingsButton.click();
+  let settingsDialog = page.getByRole('dialog');
+  if (!(await settingsDialog.isVisible().catch(() => false))) {
+    const settingsMenu = page.locator('.avatar-popover[role="menu"]');
+    await expect(settingsMenu).toBeVisible();
+    await settingsMenu.getByRole('button', { name: /^Settings$/i }).click();
+    settingsDialog = page.getByRole('dialog');
+  }
+  await expect(settingsDialog).toBeVisible();
+  if (sectionName) {
+    await settingsDialog.getByRole('button', { name: sectionName }).click();
+  }
+  return settingsDialog;
+}
+
 async function expectWorkspaceReady(page: Page) {
   await expect(page).toHaveURL(/\/projects\//);
   await expect(page.getByTestId('chat-composer')).toBeVisible();
+  await expect(page.getByTestId('chat-composer-input')).toBeVisible();
   await expect(page.getByTestId('file-workspace')).toBeVisible();
-  await expect(page.getByText('Start a conversation')).toBeVisible();
 }
 
 async function renameProjectTitle(
@@ -432,7 +930,9 @@ function menuByFileName(page: Page, name: string): Locator {
 
 function homeDesignCard(page: Page, name: string): Locator {
   return page.locator('.design-card', {
-    has: page.locator('.design-card-name', { hasText: name }),
+    has: page.locator('.design-card-name', {
+      hasText: new RegExp(`^${escapeRegExp(name)}$`),
+    }),
   });
 }
 
@@ -468,10 +968,15 @@ async function seedAdoptedPet(page: Page) {
 
 async function fetchCurrentProject(page: Page) {
   const { projectId } = getProjectContextFromUrl(page);
+  return fetchProjectById(page, projectId);
+}
+
+async function fetchProjectById(page: Page, projectId: string) {
   const response = await page.request.get(`/api/projects/${projectId}`);
   expect(response.ok()).toBeTruthy();
   const body = (await response.json()) as {
     project: {
+      id?: string;
       name: string;
       designSystemId: string | null;
       metadata?: {
@@ -482,11 +987,25 @@ async function fetchCurrentProject(page: Page) {
   return body.project;
 }
 
+async function listProjectsFromApi(page: Page) {
+  const response = await page.request.get('/api/projects');
+  expect(response.ok()).toBeTruthy();
+  const body = (await response.json()) as {
+    projects: Array<{ id: string; name: string }>;
+  };
+  return body.projects;
+}
+
 async function listProjectFiles(page: Page, projectId: string) {
   const response = await page.request.get(`/api/projects/${projectId}/files`);
   expect(response.ok()).toBeTruthy();
   const body = (await response.json()) as { files: Array<{ name: string }> };
   return body.files;
+}
+
+function isCreateProjectRequest(request: Request): boolean {
+  const url = new URL(request.url());
+  return url.pathname === '/api/projects' && request.method() === 'POST';
 }
 
 function getProjectContextFromUrl(page: Page) {
@@ -498,6 +1017,37 @@ function getProjectContextFromUrl(page: Page) {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function makeProjectsTabProject({
+  id,
+  name,
+  createdAt,
+  updatedAt,
+  skillId = null,
+  metadata = { kind: 'prototype' as const },
+  status = { value: 'succeeded' as const },
+}: {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  skillId?: string | null;
+  metadata?: Record<string, unknown>;
+  status?: { value: string };
+}) {
+  return {
+    id,
+    name,
+    createdAt,
+    updatedAt,
+    skillId,
+    designSystemId: null,
+    pendingPrompt: '',
+    customInstructions: null,
+    metadata,
+    status,
+  };
 }
 
 function skillSummary(

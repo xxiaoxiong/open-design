@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  buildFeedbackPayload,
   buildTracePayload,
   readLangfuseConfig,
+  readTelemetrySinkConfig,
   reportRunCompleted,
+  reportRunFeedback,
+  type FeedbackReportContext,
   type LangfuseConfig,
   type ReportContext,
+  type TelemetrySinkConfig,
 } from '../src/langfuse-trace.js';
 
 function makeCtx(overrides: Partial<ReportContext> = {}): ReportContext {
@@ -138,6 +143,48 @@ describe('readLangfuseConfig', () => {
     });
     expect(cfg!.timeoutMs).toBe(20_000);
     expect(cfg!.retries).toBe(1);
+  });
+});
+
+describe('readTelemetrySinkConfig', () => {
+  it('prefers the Open Design telemetry relay when configured', () => {
+    const cfg = readTelemetrySinkConfig({
+      OPEN_DESIGN_TELEMETRY_RELAY_URL: 'https://telemetry.open-design.ai/api/langfuse//',
+      LANGFUSE_PUBLIC_KEY: 'pk',
+      LANGFUSE_SECRET_KEY: 'sk',
+    });
+    expect(cfg).toEqual({
+      kind: 'relay',
+      relayUrl: 'https://telemetry.open-design.ai/api/langfuse',
+      timeoutMs: 20_000,
+      retries: 1,
+    });
+  });
+
+  it('uses relay-specific timeout and retry tuning when present', () => {
+    const cfg = readTelemetrySinkConfig({
+      OPEN_DESIGN_TELEMETRY_RELAY_URL: 'https://telemetry.open-design.ai/api/langfuse',
+      OPEN_DESIGN_TELEMETRY_TIMEOUT_MS: '30000',
+      OPEN_DESIGN_TELEMETRY_RETRIES: '3',
+      LANGFUSE_TIMEOUT_MS: '1',
+      LANGFUSE_RETRIES: '0',
+    });
+    expect(cfg).toMatchObject({
+      kind: 'relay',
+      timeoutMs: 30_000,
+      retries: 3,
+    });
+  });
+
+  it('falls back to direct Langfuse config for local smoke tests', () => {
+    const cfg = readTelemetrySinkConfig({
+      LANGFUSE_PUBLIC_KEY: 'pk',
+      LANGFUSE_SECRET_KEY: 'sk',
+    });
+    expect(cfg).toMatchObject({
+      kind: 'langfuse',
+      baseUrl: 'https://us.cloud.langfuse.com',
+    });
   });
 });
 
@@ -454,12 +501,28 @@ describe('reportRunCompleted', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it('does nothing when content gate is off', async () => {
+    const fetchSpy = vi.fn();
+    await reportRunCompleted(
+      makeCtx({
+        prefs: { metrics: true, content: false, artifactManifest: true },
+      }),
+      { config: TEST_CONFIG, fetchImpl: fetchSpy as any },
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it('does nothing when no Langfuse config is available', async () => {
     const fetchSpy = vi.fn();
-    await reportRunCompleted(makeCtx(), {
-      config: null,
-      fetchImpl: fetchSpy as any,
-    });
+    await reportRunCompleted(
+      makeCtx({
+        prefs: { metrics: true, content: true, artifactManifest: false },
+      }),
+      {
+        config: null,
+        fetchImpl: fetchSpy as any,
+      },
+    );
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -467,10 +530,15 @@ describe('reportRunCompleted', () => {
     const fetchSpy = vi.fn().mockResolvedValue(
       new Response('{}', { status: 200 }),
     );
-    await reportRunCompleted(makeCtx(), {
-      config: TEST_CONFIG,
-      fetchImpl: fetchSpy as any,
-    });
+    await reportRunCompleted(
+      makeCtx({
+        prefs: { metrics: true, content: true, artifactManifest: false },
+      }),
+      {
+        config: TEST_CONFIG,
+        fetchImpl: fetchSpy as any,
+      },
+    );
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const call = fetchSpy.mock.calls[0]!;
     const url = call[0] as string;
@@ -490,6 +558,65 @@ describe('reportRunCompleted', () => {
     ]);
   });
 
+  it('POSTs serialized ingestion batches to the Open Design telemetry relay', async () => {
+    const relayConfig: TelemetrySinkConfig = {
+      kind: 'relay',
+      relayUrl: 'https://telemetry.open-design.ai/api/langfuse',
+      timeoutMs: 20_000,
+      retries: 0,
+    };
+    const fetchSpy = vi.fn().mockResolvedValue(
+      new Response('{}', { status: 200 }),
+    );
+    await reportRunCompleted(
+      makeCtx({
+        prefs: { metrics: true, content: true, artifactManifest: false },
+      }),
+      {
+        config: relayConfig,
+        fetchImpl: fetchSpy as any,
+      },
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const call = fetchSpy.mock.calls[0]!;
+    const url = call[0] as string;
+    const init = call[1] as RequestInit & { headers: Record<string, string> };
+    expect(url).toBe('https://telemetry.open-design.ai/api/langfuse');
+    expect(init.method).toBe('POST');
+    expect(init.headers.Authorization).toBeUndefined();
+    expect(init.headers['Content-Type']).toBe('application/json');
+    expect(init.headers['X-Open-Design-Telemetry']).toBe('langfuse-ingestion-v1');
+    const body = JSON.parse(init.body as string);
+    expect(Array.isArray(body.batch)).toBe(true);
+  });
+
+  it('warns when the relay returns per-event errors', async () => {
+    const relayConfig: TelemetrySinkConfig = {
+      kind: 'relay',
+      relayUrl: 'https://telemetry.open-design.ai/api/langfuse',
+      timeoutMs: 20_000,
+      retries: 0,
+    };
+    const fetchSpy = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ successes: [], errors: [{ id: 'bad', status: 400 }] }),
+        { status: 207 },
+      ),
+    );
+    await reportRunCompleted(
+      makeCtx({
+        prefs: { metrics: true, content: true, artifactManifest: false },
+      }),
+      {
+        config: relayConfig,
+        fetchImpl: fetchSpy as any,
+      },
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Relay per-event errors (1)'),
+    );
+  });
+
   it('warns and drops when serialized batch exceeds the hard cap', async () => {
     // Per-field truncation already caps prompt/output, so we overflow the
     // hard cap by stuffing 50 artifact entries with very long slugs while
@@ -503,7 +630,7 @@ describe('reportRunCompleted', () => {
     await reportRunCompleted(
       makeCtx({
         artifacts: fatArtifacts,
-        prefs: { metrics: true, content: false, artifactManifest: true },
+        prefs: { metrics: true, content: true, artifactManifest: true },
       }),
       { config: TEST_CONFIG, fetchImpl: fetchSpy as any },
     );
@@ -516,10 +643,15 @@ describe('reportRunCompleted', () => {
   it('only warns (does not throw) when fetch rejects', async () => {
     const fetchSpy = vi.fn().mockRejectedValue(new Error('network down'));
     await expect(
-      reportRunCompleted(makeCtx(), {
-        config: TEST_CONFIG,
-        fetchImpl: fetchSpy as any,
-      }),
+      reportRunCompleted(
+        makeCtx({
+          prefs: { metrics: true, content: true, artifactManifest: false },
+        }),
+        {
+          config: TEST_CONFIG,
+          fetchImpl: fetchSpy as any,
+        },
+      ),
     ).resolves.toBeUndefined();
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('Fetch error'),
@@ -531,10 +663,15 @@ describe('reportRunCompleted', () => {
       .fn()
       .mockRejectedValueOnce(new Error('timeout'))
       .mockResolvedValueOnce(new Response('{}', { status: 207 }));
-    await reportRunCompleted(makeCtx(), {
-      config: { ...TEST_CONFIG, retries: 1 },
-      fetchImpl: fetchSpy as any,
-    });
+    await reportRunCompleted(
+      makeCtx({
+        prefs: { metrics: true, content: true, artifactManifest: false },
+      }),
+      {
+        config: { ...TEST_CONFIG, retries: 1 },
+        fetchImpl: fetchSpy as any,
+      },
+    );
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     expect(warnSpy).not.toHaveBeenCalled();
   });
@@ -543,10 +680,15 @@ describe('reportRunCompleted', () => {
     const fetchSpy = vi.fn().mockResolvedValue(
       new Response('rate limited', { status: 429 }),
     );
-    await reportRunCompleted(makeCtx(), {
-      config: TEST_CONFIG,
-      fetchImpl: fetchSpy as any,
-    });
+    await reportRunCompleted(
+      makeCtx({
+        prefs: { metrics: true, content: true, artifactManifest: false },
+      }),
+      {
+        config: TEST_CONFIG,
+        fetchImpl: fetchSpy as any,
+      },
+    );
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('Ingestion failed 429'),
     );
@@ -571,10 +713,15 @@ describe('reportRunCompleted', () => {
         { status: 207 },
       ),
     );
-    await reportRunCompleted(makeCtx(), {
-      config: TEST_CONFIG,
-      fetchImpl: fetchSpy as any,
-    });
+    await reportRunCompleted(
+      makeCtx({
+        prefs: { metrics: true, content: true, artifactManifest: false },
+      }),
+      {
+        config: TEST_CONFIG,
+        fetchImpl: fetchSpy as any,
+      },
+    );
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('Per-event errors (1)'),
     );
@@ -593,10 +740,122 @@ describe('reportRunCompleted', () => {
         { status: 207 },
       ),
     );
-    await reportRunCompleted(makeCtx(), {
+    await reportRunCompleted(
+      makeCtx({
+        prefs: { metrics: true, content: true, artifactManifest: false },
+      }),
+      {
+        config: TEST_CONFIG,
+        fetchImpl: fetchSpy as any,
+      },
+    );
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+});
+
+function makeFeedbackCtx(
+  overrides: Partial<FeedbackReportContext> = {},
+): FeedbackReportContext {
+  return {
+    runId: 'run-feedback-1',
+    installationId: 'install-uuid-1',
+    prefs: { metrics: true, content: true },
+    rating: 'positive',
+    reasonCodes: ['matched_request'],
+    hasCustomReason: false,
+    customReason: '',
+    ...overrides,
+  };
+}
+
+describe('buildFeedbackPayload', () => {
+  it('emits a numeric user_rating score plus per-reason categorical scores', () => {
+    const batch = buildFeedbackPayload(
+      makeFeedbackCtx({
+        rating: 'negative',
+        reasonCodes: ['missed_request', 'weak_visual'],
+        hasCustomReason: true,
+        customReason: 'It got the layout wrong on tablet',
+      }),
+    ) as Array<Record<string, any>>;
+    expect(batch).toHaveLength(3);
+    const ratingScore = batch[0]!;
+    expect(ratingScore.type).toBe('score-create');
+    expect(ratingScore.body.traceId).toBe('run-feedback-1');
+    expect(ratingScore.body.name).toBe('user_rating');
+    expect(ratingScore.body.value).toBe(-1);
+    expect(ratingScore.body.dataType).toBe('NUMERIC');
+    expect(ratingScore.body.comment).toBe('negative');
+    expect(ratingScore.body.metadata).toMatchObject({
+      reasonCount: 2,
+      customReason: 'It got the layout wrong on tablet',
+      hasCustomReason: true,
+    });
+    for (const reasonScore of batch.slice(1)) {
+      expect(reasonScore.body.name).toBe('user_rating_reason');
+      expect(reasonScore.body.dataType).toBe('CATEGORICAL');
+      expect(reasonScore.body.comment).toBe('negative');
+      expect(reasonScore.body.traceId).toBe('run-feedback-1');
+    }
+    expect(batch[1]!.body.value).toBe('missed_request');
+    expect(batch[2]!.body.value).toBe('weak_visual');
+  });
+
+  it('does not emit reason scores when no codes were submitted', () => {
+    const batch = buildFeedbackPayload(
+      makeFeedbackCtx({ reasonCodes: [] }),
+    ) as Array<Record<string, any>>;
+    expect(batch).toHaveLength(1);
+    expect(batch[0]!.body.name).toBe('user_rating');
+    expect(batch[0]!.body.value).toBe(1);
+  });
+});
+
+describe('reportRunFeedback', () => {
+  const TEST_CONFIG: LangfuseConfig = {
+    baseUrl: 'https://us.cloud.langfuse.com',
+    authHeader: 'Basic Zm9vOmJhcg==',
+    retries: 0,
+    timeoutMs: 1000,
+  };
+
+  beforeEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('skips when metrics consent is off', async () => {
+    const fetchSpy = vi.fn();
+    await reportRunFeedback(makeFeedbackCtx({ prefs: { metrics: false, content: true } }), {
       config: TEST_CONFIG,
       fetchImpl: fetchSpy as any,
     });
-    expect(warnSpy).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('skips when content consent is off', async () => {
+    const fetchSpy = vi.fn();
+    await reportRunFeedback(makeFeedbackCtx({ prefs: { metrics: true, content: false } }), {
+      config: TEST_CONFIG,
+      fetchImpl: fetchSpy as any,
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('posts a score-create batch to /api/public/ingestion when consent is on', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ successes: [], errors: [] }), { status: 207 }),
+    );
+    await reportRunFeedback(
+      makeFeedbackCtx({ reasonCodes: ['matched_request'] }),
+      { config: TEST_CONFIG, fetchImpl: fetchSpy as any },
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0]!;
+    expect(url).toBe('https://us.cloud.langfuse.com/api/public/ingestion');
+    expect(init.method).toBe('POST');
+    const body = JSON.parse(init.body);
+    expect(body.batch).toHaveLength(2);
+    expect(body.batch[0].type).toBe('score-create');
+    expect(body.batch[0].body.value).toBe(1);
   });
 });

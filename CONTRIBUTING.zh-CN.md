@@ -36,7 +36,7 @@ pnpm typecheck            # tsc -b --noEmit
 pnpm --filter @open-design/web build  # 需要时构建 web package
 ```
 
-要求 Node `~24` 和 pnpm `10.33.x`。`nvm` / `fnm` 是可选路径；如果你习惯用它们，先执行 `nvm install 24 && nvm use 24` 或 `fnm install 24 && fnm use 24`。macOS、Linux、WSL2 是主要路径。Windows 原生应该能跑但不是主要目标 —— 跑不起来请开 issue。
+要求 Node `~24` 和 pnpm `10.33.x`。`nvm` / `fnm` 是可选路径；如果你习惯用它们，先执行 `nvm install 24 && nvm use 24` 或 `fnm install 24 && fnm use 24`。macOS、Linux、WSL2 是主要路径。Windows 原生已支持；常见的安装与配置坑请参见 [`docs/windows-troubleshooting.md`](docs/windows-troubleshooting.md)。
 
 **开发 OD 本身不需要在 `PATH` 上装任何 agent CLI** —— daemon 会告诉你「找不到 agent」并落到 **Anthropic API · BYOK** 路径，反而是最快的开发循环。
 
@@ -234,6 +234,7 @@ node --experimental-strip-types scripts/sync-litellm-models.ts
 
 - **一个 PR 只做一件事。** 加 skill + 重构 parser + 升依赖，是三个 PR。
 - **标题用动词起头 + 范围。** `add dating-web skill`、`fix daemon SSE backpressure when CLI hangs`、`docs: clarify .od layout`。
+- **使用 PR 模板。** 把 [`.github/pull_request_template.md`](.github/pull_request_template.md) 的每一节都填上 —— Why、What users will see、Surface area、Screenshots（如果有 UI 改动）、Bug fix verification（如果是修 bug）、Validation。留空的节会被 reviewer 回 "please fill in"。
 - **正文解释 why。** 「这个 PR 改了什么」从 diff 一般能看出来；「为什么要改」很少能。
 - **如果有 issue，引用它。** 没有、且改动非平凡，请先开 issue 让我们先就「值不值得做」达成一致，再投入时间。
 - **Review 期间不要 squash。** 推 fixup commit；merge 时我们会 squash。
@@ -275,6 +276,22 @@ node --experimental-strip-types scripts/sync-litellm-models.ts
 - **打包二进制** 而没有附 license 文件和原作者归属。
 
 不确定自己的想法合不合适？开个 discussion 再写代码。
+
+---
+
+## 想成为 Maintainer
+
+如果你已经在持续贡献并想了解成为 Maintainer 的路径——完整规则在 **[`MAINTAINERS.md`](MAINTAINERS.md)**。简版如下：
+
+- Maintainer 可以 review、approve、关闭 issue。Merge 按钮保留在 Core Team——**你的 approve 仍算作 merge 所需的那一个 approve**。
+- 门槛：**≥ 20 个 merged PR** + 公开的账号质量检查（防 bot / 防小号）+ Core Team 对贡献质量的判断。**没有申请表**——Core Team 在内部识别候选人后会主动联系。
+- **没有 quota，没有 SLA，没有固定任期。** 退出很容易也可逆（Emeritus → 生活忙完后回归）。
+- 全部门槛阈值、提名流程、退出规则、早期项目例外条款都在 [`MAINTAINERS.md`](MAINTAINERS.md)——上面任何一条勾起兴趣的话，去读那份文档。
+
+tl;dr：好好提 PR、认真 review、在 [Discussions][discussions] / [Discord][discord] 多冒泡，剩下的自然会发生。
+
+[discussions]: https://github.com/nexu-io/open-design/discussions
+[discord]: https://discord.gg/qhbcCH8Am4
 
 ---
 

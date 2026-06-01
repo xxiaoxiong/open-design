@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import { useT } from '../i18n';
 import { AgentIcon } from './AgentIcon';
-import { Icon } from './Icon';
+import { RemixIcon } from './RemixIcon';
 import { renderModelOptions } from './modelOptions';
 import type { AgentInfo, AppConfig, ExecMode } from '../types';
 import { apiProtocolLabel } from '../utils/apiProtocol';
+import { isMacPlatform } from '../utils/platform';
 
 interface Props {
   config: AppConfig;
@@ -19,12 +21,16 @@ interface Props {
   onOpenSettings: () => void;
   onRefreshAgents: () => void;
   onBack?: () => void;
+  placement?: 'down' | 'up';
+}
+
+function displayAgentName(agent: Pick<AgentInfo, 'id' | 'name'>): string {
+  return agent.id === 'amr' ? 'Open Design AMR' : agent.name;
 }
 
 /**
- * Compact settings control at the right of the project header. Click opens a dropdown
- * with current execution mode, the agent picker (when in daemon mode), and
- * a Settings entry — replaces the wide AgentPicker + env-pill row.
+ * Compact runtime control. Click opens a dropdown with current execution mode
+ * and the agent picker (when in daemon mode).
  */
 export function AvatarMenu({
   config,
@@ -36,19 +42,29 @@ export function AvatarMenu({
   onOpenSettings,
   onRefreshAgents,
   onBack,
+  placement = 'down',
 }: Props) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const [popoverStyle, setPopoverStyle] = useState<CSSProperties | null>(null);
 
   useEffect(() => {
     if (!open) return;
     const onClick = (e: MouseEvent) => {
-      if (!wrapRef.current) return;
-      if (!wrapRef.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (wrapRef.current?.contains(target) || popoverRef.current?.contains(target)) {
+        return;
+      }
+      setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
     };
     document.addEventListener('mousedown', onClick);
     document.addEventListener('keydown', onKey);
@@ -57,6 +73,61 @@ export function AvatarMenu({
       document.removeEventListener('keydown', onKey);
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const updatePosition = () => {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      const margin = 16;
+      const gap = 8;
+      const width = Math.min(320, window.innerWidth - margin * 2);
+      const left = Math.min(
+        Math.max(rect.left + rect.width / 2 - width / 2, margin),
+        window.innerWidth - width - margin,
+      );
+
+      if (placement === 'up') {
+        const available = Math.max(160, rect.top - margin - gap);
+        setPopoverStyle({
+          position: 'fixed',
+          top: 'auto',
+          bottom: Math.max(margin, window.innerHeight - rect.top + gap),
+          left,
+          right: 'auto',
+          width,
+          maxHeight: Math.min(520, available),
+          overflowY: 'auto',
+          zIndex: 1000,
+        });
+        return;
+      }
+
+      const top = rect.bottom + gap;
+      const available = Math.max(160, window.innerHeight - top - margin);
+      setPopoverStyle({
+        position: 'fixed',
+        top,
+        bottom: 'auto',
+        left,
+        right: 'auto',
+        width,
+        maxHeight: Math.min(520, available),
+        overflowY: 'auto',
+        zIndex: 1000,
+      });
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [open, placement]);
 
   const currentAgent = useMemo(
     () => agents.find((a) => a.id === config.agentId) ?? null,
@@ -79,20 +150,33 @@ export function AvatarMenu({
   )?.label;
 
   return (
-    <div className="avatar-menu" ref={wrapRef}>
+    <div className={`avatar-menu avatar-menu--${placement}`} ref={wrapRef}>
       <button
+        ref={triggerRef}
         type="button"
-        className="settings-icon-btn"
+        className="avatar-agent-trigger"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
+        data-tooltip={t('avatar.title')}
         title={t('avatar.title')}
         aria-label={t('avatar.title')}
       >
-        <Icon name="settings" size={17} />
+        {currentAgent ? (
+          <AgentIcon id={currentAgent.id} size={20} />
+        ) : (
+          <RemixIcon name="link" size={20} />
+        )}
+        <RemixIcon name="arrow-down-s-line" size={14} />
       </button>
-      {open ? (
-        <div className="avatar-popover" role="menu">
+      {open && popoverStyle ? createPortal(
+        <div
+          ref={popoverRef}
+          className="avatar-popover"
+          role="dialog"
+          aria-label={t('avatar.title')}
+          style={popoverStyle}
+        >
           <div className="avatar-popover-head">
             <span className="who">
               {config.mode === 'daemon'
@@ -103,15 +187,31 @@ export function AvatarMenu({
               {config.mode === 'api'
                 ? safeHost(config.baseUrl)
                 : currentAgent
-                  ? `${currentAgent.name}${currentAgent.version ? ` · ${currentAgent.version}` : ''}${currentModelLabel && currentModelId !== 'default' ? ` · ${currentModelLabel}` : ''}`
+                  ? `${displayAgentName(currentAgent)}${
+                      currentAgent.id !== 'amr' && currentAgent.version
+                        ? ` · ${currentAgent.version}`
+                        : ''
+                    }${
+                      currentModelLabel && currentModelId !== 'default'
+                        ? ` · ${currentModelLabel}`
+                        : ''
+                    }`
                   : t('avatar.noAgentSelected')}
             </span>
           </div>
 
           <button
             type="button"
-            className="avatar-item"
+            className={`avatar-item${config.mode === 'daemon' ? ' active' : ''}`}
+            aria-current={config.mode === 'daemon' ? 'true' : undefined}
             onClick={() => {
+              if (config.mode === 'daemon') {
+                setOpen(false);
+                if (!daemonLive) {
+                  onOpenSettings();
+                }
+                return;
+              }
               onModeChange('daemon');
               if (!daemonLive) {
                 // No daemon — let user know via settings page rather than
@@ -123,7 +223,7 @@ export function AvatarMenu({
             disabled={!daemonLive && config.mode !== 'daemon'}
           >
             <span className="avatar-item-icon" aria-hidden>
-              <Icon name="file-code" size={14} />
+              <RemixIcon name="file-code-line" size={15} />
             </span>
             <span>{t('avatar.useLocal')}</span>
             {config.mode === 'daemon' ? (
@@ -131,46 +231,60 @@ export function AvatarMenu({
             ) : !daemonLive ? (
               <span className="avatar-item-meta">{t('avatar.metaOffline')}</span>
             ) : null}
+            {config.mode === 'daemon' ? (
+              <RemixIcon name="check-line" size={14} className="avatar-item-check" />
+            ) : null}
           </button>
           <button
             type="button"
-            className="avatar-item"
+            className={`avatar-item${config.mode === 'api' ? ' active' : ''}`}
+            aria-current={config.mode === 'api' ? 'true' : undefined}
             onClick={() => onModeChange('api')}
           >
             <span className="avatar-item-icon" aria-hidden>
-              <Icon name="link" size={14} />
+              <RemixIcon name="link" size={15} />
             </span>
             <span>{t('avatar.useApi')}</span>
             {config.mode === 'api' ? (
               <span className="avatar-item-meta">{t('avatar.metaActive')}</span>
+            ) : null}
+            {config.mode === 'api' ? (
+              <RemixIcon name="check-line" size={14} className="avatar-item-check" />
             ) : null}
           </button>
 
           {config.mode === 'daemon' && installedAgents.length > 0 ? (
             <>
               <div className="avatar-section-label">{t('avatar.codeAgent')}</div>
-              {installedAgents.map((a) => (
-                <button
-                  type="button"
-                  key={a.id}
-                  className="avatar-item"
-                  onClick={() => {
-                    onAgentChange(a.id);
-                    // Keep the popover open so the user can immediately
-                    // pick a model for the agent they just chose.
-                  }}
-                >
-                  <AgentIcon id={a.id} size={18} />
-                  <span>{a.name}</span>
-                  {config.agentId === a.id ? (
-                    <span className="avatar-item-meta">
-                      {t('avatar.metaSelected')}
-                    </span>
-                  ) : a.version ? (
-                    <span className="avatar-item-meta">{a.version}</span>
-                  ) : null}
-                </button>
-              ))}
+              {installedAgents.map((a) => {
+                const selected = config.agentId === a.id;
+                return (
+                  <button
+                    type="button"
+                    key={a.id}
+                    className={`avatar-item${selected ? ' active' : ''}`}
+                    aria-current={selected ? 'true' : undefined}
+                    onClick={() => {
+                      onAgentChange(a.id);
+                      // Keep the popover open so the user can immediately
+                      // pick a model for the agent they just chose.
+                    }}
+                  >
+                    <AgentIcon id={a.id} size={18} />
+                    <span>{displayAgentName(a)}</span>
+                    {selected ? (
+                      <span className="avatar-item-meta">
+                        {t('avatar.metaSelected')}
+                      </span>
+                    ) : a.id !== 'amr' && a.version ? (
+                      <span className="avatar-item-meta">{a.version}</span>
+                    ) : null}
+                    {selected ? (
+                      <RemixIcon name="check-line" size={14} className="avatar-item-check" />
+                    ) : null}
+                  </button>
+                );
+              })}
               {currentAgent &&
               currentAgent.available &&
               ((currentAgent.models && currentAgent.models.length > 0) ||
@@ -244,7 +358,7 @@ export function AvatarMenu({
                 }}
               >
                 <span className="avatar-item-icon" aria-hidden>
-                  <Icon name="reload" size={14} />
+                  <RemixIcon name="refresh-line" size={15} />
                 </span>
                 <span>{t('avatar.rescan')}</span>
               </button>
@@ -262,26 +376,31 @@ export function AvatarMenu({
             }}
           >
             <span className="avatar-item-icon" aria-hidden>
-              <Icon name="settings" size={14} />
+              <RemixIcon name="settings-line" size={15} />
             </span>
             <span>{t('avatar.settings')}</span>
+            <span className="avatar-item-meta">{isMacPlatform() ? '⌘,' : 'Ctrl+,'}</span>
           </button>
+
           {onBack ? (
-            <button
-              type="button"
-              className="avatar-item"
-              onClick={() => {
-                setOpen(false);
-                onBack();
-              }}
-            >
-              <span className="avatar-item-icon" aria-hidden>
-                <Icon name="arrow-left" size={14} />
-              </span>
-              <span>{t('avatar.backToProjects')}</span>
-            </button>
+            <>
+              <button
+                type="button"
+                className="avatar-item"
+                onClick={() => {
+                  setOpen(false);
+                  onBack();
+                }}
+              >
+                <span className="avatar-item-icon" aria-hidden>
+                  <RemixIcon name="arrow-left-line" size={15} />
+                </span>
+                <span>{t('avatar.backToProjects')}</span>
+              </button>
+            </>
           ) : null}
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </div>
   );

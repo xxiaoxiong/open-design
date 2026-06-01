@@ -21,9 +21,69 @@
     dream2nix,
     home-manager,
   }: let
+    filterProjectSource = includePaths:
+      nixpkgs.lib.cleanSourceWith {
+        src = self;
+        filter = path: type: let
+          root = toString self;
+          pathStr = toString path;
+          rel = nixpkgs.lib.removePrefix (root + "/") pathStr;
+          matches = includePath:
+            rel == includePath
+            || nixpkgs.lib.hasPrefix (includePath + "/") rel
+            || (type == "directory" && nixpkgs.lib.hasPrefix (rel + "/") includePath);
+        in
+          rel == ""
+          || builtins.any matches includePaths;
+      };
+
     perSystem = flake-utils.lib.eachDefaultSystem (system: let
       pkgs = import nixpkgs {inherit system;};
       nodejs = pkgs.nodejs_24;
+      # Keep in sync with .github/workflows/ci.yml change_scopes
+      # nix_validation_required filter.
+      daemonWorkspacePaths = [
+        "packages/contracts"
+        "packages/registry-protocol"
+        "packages/agui-adapter"
+        "packages/plugin-runtime"
+        "packages/sidecar-proto"
+        "packages/sidecar"
+        "packages/platform"
+        "packages/diagnostics"
+        "apps/daemon"
+      ];
+      # Keep in sync with .github/workflows/ci.yml change_scopes
+      # nix_validation_required filter.
+      webWorkspacePaths = [
+        "packages/contracts"
+        "packages/host"
+        "packages/platform"
+        "packages/sidecar"
+        "packages/sidecar-proto"
+        "apps/web"
+      ];
+      daemonSrc = filterProjectSource ([
+        "package.json"
+        "pnpm-lock.yaml"
+        "pnpm-workspace.yaml"
+        "tsconfig.json"
+        "assets"
+        "plugins"
+        "skills"
+        "design-systems"
+        "design-templates"
+        "craft"
+        "prompt-templates"
+      ]
+      ++ daemonWorkspacePaths);
+      webSrc = filterProjectSource ([
+        "package.json"
+        "pnpm-lock.yaml"
+        "pnpm-workspace.yaml"
+        "tsconfig.json"
+      ]
+      ++ webWorkspacePaths);
 
       # nixpkgs ships pnpm 10.33.0; the repo's package.json declares
       # `engines.pnpm: ">=10.33.2 <11"` and pnpm refuses to install
@@ -47,11 +107,13 @@
 
       daemon = pkgs.callPackage ./nix/package-daemon.nix {
         inherit dream2nix nixpkgs system nodejs pnpm_10;
-        src = self;
+        src = daemonSrc;
+        workspacePaths = daemonWorkspacePaths;
       };
       web = pkgs.callPackage ./nix/package-web.nix {
         inherit dream2nix nixpkgs system nodejs pnpm_10;
-        src = self;
+        src = webSrc;
+        workspacePaths = webWorkspacePaths;
       };
     in {
       packages = {
@@ -62,9 +124,14 @@
       # Wrap `od` with `--no-open` for `nix run`: the daemon package
       # builds the daemon workspace only, not `apps/web/out/`, so the
       # browser would otherwise auto-open onto an empty static dir.
+      #
+      # Set OD_DATA_DIR to a writable location when unset. The Nix store
+      # is read-only at runtime, so the daemon cannot write to its default
+      # `<projectRoot>/.od` location under `nix run`.
       apps.default = {
         type = "app";
         program = "${pkgs.writeShellScript "od-nix-run" ''
+          export OD_DATA_DIR="''${OD_DATA_DIR:-$HOME/.od}"
           exec ${daemon}/bin/od --no-open "$@"
         ''}";
         meta.description = "Open Design local daemon (`od`)";

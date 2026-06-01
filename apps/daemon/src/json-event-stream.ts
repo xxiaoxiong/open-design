@@ -8,6 +8,8 @@ type ParserState = {
   openCodeToolUses: Set<string>;
   codexToolUses: Set<string>;
   codexErrorEmitted: boolean;
+  codexPreviousEventWasAgentMessage: boolean;
+  codexLastAgentMessageEndedWithNewline: boolean;
 };
 
 type Usage = {
@@ -43,6 +45,54 @@ function stringifyContent(value: unknown): string {
   }
 }
 
+function parseJsonObjectsFromContent(value: string): JsonObject[] {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  const direct = safeParseJson(trimmed);
+  if (isRecord(direct)) return [direct];
+  const objects: JsonObject[] = [];
+  for (const line of trimmed.split(/\r?\n/u)) {
+    const parsedLine = safeParseJson(line.trim());
+    if (isRecord(parsedLine)) objects.push(parsedLine);
+  }
+  return objects;
+}
+
+function extractConnectorApiError(value: JsonObject): JsonObject | null {
+  if (isRecord(value.error)) {
+    if (typeof value.error.code === 'string') return value.error;
+    if (isRecord(value.error.data) && isRecord(value.error.data.error)) {
+      const wrappedError = value.error.data.error;
+      if (typeof wrappedError.code === 'string') return wrappedError;
+    }
+  }
+  return null;
+}
+
+function connectorToolSelectionErrorMessage(content: string): string | null {
+  if (!content.includes('CONNECTOR_TOOL_NOT_FOUND')) return null;
+  let error: JsonObject | null = null;
+  for (const parsed of parseJsonObjectsFromContent(content)) {
+    const parsedError = extractConnectorApiError(parsed);
+    if (parsedError?.code === 'CONNECTOR_TOOL_NOT_FOUND') {
+      error = parsedError;
+      break;
+    }
+  }
+  if (!error) return null;
+  const details = isRecord(error.details) ? error.details : {};
+  const connectorId = typeof details.connectorId === 'string' && details.connectorId
+    ? details.connectorId
+    : undefined;
+  const toolName = typeof details.toolName === 'string' && details.toolName
+    ? details.toolName
+    : 'the requested connector tool';
+  const target = connectorId
+    ? `Connector tool ${toolName} is not allowed for connector ${connectorId}.`
+    : `Connector tool ${toolName} is not allowed.`;
+  return `${target} Re-list the connector catalog and choose one of the currently allowed read-only tools.`;
+}
+
 function extractErrorMessage(value: unknown, fallback: string): string {
   if (typeof value === 'string') {
     const parsed = safeParseJson(value);
@@ -67,6 +117,16 @@ function extractErrorMessage(value: unknown, fallback: string): string {
     if (typeof value.name === 'string' && value.name) return value.name;
   }
   return fallback;
+}
+
+function isRecoverableCodexReconnect(message: string): boolean {
+  return (
+    message.startsWith('Reconnecting...') &&
+    (
+      message.includes('timeout waiting for child process to exit') ||
+      message.includes('stream disconnected before completion')
+    )
+  );
 }
 
 function formatOpenCodeUsage(tokens: unknown): Usage | null {
@@ -267,16 +327,19 @@ function handleCursorEvent(obj: unknown, onEvent: StreamEventHandler, state: Par
 function handleCodexEvent(obj: unknown, onEvent: StreamEventHandler, state: ParserState): boolean {
   if (!isRecord(obj)) return false;
 
-  if (obj.type === 'error') {
-    if (!state.codexErrorEmitted) {
-      state.codexErrorEmitted = true;
-      onEvent({
-        type: 'error',
-        message: extractErrorMessage(obj.message ?? obj.error, 'Codex error'),
-      });
-    }
+if (obj.type === 'error') {
+  const message = extractErrorMessage(obj.message ?? obj.error, 'Codex error');
+  // Reconnecting events are recoverable — treat as status warning, not fatal
+  if (isRecoverableCodexReconnect(message)) {
+    onEvent({ type: 'status', label: message });
     return true;
   }
+  if (!state.codexErrorEmitted) {
+    state.codexErrorEmitted = true;
+    onEvent({ type: 'error', message });
+  }
+  return true;
+}
 
   if (obj.type === 'turn.failed') {
     if (!state.codexErrorEmitted) {
@@ -295,6 +358,8 @@ function handleCodexEvent(obj: unknown, onEvent: StreamEventHandler, state: Pars
   }
 
   if (obj.type === 'turn.started') {
+    state.codexPreviousEventWasAgentMessage = false;
+    state.codexLastAgentMessageEndedWithNewline = false;
     onEvent({ type: 'status', label: 'running' });
     return true;
   }
@@ -302,6 +367,8 @@ function handleCodexEvent(obj: unknown, onEvent: StreamEventHandler, state: Pars
   if (obj.type === 'item.started' && isRecord(obj.item)) {
     const item = obj.item;
     if (item.type === 'command_execution' && typeof item.id === 'string') {
+      state.codexPreviousEventWasAgentMessage = false;
+      state.codexLastAgentMessageEndedWithNewline = false;
       if (!state.codexToolUses.has(item.id)) {
         state.codexToolUses.add(item.id);
         onEvent({
@@ -320,6 +387,8 @@ function handleCodexEvent(obj: unknown, onEvent: StreamEventHandler, state: Pars
   if (obj.type === 'item.completed' && isRecord(obj.item)) {
     const item = obj.item;
     if (item.type === 'command_execution' && typeof item.id === 'string') {
+      state.codexPreviousEventWasAgentMessage = false;
+      state.codexLastAgentMessageEndedWithNewline = false;
       if (!state.codexToolUses.has(item.id)) {
         state.codexToolUses.add(item.id);
         onEvent({
@@ -331,12 +400,18 @@ function handleCodexEvent(obj: unknown, onEvent: StreamEventHandler, state: Pars
           },
         });
       }
+      const content = stringifyContent(item.aggregated_output ?? '');
       onEvent({
         type: 'tool_result',
         toolUseId: item.id,
-        content: stringifyContent(item.aggregated_output ?? ''),
+        content,
         isError: typeof item.exit_code === 'number' ? item.exit_code !== 0 : item.status === 'failed',
       });
+      const connectorToolError = connectorToolSelectionErrorMessage(content);
+      if (connectorToolError && !state.codexErrorEmitted) {
+        state.codexErrorEmitted = true;
+        onEvent({ type: 'error', message: connectorToolError });
+      }
       return true;
     }
   }
@@ -348,7 +423,15 @@ function handleCodexEvent(obj: unknown, onEvent: StreamEventHandler, state: Pars
     typeof obj.item.text === 'string' &&
     obj.item.text.length > 0
   ) {
-    onEvent({ type: 'text_delta', delta: obj.item.text });
+    const text = obj.item.text;
+    const needsBoundary =
+      state.codexPreviousEventWasAgentMessage &&
+      !state.codexLastAgentMessageEndedWithNewline &&
+      !text.startsWith('\n');
+    const delta = needsBoundary ? `\n${text}` : text;
+    onEvent({ type: 'text_delta', delta });
+    state.codexPreviousEventWasAgentMessage = true;
+    state.codexLastAgentMessageEndedWithNewline = text.endsWith('\n');
     return true;
   }
 
@@ -373,6 +456,8 @@ export function createJsonEventStreamHandler(kind: ParserKind, onEvent: StreamEv
     openCodeToolUses: new Set<string>(),
     codexToolUses: new Set<string>(),
     codexErrorEmitted: false,
+    codexPreviousEventWasAgentMessage: false,
+    codexLastAgentMessageEndedWithNewline: false,
   };
 
   function handleLine(line: string): void {

@@ -169,6 +169,7 @@ describe('SettingsDialog test status variant', () => {
       'upstream_unavailable',
       'timeout',
       'agent_not_installed',
+      'agent_auth_required',
       'agent_spawn_failed',
       'unknown',
     ] as const) {
@@ -499,6 +500,7 @@ describe('SettingsDialog Orbit run behavior', () => {
       url: '/api/orbit/run',
       method: 'POST',
     });
+    expect(JSON.parse(calls[1]!.body ?? '{}')).toEqual({ locale: null });
   });
 
   it('does not sync an unsaved Composio draft before starting a manual Orbit run', async () => {
@@ -542,6 +544,7 @@ describe('SettingsDialog Orbit run behavior', () => {
       '/api/orbit/run',
     ]);
     expect(JSON.parse(calls[0]!.body ?? '{}')).toMatchObject({ force: false });
+    expect(JSON.parse(calls[2]!.body ?? '{}')).toEqual({ locale: null });
   });
 
   it('does not force an explicit empty media provider map before starting a manual Orbit run', async () => {
@@ -581,6 +584,7 @@ describe('SettingsDialog Orbit run behavior', () => {
       providers: {},
       force: false,
     });
+    expect(JSON.parse(calls[2]!.body ?? '{}')).toEqual({ locale: null });
   });
 
   it('preserves masked daemon media keys before starting a manual Orbit run', async () => {
@@ -694,6 +698,30 @@ describe('SettingsDialog Orbit run behavior', () => {
     ]);
   });
 
+  it('passes the selected UI locale through to the manual Orbit run', async () => {
+    const calls: Array<{ url: string; method: string; body?: string }> = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      const method = init?.method ?? 'GET';
+      const body = typeof init?.body === 'string' ? init.body : undefined;
+      calls.push({ url, method, body });
+
+      if (url === '/api/app-config') {
+        return new Response(null, { status: 204 });
+      }
+      if (url === '/api/orbit/run') {
+        return new Response(JSON.stringify({ projectId: 'orbit-project', agentRunId: 'run-zh' }), { status: 200 });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    await expect(
+      persistConfigAndRunOrbit(baseConfig, { locale: 'zh-CN' }),
+    ).resolves.toEqual({ projectId: 'orbit-project', agentRunId: 'run-zh' });
+
+    expect(JSON.parse(calls[1]!.body ?? '{}')).toEqual({ locale: 'zh-CN' });
+  });
+
   it('persists the displayed default template before starting a legacy null-template run', async () => {
     const calls: Array<{ url: string; method: string; body?: string }> = [];
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -776,7 +804,8 @@ describe('shouldEnableSettingsSave', () => {
     expect(shouldEnableSettingsSave(incompleteApiCfg, 'integrations', [availableAgent], true)).toBe(true);
     expect(shouldEnableSettingsSave(incompleteApiCfg, 'notifications', [availableAgent], true)).toBe(true);
     expect(shouldEnableSettingsSave(incompleteApiCfg, 'pet', [availableAgent], true)).toBe(true);
-    expect(shouldEnableSettingsSave(incompleteApiCfg, 'library', [availableAgent], true)).toBe(true);
+    expect(shouldEnableSettingsSave(incompleteApiCfg, 'skills', [availableAgent], true)).toBe(true);
+    expect(shouldEnableSettingsSave(incompleteApiCfg, 'designSystems', [availableAgent], true)).toBe(true);
     expect(shouldEnableSettingsSave(incompleteApiCfg, 'about', [availableAgent], true)).toBe(true);
   });
 
@@ -922,7 +951,8 @@ describe('sanitizeSettingsSavePayload', () => {
       'appearance',
       'notifications',
       'pet',
-      'library',
+      'skills',
+      'designSystems',
       'about',
     ];
     for (const section of sections) {

@@ -1,12 +1,23 @@
 import { createHmac, randomBytes } from "node:crypto";
-import { mkdir, writeFile, realpath, stat } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { appendFile, mkdir, realpath, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { BrowserWindow, dialog, ipcMain, shell } from "electron";
-import type { DesktopExportPdfInput, DesktopExportPdfResult } from "@open-design/sidecar-proto";
+import { BrowserWindow, app, dialog, ipcMain, nativeImage, screen, shell } from "electron";
+import {
+  DESKTOP_UPDATE_CHANNELS,
+  DESKTOP_UPDATE_MODES,
+  DESKTOP_UPDATE_STATES,
+  type DesktopExportPdfInput,
+  type DesktopExportPdfResult,
+  type DesktopUpdateStatusSnapshot,
+} from "@open-design/sidecar-proto";
+import type { OpenDesignHostActionResult, OpenDesignHostUpdaterActionOptions } from "@open-design/host";
 
-import { exportPdfFromHtml, waitForPrintReadyHandshake } from "./pdf-export.js";
+import { createElectronPdfTarget, exportPdfFromHtml, savePrintReadyDocumentAsPdf } from "./pdf-export.js";
+import type { PrintReadyPdfOptions } from "./pdf-export.js";
+import type { DesktopUpdater } from "./updater.js";
 
 /**
  * Result of validating a candidate path before exposing it to a
@@ -204,6 +215,17 @@ export function signDesktopImportToken(
 const PENDING_POLL_MS = 120;
 const RUNNING_POLL_MS = 2000;
 const MAX_CONSOLE_ENTRIES = 200;
+const DESKTOP_PET_WINDOW_WIDTH = 360;
+const DESKTOP_PET_WINDOW_HEIGHT = 300;
+const DESKTOP_PET_WINDOW_MARGIN = 24;
+const UPDATER_STATUS_EVENT = "od:update:status-changed";
+const UPDATER_IPC_CHANNELS = [
+  "od:update:status",
+  "od:update:check",
+  "od:update:download",
+  "od:update:install",
+  "od:update:quit",
+] as const;
 
 export type DesktopEvalInput = {
   expression: string;
@@ -283,8 +305,16 @@ export type DesktopRuntimeOptions = {
    * calls bypass the protocol handler entirely. Optional so tools-dev
    * (where webUrl IS an http:// URL Node fetch can hit) can omit it
    * and the runtime falls back to `discoverUrl` for API calls too.
-   */
+  */
   discoverDaemonUrl?: () => Promise<string | null>;
+  /**
+   * BCP-47 locale string read from the OS by main process, forwarded
+   * to the preload via `webPreferences.additionalArguments` so the
+   * renderer can mirror it onto `__od__.client.osLocale`. Optional;
+   * when omitted the renderer falls back to navigator/localStorage.
+   */
+  osLocale?: string;
+  preloadPath?: string;
   /**
    * Round-5 (lefarcen P1, mrcfps): lazy re-handshake hook. The runtime
    * calls this when the daemon answers `503 DESKTOP_AUTH_PENDING` so a
@@ -295,6 +325,14 @@ export type DesktopRuntimeOptions = {
    * skip it (the lazy retry then collapses into a single attempt).
    */
   registerDesktopAuthWithDaemon?: () => Promise<boolean>;
+  /**
+   * Optional file path to append renderer-process error/warning console
+   * messages to. Lets the diagnostics export pick up UI errors that would
+   * otherwise only live in DevTools.
+   */
+  rendererLogPath?: string | null;
+  requestQuit?: () => void;
+  updater?: DesktopUpdater;
 };
 
 const DESKTOP_IMPORT_TOKEN_HEADER = "X-OD-Desktop-Import-Token";
@@ -364,13 +402,13 @@ export async function pickAndImportFolder(
   });
 
   async function postOnce(): Promise<Response | { ok: false; reason: string }> {
-    const token = mint(deps.desktopAuthSecret, deps.baseDir);
+    const headerValue = mint(deps.desktopAuthSecret, deps.baseDir);
     try {
       return await fetchImpl(importUrl, {
         body: requestBody,
         headers: {
           "Content-Type": "application/json",
-          [DESKTOP_IMPORT_TOKEN_HEADER]: token,
+          [DESKTOP_IMPORT_TOKEN_HEADER]: headerValue,
         },
         method: "POST",
       });
@@ -428,30 +466,130 @@ export async function pickAndImportFolder(
   return { ok: true, response: body };
 }
 
+/**
+ * Pure helper for the `dialog:pick-and-replace-working-dir` IPC handler.
+ * Mirrors `pickAndImportFolder` but targets the endpoint that re-points
+ * an existing project at a new local folder.
+ */
+export type PickAndReplaceWorkingDirDeps = {
+  apiBaseUrl: string;
+  baseDir: string;
+  desktopAuthSecret: Buffer;
+  fetchImpl?: typeof globalThis.fetch;
+  /** Injected for tests; defaults to the production HMAC mint. */
+  mintToken?: (secret: Buffer, baseDir: string) => string;
+  projectId: string;
+  registerDesktopAuth?: () => Promise<boolean>;
+};
+
+export type PickAndReplaceWorkingDirResult =
+  | { ok: true; response: unknown }
+  | { ok: false; canceled?: boolean; details?: unknown; reason?: string };
+
+export async function pickAndReplaceWorkingDir(
+  deps: PickAndReplaceWorkingDirDeps,
+): Promise<PickAndReplaceWorkingDirResult> {
+  const fetchImpl = deps.fetchImpl ?? globalThis.fetch;
+  const mint = deps.mintToken ?? mintImportToken;
+  if (typeof deps.projectId !== "string" || deps.projectId.length === 0) {
+    return { ok: false, reason: "project id must be a non-empty string" };
+  }
+  if (!/^[A-Za-z0-9._-]{1,128}$/.test(deps.projectId)) {
+    return { ok: false, reason: "project id contains disallowed characters" };
+  }
+  const workingDirUrl = `${deps.apiBaseUrl.replace(/\/+$/, "")}/api/projects/${encodeURIComponent(deps.projectId)}/working-dir`;
+  const requestBody = JSON.stringify({ baseDir: deps.baseDir });
+
+  async function postOnce(): Promise<Response | { ok: false; reason: string }> {
+    const headerValue = mint(deps.desktopAuthSecret, deps.baseDir);
+    try {
+      return await fetchImpl(workingDirUrl, {
+        body: requestBody,
+        headers: {
+          "Content-Type": "application/json",
+          [DESKTOP_IMPORT_TOKEN_HEADER]: headerValue,
+        },
+        method: "POST",
+      });
+    } catch (err) {
+      return { ok: false, reason: `daemon fetch failed: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
+
+  let resp = await postOnce();
+  if ("reason" in resp) {
+    return { ok: false, reason: resp.reason };
+  }
+
+  if (resp.status === 503 && deps.registerDesktopAuth != null) {
+    let body: unknown;
+    try {
+      body = await resp.clone().json();
+    } catch {
+      body = null;
+    }
+    const code =
+      body != null && typeof body === "object" && "error" in body && body.error != null && typeof body.error === "object" && "code" in body.error
+        ? (body.error as { code?: unknown }).code
+        : undefined;
+    if (code === "DESKTOP_AUTH_PENDING") {
+      const reregistered = await deps.registerDesktopAuth();
+      if (reregistered) {
+        const retry = await postOnce();
+        if ("reason" in retry) {
+          return { ok: false, reason: retry.reason };
+        }
+        resp = retry;
+      }
+    }
+  }
+
+  let body: unknown;
+  try {
+    body = await resp.json();
+  } catch {
+    body = null;
+  }
+  if (!resp.ok) {
+    return {
+      ok: false,
+      reason: `daemon returned HTTP ${resp.status}`,
+      ...(body == null ? {} : { details: body }),
+    };
+  }
+  return { ok: true, response: body };
+}
+
 const MAC_WINDOW_CHROME =
   process.platform === "darwin"
     ? ({
         titleBarStyle: "hiddenInset" as const,
-        trafficLightPosition: { x: 14, y: 12 },
+        trafficLightPosition: { x: 12, y: 10 },
       })
     : {};
 
 const MAC_WINDOW_CHROME_CSS = `
   .app-chrome-header {
-    --app-chrome-traffic-space: 56px !important;
+    --app-chrome-traffic-space: 64px !important;
+    --app-chrome-traffic-margin: 4px !important;
     -webkit-app-region: drag;
   }
   .app-chrome-traffic-space {
-    flex: 0 0 56px !important;
-    width: 56px !important;
+    flex: 0 0 64px !important;
+    width: 64px !important;
   }
   .app-chrome-header button,
+  .app-chrome-header a,
   .app-chrome-header [role="button"],
   .app-chrome-header [contenteditable],
   .app-chrome-actions,
   .app-chrome-actions *,
   .avatar-popover,
-  .avatar-popover * {
+  .avatar-popover *,
+  .inline-switcher__popover,
+  .inline-switcher__popover *,
+  .workspace-tabs-popover,
+  .workspace-tabs-popover * {
     -webkit-app-region: no-drag;
   }
   .app-chrome-drag {
@@ -473,7 +611,10 @@ const MAC_WINDOW_CHROME_CSS = `
   .prompt-template-lightbox-backdrop * {
     -webkit-app-region: no-drag;
   }
-  .entry-brand,
+  .entry-brand {
+    -webkit-app-region: drag;
+    padding-top: 32px !important;
+  }
   .entry-header {
     -webkit-app-region: drag;
   }
@@ -490,13 +631,18 @@ const MAC_WINDOW_CHROME_CSS = `
   .share-menu-popover,
   .share-menu-popover *,
   .entry-side-resizer,
+  .inline-switcher__popover,
+  .inline-switcher__popover *,
   .avatar-popover,
-  .avatar-popover * {
+  .avatar-popover *,
+  .workspace-tabs-popover,
+  .workspace-tabs-popover * {
     -webkit-app-region: no-drag;
   }
 `;
 
 function createPendingHtml(): string {
+  const logoDataUrl = getDesktopIconDataUrl();
   return `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
 <html>
   <head>
@@ -513,21 +659,49 @@ function createPendingHtml(): string {
         margin: 0;
       }
       main {
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        border-radius: 24px;
-        padding: 32px;
+        align-items: center;
+        display: flex;
+        flex-direction: column;
+        text-align: center;
       }
+      img {
+        border-radius: 34%;
+        display: block;
+        height: 72px;
+        object-fit: cover;
+        width: 72px;
+      }
+      h1 { margin: 18px 0 0; }
       p { color: #aeb7d5; margin: 12px 0 0; }
     </style>
   </head>
   <body>
     <main>
+      ${logoDataUrl ? `<img src="${logoDataUrl}" alt="" />` : ""}
       <h1>Open Design</h1>
       <p>Waiting for the web runtime URL…</p>
     </main>
   </body>
 </html>`)}`;
+}
+
+function resolveDesktopIconPath(): string {
+  return resolve(dirname(fileURLToPath(import.meta.url)), "../../../web/public/app-icon.png");
+}
+
+function applyDockIcon(): void {
+  if (process.platform !== "darwin" || !app.dock) return;
+  const icon = nativeImage.createFromPath(resolveDesktopIconPath());
+  if (icon.isEmpty()) return;
+  app.dock.setIcon(icon);
+}
+
+function getDesktopIconDataUrl(): string | null {
+  try {
+    return `data:image/png;base64,${readFileSync(resolveDesktopIconPath()).toString("base64")}`;
+  } catch {
+    return null;
+  }
 }
 
 function normalizeScreenshotPath(filePath: string): string {
@@ -610,6 +784,73 @@ function installWindowChromeCssHook(window: BrowserWindow): void {
   });
 }
 
+function desktopPetUrl(baseUrl: string): string {
+  const url = new URL(baseUrl);
+  url.pathname = "/desktop-pet";
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+// Encode the OS locale before stuffing it into a Chromium argv value
+// — BCP-47 region tags shouldn't contain `;` or `=`, but the renderer's
+// `process.argv` parser is happier if we never have to worry about it.
+function osLocaleAdditionalArguments(osLocale: string | undefined): string[] | undefined {
+  return osLocale ? [`--od-os-locale=${encodeURIComponent(osLocale)}`] : undefined;
+}
+
+function createDesktopPetWindow(preloadPath: string, osLocale: string | undefined): BrowserWindow {
+  const { workArea } = screen.getPrimaryDisplay();
+  const petWindow = new BrowserWindow({
+    width: DESKTOP_PET_WINDOW_WIDTH,
+    height: DESKTOP_PET_WINDOW_HEIGHT,
+    x: workArea.x + workArea.width - DESKTOP_PET_WINDOW_WIDTH - DESKTOP_PET_WINDOW_MARGIN,
+    y: workArea.y + workArea.height - DESKTOP_PET_WINDOW_HEIGHT - DESKTOP_PET_WINDOW_MARGIN,
+    show: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: "#00000000",
+    resizable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    hasShadow: false,
+    focusable: false,
+    webPreferences: {
+      additionalArguments: osLocaleAdditionalArguments(osLocale),
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: preloadPath,
+      sandbox: true,
+    },
+  });
+  petWindow.setAlwaysOnTop(true, "floating");
+  // `skipTransformProcessType: true` is load-bearing, not an
+  // optimization. By default Electron's macOS `setVisibleOnAllWorkspaces`
+  // transforms the whole *process* type between `UIElementApplication`
+  // and `ForegroundApplication` to apply the all-Spaces behavior — the
+  // Electron docs note this "will hide the window and dock for a short
+  // time". That round-trip races during the launch burst (the pet
+  // window is created alongside the main window) and on Electron 41 /
+  // macOS 26 the process can stay stuck as an accessory app: no Dock
+  // icon, no menu bar, even though the windows render fine (issue
+  // #2394). The desktop pet is a cosmetic companion window; it must
+  // never decide the app's Dock identity — the main window does.
+  // Skipping the transform keeps the app a regular Dock app; the pet
+  // still floats on every Space via its `alwaysOnTop` floating level.
+  petWindow.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true,
+    skipTransformProcessType: true,
+  });
+  petWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (isHttpUrl(url)) void shell.openExternal(url);
+    return { action: "deny" };
+  });
+  petWindow.webContents.on("will-navigate", (event, url) => {
+    if (!url.includes("/desktop-pet")) event.preventDefault();
+  });
+  return petWindow;
+}
+
 function showWindowButtons(window: BrowserWindow): void {
   if (process.platform !== "darwin" || window.isDestroyed()) return;
   window.setWindowButtonVisibility(true);
@@ -627,12 +868,82 @@ function ensureWindowVisible(window: BrowserWindow): void {
   window.focus();
 }
 
-// PPTX is rendered by the agent into the project folder and reaches the
-// renderer through a normal `<a download>` link to /api/projects/:id/raw/*.
-// Without this hook Electron writes the bytes straight to the OS Downloads
-// folder, so the user never gets to pick a destination. setSaveDialogOptions
-// makes Electron show the native Save As panel before the download starts.
-const SAVE_AS_EXTENSIONS = new Set([".pptx"]);
+/**
+ * Surface of {@link BrowserWindow} consumed by
+ * {@link hideWindowExitingFullscreen} — declared structurally so the
+ * helper can be exercised with a plain mock in unit tests without
+ * standing up an actual Electron window.
+ *
+ * `isEnteringFullscreen` covers the Electron-asynchronous gap between
+ * the renderer asking for fullscreen and the OS confirming via
+ * 'enter-full-screen': the caller is expected to track this from the
+ * window's enter/leave listeners (see the close handler in
+ * {@link configureWindow}) and surface it here.
+ */
+export type WindowFullscreenSurface = {
+  hide: () => void;
+  isFullScreen: () => boolean;
+  isSimpleFullScreen: () => boolean;
+  isEnteringFullscreen: () => boolean;
+  setFullScreen: (flag: boolean) => void;
+  setSimpleFullScreen: (flag: boolean) => void;
+  once: (event: 'enter-full-screen' | 'leave-full-screen', listener: () => void) => unknown;
+};
+
+export type MainWindowCloseSurface = {
+  on: (event: 'closed', listener: () => void) => unknown;
+};
+
+export function attachNonDarwinMainWindowCloseShutdown(
+  window: MainWindowCloseSurface,
+  options: {
+    isStopped: () => boolean;
+    requestQuit?: () => void;
+  },
+): void {
+  window.on("closed", () => {
+    if (options.isStopped()) return;
+    options.requestQuit?.();
+  });
+}
+
+/**
+ * Hide the window, first leaving any active fullscreen so macOS doesn't
+ * orphan the fullscreen Space as a black screen. The hide is deferred
+ * until 'leave-full-screen' fires; if the Space transition is still
+ * flipping in (`isEnteringFullscreen`), defer further until
+ * 'enter-full-screen' settles before starting the exit. Plain hides
+ * race the OS Space teardown and leave the user staring at a black
+ * desktop until they switch Spaces by hand.
+ */
+export function hideWindowExitingFullscreen(window: WindowFullscreenSurface): void {
+  if (window.isSimpleFullScreen()) {
+    window.once('leave-full-screen', () => window.hide());
+    window.setSimpleFullScreen(false);
+    return;
+  }
+  if (window.isFullScreen()) {
+    window.once('leave-full-screen', () => window.hide());
+    window.setFullScreen(false);
+    return;
+  }
+  if (window.isEnteringFullscreen()) {
+    window.once('enter-full-screen', () => {
+      window.once('leave-full-screen', () => window.hide());
+      window.setFullScreen(false);
+    });
+    return;
+  }
+  window.hide();
+}
+
+// Some exports reach the renderer through a normal `<a download>` link
+// (server-written PPTX, browser-generated image blobs). Without this hook
+// Electron writes the bytes straight to the OS Downloads folder, so the user
+// never gets to pick a destination. setSaveDialogOptions makes Electron show
+// the native Save As panel before the download starts.
+const IMAGE_SAVE_AS_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp"]);
+const SAVE_AS_EXTENSIONS = new Set([".pptx", ...IMAGE_SAVE_AS_EXTENSIONS]);
 
 function attachDownloadSaveAsDialog(window: BrowserWindow): void {
   window.webContents.session.on("will-download", (_event, item) => {
@@ -643,16 +954,94 @@ function attachDownloadSaveAsDialog(window: BrowserWindow): void {
     item.setSaveDialogOptions({
       title: "Save As",
       defaultPath: filename,
-      filters: [
-        { name: "PowerPoint Presentation", extensions: ["pptx"] },
-        { name: "All Files", extensions: ["*"] },
-      ],
+      filters: IMAGE_SAVE_AS_EXTENSIONS.has(ext)
+        ? [
+            { name: "Images", extensions: ["png", "jpg", "jpeg", "webp"] },
+            { name: "All Files", extensions: ["*"] },
+          ]
+        : [
+            { name: "PowerPoint Presentation", extensions: ["pptx"] },
+            { name: "All Files", extensions: ["*"] },
+          ],
     });
   });
 }
 
+function parsePrintReadyPdfOptions(value: unknown): PrintReadyPdfOptions {
+  if (value == null) return {};
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Invalid print payload: expected options object");
+  }
+  const deck = (value as { deck?: unknown }).deck;
+  if (deck !== undefined && typeof deck !== "boolean") {
+    throw new Error("Invalid print payload: expected deck option to be boolean");
+  }
+  return deck === true ? { deck: true } : {};
+}
+
+function unavailableUpdaterStatus(): DesktopUpdateStatusSnapshot {
+  return {
+    arch: process.arch,
+    capabilities: {
+      canApplyInPlace: false,
+      canDownload: false,
+      canOpenInstaller: false,
+      requiresManualInstall: false,
+    },
+    channel: DESKTOP_UPDATE_CHANNELS.BETA,
+    currentVersion: "0.0.0",
+    enabled: false,
+    error: {
+      code: "updater-unavailable",
+      message: "Desktop updater is not available.",
+    },
+    mode: DESKTOP_UPDATE_MODES.PACKAGE_LAUNCHER,
+    platform: process.platform,
+    state: DESKTOP_UPDATE_STATES.UNSUPPORTED,
+    supported: false,
+  };
+}
+
+function checkOptionsFromHost(options: unknown): { autoDownload?: boolean } | undefined {
+  const input = options as OpenDesignHostUpdaterActionOptions | null | undefined;
+  const payload = input?.payload;
+  if (payload == null || typeof payload.autoDownload !== "boolean") return undefined;
+  return { autoDownload: payload.autoDownload };
+}
+
+async function reportRendererCrash(
+  options: DesktopRuntimeOptions,
+  properties: { reason: string; exit_code: number | null },
+): Promise<void> {
+  try {
+    // discoverDaemonUrl returns the real http://127.0.0.1:<port> URL the
+    // sidecar daemon listens on. In tools-dev callers omit it and fall back
+    // to discoverUrl (which is also http in dev). In packaged builds it's
+    // mandatory because the renderer-only `od://app/` scheme isn't
+    // reachable from main-process Node fetch.
+    const baseUrl = (await (options.discoverDaemonUrl?.() ?? options.discoverUrl())) ?? null;
+    if (!baseUrl) return;
+    const url = new URL("/api/observability/event", baseUrl).toString();
+    await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        event: "desktop_renderer_crash",
+        properties: {
+          reason: properties.reason,
+          exit_code: properties.exit_code,
+        },
+      }),
+    });
+  } catch {
+    // Best-effort. The user is already in a degraded state — failing to
+    // report the crash must not cascade into another failure path.
+  }
+}
+
 export async function createDesktopRuntime(options: DesktopRuntimeOptions): Promise<DesktopRuntime> {
-  const preloadPath = join(dirname(fileURLToPath(import.meta.url)), "preload.cjs");
+  const preloadPath = options.preloadPath ?? join(dirname(fileURLToPath(import.meta.url)), "preload.cjs");
+  applyDockIcon();
 
   // ipcMain.handle() registers a handler in an internal map that is *not*
   // surfaced via eventNames(); the previous `!eventNames().includes(...)`
@@ -661,8 +1050,12 @@ export async function createDesktopRuntime(options: DesktopRuntimeOptions): Prom
   // hot-reload). removeHandler is a no-op when nothing is registered.
   ipcMain.removeHandler("dialog:pick-folder");
   ipcMain.removeHandler("dialog:pick-and-import");
+  ipcMain.removeHandler("dialog:pick-and-replace-working-dir");
   ipcMain.removeHandler("shell:open-external");
   ipcMain.removeHandler("shell:open-path");
+  for (const channel of UPDATER_IPC_CHANNELS) {
+    ipcMain.removeHandler(channel);
+  }
   ipcMain.handle("shell:open-external", async (_event, url: string) => {
     if (!isHttpUrl(url)) return false;
     try {
@@ -735,6 +1128,42 @@ export async function createDesktopRuntime(options: DesktopRuntimeOptions): Prom
       });
     },
   );
+  // Atomic counterpart to dialog:pick-and-import for replacing a
+  // project's working directory. The picker, HMAC mint, and daemon
+  // POST are a single main-process transaction.
+  ipcMain.handle(
+    "dialog:pick-and-replace-working-dir",
+    async (_event, init?: { projectId?: string }) => {
+      if (options.desktopAuthSecret == null) {
+        return { ok: false, reason: "desktop auth secret not registered" };
+      }
+      const projectId = typeof init?.projectId === "string" ? init.projectId : "";
+      if (projectId.length === 0) {
+        return { ok: false, reason: "project id is required" };
+      }
+      const apiBaseUrl =
+        (options.discoverDaemonUrl ? await options.discoverDaemonUrl() : null) ??
+        (await options.discoverUrl());
+      if (!apiBaseUrl) {
+        return { ok: false, reason: "daemon API URL not available" };
+      }
+      const result = await dialog.showOpenDialog({ properties: ["openDirectory"] });
+      if (result.canceled || result.filePaths.length === 0) {
+        return { ok: false, canceled: true };
+      }
+      const baseDir = result.filePaths[0].trim();
+      if (baseDir.length === 0) {
+        return { ok: false, reason: "picker returned an empty path" };
+      }
+      return await pickAndReplaceWorkingDir({
+        apiBaseUrl,
+        baseDir,
+        desktopAuthSecret: options.desktopAuthSecret,
+        projectId,
+        registerDesktopAuth: options.registerDesktopAuthWithDaemon,
+      });
+    },
+  );
   // shell.openPath opens an absolute filesystem path in the OS file
   // manager (Finder / Explorer / Files). It resolves to '' on success
   // and to a non-empty error string on failure (per Electron's
@@ -782,12 +1211,22 @@ export async function createDesktopRuntime(options: DesktopRuntimeOptions): Prom
   });
 
   const consoleEntries: DesktopConsoleEntry[] = [];
+  const petWindow = createDesktopPetWindow(preloadPath, options.osLocale);
   const window = new BrowserWindow({
     height: 900,
+    icon: resolveDesktopIconPath(),
+    // Below this size the project page's left/right split (chat
+    // composer + designs panel + preview pane) overlaps and the top
+    // navigation clips, so prevent Electron from honoring user drags
+    // that would shrink the window past the usable breakpoint.
+    minHeight: 600,
+    minWidth: 900,
     show: true,
     title: "Open Design",
+    autoHideMenuBar: true,
     ...MAC_WINDOW_CHROME,
     webPreferences: {
+      additionalArguments: osLocaleAdditionalArguments(options.osLocale),
       contextIsolation: true,
       nodeIntegration: false,
       preload: preloadPath,
@@ -799,45 +1238,101 @@ export async function createDesktopRuntime(options: DesktopRuntimeOptions): Prom
   showWindowButtons(window);
   attachDownloadSaveAsDialog(window);
 
+  // Renderer-process crashes are completely invisible to the web bundle's
+  // own analytics surface (the renderer is dead — no JS can run, no
+  // window.error fires). The main process is the last layer that can
+  // observe them, so we forward the event to the daemon's safety-event
+  // bridge (`POST /api/observability/event`), which posts directly to
+  // PostHog with `device_id = installationId`. Best-effort: a failure to
+  // reach the daemon must not block the crash recovery flow.
+  window.webContents.on("render-process-gone", (_event, details) => {
+    void reportRendererCrash(options, {
+      reason: details.reason,
+      exit_code: typeof details.exitCode === "number" ? details.exitCode : null,
+    });
+  });
+
+  const sendUpdaterStatus = (status = options.updater?.snapshot() ?? unavailableUpdaterStatus()) => {
+    if (window.isDestroyed()) return;
+    window.webContents.send(UPDATER_STATUS_EVENT, status);
+  };
+  const unsubscribeUpdater = options.updater?.subscribe(() => sendUpdaterStatus()) ?? (() => undefined);
+  const requireMainWindowSender = (event: Electron.IpcMainInvokeEvent): void => {
+    if (event.sender !== window.webContents) {
+      throw new Error("updater IPC is only available to the main Open Design window");
+    }
+  };
+  ipcMain.handle("od:update:status", async (event) => {
+    requireMainWindowSender(event);
+    const status = await (options.updater?.status() ?? unavailableUpdaterStatus());
+    sendUpdaterStatus(status);
+    return status;
+  });
+  ipcMain.handle("od:update:check", async (event, updaterOptions: unknown) => {
+    requireMainWindowSender(event);
+    const status = await (options.updater?.checkForUpdates(checkOptionsFromHost(updaterOptions)) ?? unavailableUpdaterStatus());
+    sendUpdaterStatus(status);
+    return status;
+  });
+  ipcMain.handle("od:update:download", async (event) => {
+    requireMainWindowSender(event);
+    const status = await (options.updater?.downloadUpdate() ?? unavailableUpdaterStatus());
+    sendUpdaterStatus(status);
+    return status;
+  });
+  ipcMain.handle("od:update:install", async (event) => {
+    requireMainWindowSender(event);
+    const status = await (options.updater?.installUpdate() ?? unavailableUpdaterStatus());
+    sendUpdaterStatus(status);
+    return status;
+  });
+  ipcMain.handle("od:update:quit", async (event): Promise<OpenDesignHostActionResult> => {
+    requireMainWindowSender(event);
+    const status = await (options.updater?.status() ?? unavailableUpdaterStatus());
+    if (status.installResult == null) {
+      return { ok: false, reason: "installer has not been opened" };
+    }
+    if (options.requestQuit == null) {
+      return { ok: false, reason: "desktop quit is not available" };
+    }
+    setTimeout(() => options.requestQuit?.(), 0);
+    return { ok: true };
+  });
+
+  ipcMain.removeAllListeners("desktop-pet:set-visible");
+  ipcMain.on("desktop-pet:set-visible", (event, visible: unknown) => {
+    if (petWindow.isDestroyed() || event.sender !== petWindow.webContents) return;
+    if (visible) petWindow.showInactive();
+    else petWindow.hide();
+  });
+
   ipcMain.removeHandler('od:print-pdf');
-  ipcMain.handle('od:print-pdf', async (_event, html: unknown, nonce: unknown): Promise<void> => {
+  ipcMain.handle('od:print-pdf', async (_event, html: unknown, nonce: unknown, options: unknown): Promise<void> => {
     if (typeof html !== 'string') {
       throw new Error('Invalid print payload: expected HTML string');
     }
     const printNonce = typeof nonce === 'string' ? nonce : '';
-
-    const printWindow = new BrowserWindow({
-      width: 800,
-      height: 600,
-      show: false,
-      webPreferences: {
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-      },
-    });
-
-    printWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-    printWindow.webContents.on('will-navigate', (e) => e.preventDefault());
-
-    try {
-      await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-      await waitForPrintReadyHandshake(printWindow.webContents, printNonce);
-      printWindow.show();
-
-      await new Promise<void>((resolve, reject) => {
-        printWindow.webContents.print({ printBackground: true }, (success: boolean, failureReason?: string) => {
-          if (success) resolve();
-          else if (failureReason === 'Print job canceled') resolve();
-          else reject(new Error(failureReason ?? 'Print failed'));
-        });
-      });
-    } finally {
-      if (!printWindow.isDestroyed()) printWindow.close();
+    const printOptions = parsePrintReadyPdfOptions(options);
+    // Issue #1774: the renderer's `printPdf()` bridge runs the direct
+    // Save-as-PDF flow (showSaveDialog -> printToPDF -> write), never
+    // `webContents.print()` — the printer-first OS dialog. The renderer
+    // (apps/web/src/runtime/exports.ts#exportAsPdf) only reacts to a
+    // rejection: it shows a "Print failed" alert. A resolved call —
+    // including a user-canceled Save dialog — is silent, matching the
+    // pre-#1774 behavior where canceling the OS dialog was a no-op.
+    const result = await savePrintReadyDocumentAsPdf(
+      html,
+      printNonce,
+      createElectronPdfTarget(),
+      printOptions,
+    );
+    if (!result.ok) {
+      throw new Error(result.error ?? 'PDF export failed');
     }
   });
 
   let currentUrl: string | null = null;
+  let currentPetUrl: string | null = null;
   let pendingUrl: string | null = null;
   let stopped = false;
   let timer: NodeJS.Timeout | null = null;
@@ -861,24 +1356,84 @@ export async function createDesktopRuntime(options: DesktopRuntimeOptions): Prom
   });
 
   if (process.platform === "darwin") {
+    // Track the in-flight fullscreen-enter window so the close handler can
+    // tell mid-transition apart from "definitely not fullscreen". HTML
+    // requestFullscreen() emits enter-html-full-screen on webContents
+    // before the OS Space transition completes; the BrowserWindow
+    // enter-full-screen event fires once the OS confirms.
+    let enteringFullscreen = false;
+    window.webContents.on("enter-html-full-screen", () => {
+      enteringFullscreen = true;
+    });
+    window.webContents.on("leave-html-full-screen", () => {
+      enteringFullscreen = false;
+    });
+    window.on("enter-full-screen", () => {
+      enteringFullscreen = false;
+    });
+    window.on("leave-full-screen", () => {
+      enteringFullscreen = false;
+    });
     window.on("close", (event) => {
-      if (!stopped) {
-        event.preventDefault();
-        window.hide();
-      }
+      if (stopped) return;
+      event.preventDefault();
+      hideWindowExitingFullscreen({
+        hide: () => window.hide(),
+        isFullScreen: () => window.isFullScreen(),
+        isSimpleFullScreen: () => window.isSimpleFullScreen(),
+        isEnteringFullscreen: () => enteringFullscreen,
+        setFullScreen: (flag) => window.setFullScreen(flag),
+        setSimpleFullScreen: (flag) => window.setSimpleFullScreen(flag),
+        // BrowserWindow.once is heavily overloaded; both event names are
+        // valid (BrowserWindow emits enter-full-screen and
+        // leave-full-screen on macOS) but TypeScript can't pick a single
+        // overload for the union, so narrow at the call site.
+        once: (event, listener) =>
+          event === 'enter-full-screen'
+            ? window.once('enter-full-screen', listener)
+            : window.once('leave-full-screen', listener),
+      });
+    });
+  } else {
+    attachNonDarwinMainWindowCloseShutdown(window, {
+      isStopped: () => stopped,
+      requestQuit: options.requestQuit,
     });
   }
 
+  const rendererLogPath = options.rendererLogPath ?? null;
+  let rendererLogReady: Promise<void> | null = null;
+  const ensureRendererLogDir = async (): Promise<void> => {
+    if (rendererLogPath == null) return;
+    if (rendererLogReady == null) {
+      rendererLogReady = mkdir(dirname(rendererLogPath), { recursive: true }).then(() => undefined);
+    }
+    await rendererLogReady;
+  };
+  const persistRendererEntry = async (entry: DesktopConsoleEntry): Promise<void> => {
+    if (rendererLogPath == null) return;
+    if (entry.level !== "error" && entry.level !== "warn") return;
+    try {
+      await ensureRendererLogDir();
+      const line = `${JSON.stringify({ timestamp: entry.timestamp, level: entry.level, text: entry.text })}\n`;
+      await appendFile(rendererLogPath, line, "utf8");
+    } catch (error) {
+      console.error("desktop renderer log append failed", error);
+    }
+  };
+
   (window.webContents as any).on("console-message", (event: { level?: number | string; message?: string }) => {
     const level = typeof event.level === "number" ? mapConsoleLevel(event.level) : (event.level ?? "log");
-    consoleEntries.push({
+    const entry: DesktopConsoleEntry = {
       level,
       text: event.message ?? "",
       timestamp: new Date().toISOString(),
-    });
+    };
+    consoleEntries.push(entry);
     if (consoleEntries.length > MAX_CONSOLE_ENTRIES) {
       consoleEntries.splice(0, consoleEntries.length - MAX_CONSOLE_ENTRIES);
     }
+    void persistRendererEntry(entry);
   });
 
   await window.loadURL(createPendingHtml());
@@ -903,6 +1458,11 @@ export async function createDesktopRuntime(options: DesktopRuntimeOptions): Prom
         currentUrl = url;
         pendingUrl = null;
         showWindowButtons(window);
+        const nextPetUrl = desktopPetUrl(url);
+        if (!petWindow.isDestroyed() && nextPetUrl !== currentPetUrl) {
+          await petWindow.loadURL(nextPetUrl);
+          currentPetUrl = nextPetUrl;
+        }
       } else if (url == null) {
         pendingUrl = null;
       }
@@ -936,6 +1496,12 @@ export async function createDesktopRuntime(options: DesktopRuntimeOptions): Prom
         clearTimeout(timer);
         timer = null;
       }
+      unsubscribeUpdater();
+      ipcMain.removeAllListeners("desktop-pet:set-visible");
+      for (const channel of UPDATER_IPC_CHANNELS) {
+        ipcMain.removeHandler(channel);
+      }
+      if (!petWindow.isDestroyed()) petWindow.close();
       if (!window.isDestroyed()) window.close();
     },
     console() {

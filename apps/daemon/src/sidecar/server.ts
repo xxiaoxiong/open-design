@@ -1,4 +1,4 @@
-import type { Server } from "node:http";
+import { randomBytes } from "node:crypto";
 
 import {
   APP_KEYS,
@@ -9,6 +9,7 @@ import {
   type DaemonStatusSnapshot,
   type DesktopExportPdfInput,
   type DesktopExportPdfResult,
+  type MintImportTokenResult,
   type SidecarStamp,
 } from "@open-design/sidecar-proto";
 import {
@@ -19,7 +20,14 @@ import {
   type SidecarRuntimeContext,
 } from "@open-design/sidecar";
 
-import { isDesktopAuthGateActive, setDesktopAuthSecret, startServer } from "../server.js";
+import { startDaemonRuntime, type StartedDaemonRuntime } from "../daemon-startup.js";
+import {
+  getDesktopAuthSecret,
+  isDesktopAuthGateActive,
+  isDesktopAuthRegistered,
+  setDesktopAuthSecret,
+  signDesktopImportToken,
+} from "../desktop-auth.js";
 
 /**
  * PR #974 round 6 (mrcfps): pure wrapper that overlays the live
@@ -35,13 +43,9 @@ export function withCurrentDesktopAuthGate(snapshot: DaemonStatusSnapshot): Daem
 }
 
 const DAEMON_PORT_ENV = SIDECAR_ENV.DAEMON_PORT;
+const WEB_PORT_ENV = SIDECAR_ENV.WEB_PORT;
 const TOOLS_DEV_PARENT_PID_ENV = SIDECAR_ENV.TOOLS_DEV_PARENT_PID;
-
-type StartedDaemonServer = {
-  server: Server;
-  url: string;
-  shutdown?: () => Promise<void>;
-};
+const DESKTOP_IMPORT_TOKEN_TTL_MS = 60_000;
 
 export type DaemonSidecarHandle = {
   status(): Promise<DaemonStatusSnapshot>;
@@ -58,40 +62,9 @@ function parsePort(value: string | undefined): number {
   return port;
 }
 
-export async function closeHttpServer(
-  server: Server,
-  { closeTimeoutMs = 5_000, idleCloseMs = 1_000 } = {},
-): Promise<void> {
-  if (!server.listening) return;
-  await new Promise<void>((resolveClose, rejectClose) => {
-    let resolved = false;
-    const resolveOnce = () => {
-      if (resolved) return;
-      resolved = true;
-      clearTimeout(idleTimer);
-      clearTimeout(hardTimer);
-      resolveClose();
-    };
-    const rejectOnce = (error: Error) => {
-      if (resolved) return;
-      resolved = true;
-      clearTimeout(idleTimer);
-      clearTimeout(hardTimer);
-      rejectClose(error);
-    };
-    const idleTimer = setTimeout(() => {
-      server.closeIdleConnections?.();
-    }, Math.min(idleCloseMs, closeTimeoutMs));
-    const hardTimer = setTimeout(() => {
-      server.closeAllConnections?.();
-      resolveOnce();
-    }, closeTimeoutMs);
-    idleTimer.unref?.();
-    hardTimer.unref?.();
-    server.close((error) => (error == null ? resolveOnce() : rejectOnce(error)));
-  }).finally(() => {
-    server.closeIdleConnections?.();
-  });
+function parseOptionalTrustedWebPort(value: string | undefined): number | null {
+  const port = parsePort(value);
+  return port > 0 ? port : null;
 }
 
 function isProcessAlive(pid: number): boolean {
@@ -115,8 +88,35 @@ function attachParentMonitor(stop: () => Promise<void>): void {
   timer.unref();
 }
 
+export function mintImportTokenForCli(baseDir: string): MintImportTokenResult {
+  if (!isDesktopAuthGateActive()) {
+    return {
+      ok: false,
+      code: "DESKTOP_AUTH_INACTIVE",
+      message: "desktop import auth gate is inactive",
+      retryable: false,
+    };
+  }
+  const secret = getDesktopAuthSecret();
+  if (secret == null || !isDesktopAuthRegistered()) {
+    return {
+      ok: false,
+      code: "DESKTOP_AUTH_PENDING",
+      message: "desktop auth required but secret not yet registered",
+      retryable: true,
+    };
+  }
+  const nonce = randomBytes(16).toString("base64url");
+  const expiresAt = new Date(Date.now() + DESKTOP_IMPORT_TOKEN_TTL_MS).toISOString();
+  return {
+    ok: true,
+    expiresAt,
+    token: signDesktopImportToken(secret, baseDir, { nonce, exp: expiresAt }),
+  };
+}
+
 export async function startDaemonSidecar(runtime: SidecarRuntimeContext<SidecarStamp>): Promise<DaemonSidecarHandle> {
-  const started = await startServer({
+  const serverHandle: StartedDaemonRuntime = await startDaemonRuntime({
     desktopPdfExporter: async (input: DesktopExportPdfInput): Promise<DesktopExportPdfResult> => {
       const desktopIpc = resolveAppIpcPath({
         app: APP_KEYS.DESKTOP,
@@ -130,14 +130,8 @@ export async function startDaemonSidecar(runtime: SidecarRuntimeContext<SidecarS
       );
     },
     port: parsePort(process.env[DAEMON_PORT_ENV]),
-    returnServer: true,
-  }) as
-    | string
-    | StartedDaemonServer;
-  if (typeof started === "string") {
-    throw new Error("daemon startServer did not return a server handle");
-  }
-  const serverHandle = started;
+    runtime,
+  });
 
   // PR #974 round 6 (mrcfps): tools-dev's split-start hardening reads
   // `desktopAuthGateActive` from the STATUS IPC. The flag is dynamic
@@ -149,6 +143,7 @@ export async function startDaemonSidecar(runtime: SidecarRuntimeContext<SidecarS
     desktopAuthGateActive: isDesktopAuthGateActive(),
     pid: process.pid,
     state: "running",
+    trustedWebOriginPort: parseOptionalTrustedWebPort(process.env[WEB_PORT_ENV]),
     updatedAt: new Date().toISOString(),
     url: serverHandle.url,
   };
@@ -164,12 +159,8 @@ export async function startDaemonSidecar(runtime: SidecarRuntimeContext<SidecarS
     stopped = true;
     state.state = "stopped";
     state.updatedAt = new Date().toISOString();
-    const closePromise = closeHttpServer(serverHandle.server).catch(() => undefined);
-    const shutdownPromise = serverHandle.shutdown?.().catch((error: unknown) => {
-      console.error("daemon shutdown cleanup failed", error);
-    }) ?? Promise.resolve();
     await ipcServer?.close().catch(() => undefined);
-    await Promise.allSettled([closePromise, shutdownPromise]);
+    await serverHandle.stop().catch(() => undefined);
     resolveStopped();
   }
 
@@ -198,6 +189,8 @@ export async function startDaemonSidecar(runtime: SidecarRuntimeContext<SidecarS
           // renderer→arbitrary-baseDir→shell.openPath bypass.
           setDesktopAuthSecret(Buffer.from(request.input.secret, "base64"));
           return { accepted: true };
+        case SIDECAR_MESSAGES.MINT_IMPORT_TOKEN:
+          return mintImportTokenForCli(request.input.baseDir);
       }
     },
   });

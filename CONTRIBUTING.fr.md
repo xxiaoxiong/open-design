@@ -48,8 +48,8 @@ Node `~24` et pnpm `10.33.x` sont requis. `nvm` / `fnm` sont optionnels ;
 utilisez `nvm install 24 && nvm use 24` ou `fnm install 24 && fnm use 24` si
 vous gérez Node comme cela. macOS, Linux et WSL2 sont les environnements
 principaux pris en charge.
-Windows natif devrait fonctionner, mais ce n'est pas la cible principale :
-ouvrez une issue si ce n'est pas le cas.
+Windows natif est supporté ; voir [`docs/windows-troubleshooting.md`](docs/windows-troubleshooting.md)
+pour les pièges de configuration les plus courants.
 
 Vous n'avez pas besoin d'une CLI d'agent dans votre `PATH` pour développer OD.
 Le daemon indiquera "no agents found" ; utilisez alors le mode API/BYOK
@@ -357,6 +357,11 @@ Au-delà de ça :
   dépendance : ce sont trois PR.
 - **Titre impératif + scope.** `add dating-web skill`,
   `fix daemon SSE backpressure when CLI hangs`, `docs: clarify .od layout`.
+- **Utilisez le template de PR.** Remplissez chaque section de
+  [`.github/pull_request_template.md`](.github/pull_request_template.md) — Why,
+  What users will see, Surface area, Screenshots (si UI), Bug fix verification
+  (si correctif), Validation. Les sections vides recevront un commentaire
+  « please fill in ».
 - **Le body explique le pourquoi.** Le diff montre souvent le quoi ; le pourquoi
   est rarement évident.
 - **Référencez une issue** s'il y en a une. S'il n'y en a pas et que la PR est
@@ -419,6 +424,37 @@ Pour garder le projet focalisé, merci de ne pas ouvrir de PR qui :
 
 Si vous n'êtes pas sûr que votre idée rentre dans le projet, ouvrez une
 discussion avant d'écrire le code.
+
+---
+
+<!-- Machine-translated section; native-speaker review welcome via PR. -->
+## Devenir Mainteneur
+
+Si vous contribuez régulièrement et que vous souhaitez savoir à quoi
+ressemble le chemin pour devenir Mainteneur, les règles se trouvent dans
+**[`MAINTAINERS.md`](MAINTAINERS.md)**. La version courte :
+
+- Un Mainteneur peut examiner, approuver et fermer des issues. Le bouton
+  de merge reste à la Core Team — votre approbation compte tout de même
+  comme l'approbation requise pour le merge.
+- Le seuil est de **≥ 20 merged PRs** plus une vérification publiée de la
+  qualité du compte (anti-bot, anti-sock-puppet) plus un jugement de la
+  Core Team sur la qualité des contributions. Il n'y a pas de formulaire
+  de candidature ; la Core Team identifie les candidats en interne et
+  prend contact.
+- Il n'y a **aucun quota, aucun SLAs, et aucun mandat fixe.** Se retirer
+  est facile et réversible (Emeritus → retour quand la vie se calme).
+- Tous les seuils, le flux de nomination, les règles de retrait et la
+  dérogation pour les projets en phase initiale se trouvent dans
+  [`MAINTAINERS.md`](MAINTAINERS.md). Lisez ce document si l'un des
+  points ci-dessus vous intéresse.
+
+Le tl;dr : livrez de bonnes PR, faites des reviews réfléchies, traînez
+dans les [Discussions][discussions] / sur [Discord][discord], et le reste
+se fait tout seul.
+
+[discussions]: https://github.com/nexu-io/open-design/discussions
+[discord]: https://discord.gg/qhbcCH8Am4
 
 ---
 

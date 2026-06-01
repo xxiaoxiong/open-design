@@ -36,7 +36,7 @@ pnpm typecheck            # tsc -b --noEmit
 pnpm --filter @open-design/web build  # build do pacote web quando necessário
 ```
 
-Node `~24` e pnpm `10.33.x` são obrigatórios. `nvm` / `fnm` são opcionais; use `nvm install 24 && nvm use 24` ou `fnm install 24 && fnm use 24` se preferir gerenciar Node assim. macOS, Linux e WSL2 são os caminhos principais. Windows nativo costuma funcionar, mas não é alvo principal — abra uma issue se quebrar.
+Node `~24` e pnpm `10.33.x` são obrigatórios. `nvm` / `fnm` são opcionais; use `nvm install 24 && nvm use 24` ou `fnm install 24 && fnm use 24` se preferir gerenciar Node assim. macOS, Linux e WSL2 são os caminhos principais. Windows nativo é suportado; veja [`docs/windows-troubleshooting.md`](docs/windows-troubleshooting.md) para os tropeços de configuração mais comuns.
 
 Você não precisa de nenhum CLI de agente no `PATH` para desenvolver o próprio OD — o daemon dirá "no agents found" e cairá no caminho **Anthropic API · BYOK**, que é o loop de dev mais rápido de qualquer jeito.
 
@@ -243,6 +243,7 @@ Além disso:
 
 - **Uma preocupação por PR.** Adicionar uma skill + refatorar o parser + bumpar uma dep são três PRs.
 - **Título é imperativo + escopo.** `add dating-web skill`, `fix daemon SSE backpressure when CLI hangs`, `docs: clarify .od layout`.
+- **Use o template de PR.** Preencha cada seção de [`.github/pull_request_template.md`](.github/pull_request_template.md) — Why, What users will see, Surface area, Screenshots (se UI), Bug fix verification (se correção de bug), Validation. Seções vazias ganham um comentário "please fill in".
 - **Corpo explica o porquê.** "O que isso faz" geralmente é óbvio do diff; "por que isso precisa existir" raramente é.
 - **Referencie uma issue** se houver. Se não houver e o PR for não-trivial, abra uma antes para combinarmos que a mudança é desejada antes de você gastar o tempo.
 - **Sem squash durante review.** Empurre fixups; squash no merge.
@@ -284,6 +285,23 @@ Para manter o projeto focado, por favor não abra PRs que:
 - **Empacotem um binário** sem arquivo de licença e atribuição de autoria ao lado.
 
 Se não tem certeza se sua ideia se encaixa, abra uma discussion antes de escrever o código.
+
+---
+
+<!-- Machine-translated section; native-speaker review welcome via PR. -->
+## Tornando-se um Maintainer
+
+Se você vem contribuindo de forma consistente e quer saber como é o caminho para se tornar um Maintainer, as regras estão em **[`MAINTAINERS.md`](MAINTAINERS.md)**. A versão curta:
+
+- Um Maintainer pode revisar, aprovar e fechar issues. O botão de merge continua com o Core Team — sua aprovação ainda conta como a aprovação obrigatória para merge.
+- A barra é **≥ 20 merged PRs** mais uma verificação publicada de qualidade da conta (anti-bot, anti-sock-puppet) mais um julgamento do Core Team sobre a qualidade da contribuição. Não há formulário de inscrição; o Core Team levanta candidatos internamente e entra em contato.
+- **Não há cotas, nem SLAs, nem mandato fixo.** Sair é fácil e reversível (Emeritus → volte quando a vida acalmar).
+- Todos os limiares, o fluxo de nomeação, as regras de step-down e o waiver de projeto inicial estão em [`MAINTAINERS.md`](MAINTAINERS.md). Leia esse documento se algo acima te interessar.
+
+O tl;dr: mande bons PRs, revise com cuidado, apareça nas [Discussions][discussions] / no [Discord][discord], e o resto se resolve sozinho.
+
+[discussions]: https://github.com/nexu-io/open-design/discussions
+[discord]: https://discord.gg/qhbcCH8Am4
 
 ---
 
