@@ -7,11 +7,16 @@ export const opencodeAgentDef = {
     bin: 'opencode-cli',
     fallbackBins: ['opencode'],
     versionArgs: ['--version'],
-    // `opencode models` prints `provider/model` per line.
+    // `opencode models` prints `provider/model` per line. Real-world
+    // `opencode models` calls can take >8s (network round-trip to the
+    // provider registry), so the previous 8s budget timed out and fell back
+    // to the hardcoded `fallbackModels`, hiding the user's actual catalog.
+    // 15s matches the listModels budget the rest of the agent defs use
+    // (devin, hermes, kiro, kilo, kimi, trae-cli, vibe, reasonix).
     listModels: {
       args: ['models'],
       parse: parseLineSeparatedModels,
-      timeoutMs: 8000,
+      timeoutMs: 15_000,
     },
     fallbackModels: [
       DEFAULT_MODEL_OPTION,
@@ -31,14 +36,20 @@ export const opencodeAgentDef = {
         'run',
         '--format',
         'json',
-        '--dangerously-skip-permissions',
       ];
       if (options.model && options.model !== 'default') {
-        args.push('--model', options.model);
+        args.push('-m', options.model);
       }
       return args;
     },
     promptViaStdin: true,
     streamFormat: 'json-event-stream',
     eventParser: 'opencode',
+    // OpenCode reads MCP servers from its layered config (global ~/.config
+    // /opencode/opencode.json + project opencode.json + OPENCODE_CONFIG
+    // + OPENCODE_CONFIG_CONTENT). The env-var form lets the daemon hand
+    // user-configured external MCP servers to a single `opencode run`
+    // invocation without polluting the user's saved config files. See
+    // <https://opencode.ai/docs/config> and issue #2142.
+    externalMcpInjection: 'opencode-env-content',
 } satisfies RuntimeAgentDef;

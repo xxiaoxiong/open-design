@@ -61,6 +61,17 @@ if (metadata.channel === "beta") {
   if (metadata.betaVersion !== process.env.EXPECTED_RELEASE_VERSION) {
     throw new Error("unexpected metadata betaVersion: " + metadata.betaVersion);
   }
+} else if (metadata.channel === "preview") {
+  if (metadata.releaseVersion !== process.env.EXPECTED_RELEASE_VERSION) {
+    throw new Error("unexpected metadata releaseVersion: " + metadata.releaseVersion);
+  }
+  if (metadata.previewVersion !== process.env.EXPECTED_RELEASE_VERSION) {
+    throw new Error("unexpected metadata previewVersion: " + metadata.previewVersion);
+  }
+  const expectedPreviewNumber = Number(process.env.EXPECTED_RELEASE_VERSION.split("-preview.")[1]);
+  if (metadata.previewNumber !== expectedPreviewNumber) {
+    throw new Error("unexpected metadata previewNumber: " + metadata.previewNumber);
+  }
 } else {
   if (metadata.releaseVersion !== process.env.EXPECTED_RELEASE_VERSION) {
     throw new Error("unexpected metadata releaseVersion: " + metadata.releaseVersion);
@@ -123,6 +134,9 @@ if [ "$ENABLE_WIN" = "true" ]; then
   grep -F "version: \"$RELEASE_VERSION\"" "$downloaded_feed"
   grep -F "$R2_WIN_INSTALLER_URL" "$downloaded_feed"
   curl -fsSI "$R2_WIN_INSTALLER_URL" >/dev/null
+  if [ -n "${R2_WIN_PORTABLE_ZIP_URL:-}" ]; then
+    curl -fsSI "$R2_WIN_PORTABLE_ZIP_URL" >/dev/null
+  fi
   require_report_file "win/manifest.json"
   require_report_file "win/screenshots/open-design-win-smoke.png"
   require_report_file "win/suite-result.json"

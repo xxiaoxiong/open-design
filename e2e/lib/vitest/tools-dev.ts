@@ -1,10 +1,14 @@
 import { execFile } from 'node:child_process';
 import { createServer } from 'node:net';
+import { extname } from 'node:path';
 import { promisify } from 'node:util';
 
 import { e2eWorkspaceRoot, type SmokeSuite } from './smoke-suite.ts';
 
 const execFileAsync = promisify(execFile);
+const pnpmCommand = process.env.OD_E2E_PNPM_COMMAND ?? 'pnpm';
+const pnpmExecPath = process.env.npm_execpath;
+const nodeLoadablePackageManagerExtensions = new Set(['.js', '.cjs', '.mjs']);
 
 export type ToolsDevAppStatus = {
   pid?: number;
@@ -52,16 +56,32 @@ export type ToolsDevCheckResult = {
 
 export type ToolsDevRuntime = {
   daemonPort: number;
+  release: () => Promise<void>;
   webPort: number;
 };
 
 export async function allocateToolsDevRuntime(): Promise<ToolsDevRuntime> {
-  const [daemonPort, webPort] = await Promise.all([findFreePort(), findFreePort()]);
-  if (daemonPort === webPort) return await allocateToolsDevRuntime();
-  return { daemonPort, webPort };
+  const [daemonPort, webPort] = await Promise.all([reserveFreePort(), reserveFreePort()]);
+  if (daemonPort.port === webPort.port) {
+    await Promise.all([daemonPort.release(), webPort.release()]);
+    return await allocateToolsDevRuntime();
+  }
+  let released = false;
+  return {
+    daemonPort: daemonPort.port,
+    webPort: webPort.port,
+    async release() {
+      if (released) return;
+      released = true;
+      await Promise.all([daemonPort.release(), webPort.release()]);
+    },
+  };
 }
 
 export async function startToolsDevWeb(suite: SmokeSuite, runtime: ToolsDevRuntime): Promise<ToolsDevStartResult> {
+  // Keep both ports reserved until immediately before tools-dev starts so
+  // parallel Vitest workers do not race each other for the same "free" port.
+  await runtime.release();
   return await runToolsDevJson<ToolsDevStartResult>(
     suite,
     [
@@ -137,8 +157,25 @@ export async function readToolsDevLogs(suite: SmokeSuite): Promise<Record<string
   );
 }
 
+export function isToolsDevPortConflict(error: unknown): boolean {
+  const text = error instanceof Error
+    ? `${error.message}\n${error.stack ?? ''}`
+    : String(error);
+  return text.includes('EADDRINUSE') ||
+    (text.includes('is already running in namespace') && text.includes('stop it or choose another namespace'));
+}
+
 async function runToolsDevJson<T>(suite: SmokeSuite, args: string[]): Promise<T> {
-  const { stdout } = await execFileAsync('pnpm', ['tools-dev', ...args], {
+  const useNpmExecPathWithNode = process.env.OD_E2E_PNPM_COMMAND == null
+    && pnpmExecPath != null
+    && nodeLoadablePackageManagerExtensions.has(extname(pnpmExecPath).toLowerCase());
+  const command = useNpmExecPathWithNode
+    ? process.execPath
+    : (process.env.OD_E2E_PNPM_COMMAND == null && pnpmExecPath ? pnpmExecPath : pnpmCommand);
+  const commandArgs = useNpmExecPathWithNode
+    ? [pnpmExecPath, 'tools-dev', ...args]
+    : ['tools-dev', ...args];
+  const { stdout } = await execFileAsync(command, commandArgs, {
     cwd: e2eWorkspaceRoot(),
     env: {
       ...process.env,
@@ -147,6 +184,7 @@ async function runToolsDevJson<T>(suite: SmokeSuite, args: string[]): Promise<T>
       OD_MEDIA_CONFIG_DIR: suite.dataDir,
     },
     maxBuffer: 20 * 1024 * 1024,
+    shell: process.platform === 'win32' && command !== process.execPath,
   });
   return parseJsonOutput<T>(stdout);
 }
@@ -165,18 +203,28 @@ function parseJsonOutput<T>(stdout: string): T {
   return JSON.parse(stdout.slice(jsonStart + 1)) as T;
 }
 
-async function findFreePort(): Promise<number> {
+async function reserveFreePort(): Promise<{ port: number; release: () => Promise<void> }> {
   const server = createServer();
   await new Promise<void>((resolveListen, rejectListen) => {
     server.once('error', rejectListen);
     server.listen(0, '127.0.0.1', () => resolveListen());
   });
   const address = server.address();
-  await new Promise<void>((resolveClose, rejectClose) => {
-    server.close((error) => (error == null ? resolveClose() : rejectClose(error)));
-  });
   if (address == null || typeof address === 'string') {
+    await new Promise<void>((resolveClose, rejectClose) => {
+      server.close((error) => (error == null ? resolveClose() : rejectClose(error)));
+    });
     throw new Error('failed to allocate a local TCP port');
   }
-  return address.port;
+  let released = false;
+  return {
+    port: address.port,
+    async release() {
+      if (released) return;
+      released = true;
+      await new Promise<void>((resolveClose, rejectClose) => {
+        server.close((error) => (error == null ? resolveClose() : rejectClose(error)));
+      });
+    },
+  };
 }

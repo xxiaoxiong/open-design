@@ -2,6 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { diagnoseClaudeCliFailure } from '../src/claude-diagnostics.js';
 
 describe('diagnoseClaudeCliFailure', () => {
+  it('maps Claude Not logged in stdout to /login guidance (#1928)', () => {
+    const diagnostic = diagnoseClaudeCliFailure({
+      agentId: 'claude',
+      exitCode: 1,
+      stdoutTail: 'Not logged in · Please run /login.',
+      env: {},
+    });
+
+    expect(diagnostic?.message).toContain('/login');
+    expect(diagnostic?.detail).toContain('CLAUDE_CONFIG_DIR');
+  });
+
   it('maps Claude auth failures to /login guidance', () => {
     const diagnostic = diagnoseClaudeCliFailure({
       agentId: 'claude',
@@ -38,6 +50,22 @@ describe('diagnoseClaudeCliFailure', () => {
     expect(diagnostic?.message).toContain('custom Anthropic endpoint');
     expect(diagnostic?.detail).toContain('ANTHROPIC_BASE_URL');
     expect(diagnostic?.detail).toContain('proxy credentials');
+    expect(diagnostic?.detail).not.toContain('use `/login`');
+  });
+
+  it('maps custom endpoint connection refusals before generic auth guidance', () => {
+    const diagnostic = diagnoseClaudeCliFailure({
+      agentId: 'claude',
+      exitCode: 1,
+      stderrTail:
+        '{"apiKeySource":"none"} API Error: Unable to connect to API (ConnectionRefused)',
+      env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:1337' },
+    });
+
+    expect(diagnostic?.message).toContain('could not reach');
+    expect(diagnostic?.detail).toContain('ANTHROPIC_BASE_URL');
+    expect(diagnostic?.detail).toContain('refused the connection');
+    expect(diagnostic?.detail).not.toContain('could not authenticate');
     expect(diagnostic?.detail).not.toContain('use `/login`');
   });
 

@@ -1,43 +1,50 @@
 import type { Express } from 'express';
 import type { RouteDeps } from './server-context.js';
-import { newInsertId } from './analytics.js';
+import { seedProviderIfMissing } from './media-config.js';
 import {
-  agentIdToTracking,
-  projectKindToTracking,
-} from '@open-design/contracts/analytics';
+  buildLegacyMaxTokensParam,
+  buildMaxCompletionTokensParam,
+  buildOpenAIChatTokenParam,
+  isUnsupportedMaxTokensError,
+} from './openai-chat-token-params.js';
+import {
+  BYOK_SENSEAUDIO_TOOLS,
+  executeGenerateImage,
+  executeGenerateSpeech,
+  executeGenerateVideo,
+  isSenseAudioImageModel,
+  type BYOKToolContext,
+} from './byok-tools.js';
+import { isSafeId as isSafeProjectId } from './projects.js';
+import { projectKindToTracking } from '@open-design/contracts/analytics';
+import { proxyDispatcherRequestInit, validateBaseUrlResolved } from './connectionTest.js';
+import { googleStreamGenerateContentUrl } from './google-models.js';
+import { createRoleMarkerGuard } from './role-marker-guard.js';
 
-export interface RegisterChatRoutesDeps extends RouteDeps<'db' | 'design' | 'http' | 'chat' | 'agents' | 'critique' | 'validation' | 'lifecycle'> {}
+// Allowlist for the `/feedback` route. Mirrors the
+// ChatMessageFeedbackReasonCode union in packages/contracts/src/api/chat.ts.
+// Kept inline (not imported as a runtime value, since the contract type is
+// type-only) so a stale client can't poison Langfuse with unknown categories.
+const FEEDBACK_REASON_ALLOWLIST: ReadonlySet<string> = new Set([
+  'matched_request',
+  'strong_visual',
+  'useful_structure',
+  'easy_to_continue',
+  'followed_design_system',
+  'missed_request',
+  'weak_visual',
+  'incomplete_output',
+  'hard_to_use',
+  'missed_design_system',
+  'other',
+]);
 
-// Invariant: a chat assistant message row reflects its run's terminal state
-// even when the web client never persists the cancel/finish itself (refresh
-// or dropped PUT). Without this, a row stuck at run_status='running' /
-// ended_at=NULL makes the elapsed-time renderer fall back to now - startedAt
-// after reload. COALESCE preserves any endedAt the web already wrote; the
-// run_status guard skips rows the web has already finalized.
-function reconcileAssistantMessageOnRunEnd(
-  db: RegisterChatRoutesDeps['db'],
-  runs: RegisterChatRoutesDeps['design']['runs'],
-  run: { assistantMessageId: string | null },
-): void {
-  if (!run.assistantMessageId) return;
-  void runs
-    .wait(run)
-    .then((finalStatus: { status: string }) => {
-      db.prepare(
-        `UPDATE messages
-            SET run_status = ?, ended_at = COALESCE(ended_at, ?)
-          WHERE id = ? AND run_status IN ('queued', 'running')`,
-      ).run(finalStatus.status, Date.now(), run.assistantMessageId);
-    })
-    .catch((err: unknown) => {
-      console.warn('[runs] message reconciliation failed', err);
-    });
-}
+export interface RegisterChatRoutesDeps extends RouteDeps<'db' | 'design' | 'http' | 'chat' | 'agents' | 'critique' | 'validation' | 'lifecycle' | 'paths' | 'telemetry'> {}
 
 export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
   const { db, design } = ctx;
   const { sendApiError, createSseResponse } = ctx.http;
-  const { startChatRun } = ctx.chat;
+  const { submitToolResultToRun } = ctx.chat;
   const { testProviderConnection, testAgentConnection, getAgentDef, isKnownModel, sanitizeCustomModel, listProviderModels } = ctx.agents;
   const {
     handleCritiqueArtifact,
@@ -46,149 +53,32 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
     critiqueResponseCapBytes,
     critiqueRunRegistry,
   } = ctx.critique;
-  const { validateBaseUrl } = ctx.validation;
-  const isDaemonShuttingDown = ctx.lifecycle?.isDaemonShuttingDown ?? (() => false);
-  app.post('/api/runs', (req, res) => {
-    if (isDaemonShuttingDown()) {
-      return sendApiError(res, 503, 'UPSTREAM_UNAVAILABLE', 'daemon is shutting down');
+  const rejectProxyPluginContext = (body: Record<string, unknown>, res: any) => {
+    if (
+      (typeof body.pluginId === 'string' && body.pluginId.trim().length > 0) ||
+      (
+        typeof body.appliedPluginSnapshotId === 'string' &&
+        body.appliedPluginSnapshotId.trim().length > 0
+      )
+    ) {
+      sendApiError(
+        res,
+        409,
+        'PLUGIN_REQUIRES_DAEMON',
+        'Plugin runs must go through POST /api/runs so the daemon can resolve and pin the applied plugin snapshot.',
+      );
+      return true;
     }
-    const run = design.runs.create(req.body || {});
-    const declared = String(req.get('x-od-client') ?? '').toLowerCase();
-    if (declared === 'desktop' || declared === 'web') {
-      run.clientType = declared;
-    } else {
-      const ua = String(req.get('user-agent') ?? '');
-      run.clientType = ua.includes('Electron/') ? 'desktop' : 'web';
-    }
-    /** @type {import('@open-design/contracts').ChatRunCreateResponse} */
-    const body = { runId: run.id };
-    res.status(202).json(body);
-    design.runs.start(run, () => startChatRun(req.body || {}, run));
-    reconcileAssistantMessageOnRunEnd(db, design.runs, run);
+    return false;
+  };
 
-    // Analytics: emit run_created (daemon-side, authoritative) and
-    // schedule a run_finished emission on wait() resolution. Both events
-    // use the same insert_id so PostHog dedupes against the web mirror
-    // that fires on SSE start/end. No-op when POSTHOG_KEY is unset.
-    const context = design.readAnalyticsContext?.(req);
-    if (context) {
-      const reqBody = (req.body || {}) as Record<string, unknown>;
-      const runInsertId = newInsertId();
-      const runStartedAt = Date.now();
-      // Estimate user_query_tokens from the request prompt — we never
-      // transmit the prompt text itself, just the integer count. The
-      // canonical extraction (currentPrompt fallback to message) lives
-      // in telemetryPromptFromRunRequest; mirroring it inline keeps the
-      // analytics emit self-contained and out of the startChatRun
-      // critical path.
-      const promptText =
-        typeof reqBody.currentPrompt === 'string'
-          ? reqBody.currentPrompt
-          : typeof reqBody.message === 'string'
-            ? reqBody.message
-            : '';
-      // ~4 chars per token is the common rough heuristic for English /
-      // Latin text; CJK skews token-per-char higher but this is still the
-      // industry-standard estimate when no tokenizer is available. The
-      // accompanying token_count_source field marks this as 'estimated'
-      // so dashboards can tell estimate from real provider counts.
-      const userQueryTokens = promptText.length > 0
-        ? Math.ceil(promptText.length / 4)
-        : 0;
-      const baseProps: Record<string, unknown> = {
-        page: 'studio',
-        area: 'chat_composer',
-        project_id: typeof reqBody.projectId === 'string' ? reqBody.projectId : null,
-        conversation_id:
-          typeof reqBody.conversationId === 'string' ? reqBody.conversationId : null,
-        run_id: run.id,
-        project_kind: null,
-        design_system_id:
-          typeof reqBody.designSystemId === 'string'
-            ? reqBody.designSystemId
-            : undefined,
-        design_system_source: 'unknown',
-        has_attachment: Array.isArray(reqBody.attachments)
-          ? (reqBody.attachments as unknown[]).length > 0
-          : false,
-        user_query_tokens: userQueryTokens,
-        model_id: typeof reqBody.model === 'string' ? reqBody.model : null,
-        agent_provider_id:
-          typeof reqBody.agentId === 'string'
-            ? agentIdToTracking(reqBody.agentId)
-            : null,
-        skill_id: typeof reqBody.skillId === 'string' ? reqBody.skillId : null,
-        mcp_id: null,
-        token_count_source: userQueryTokens > 0 ? 'estimated' : 'unknown',
-      };
-      design.analytics.capture({
-        eventName: 'run_created',
-        context,
-        appVersion: design.getAppVersion?.() ?? '0.0.0',
-        properties: baseProps,
-        insertId: runInsertId,
-      });
-      // Run lifecycle hook: emit run_finished when the run reaches a
-      // terminal state. The same context is reused — captures are
-      // synchronous and never block the run.
-      design.runs.wait(run).then((status: { status: string }) => {
-        const result =
-          status.status === 'succeeded'
-            ? 'success'
-            : status.status === 'canceled'
-              ? 'cancelled'
-              : 'failed';
-        // Pull input/output token totals from the agent's usage event,
-        // which claude-stream.ts emits as `{ type: 'usage', usage: {...} }`
-        // and the run service stores in run.events. Provider only gives
-        // totals (no 7-subfield breakdown), so token_count_source flips
-        // to 'provider_usage' here only when at least one number landed;
-        // otherwise stays 'unknown'.
-        let inputTokens: number | undefined;
-        let outputTokens: number | undefined;
-        for (let i = run.events.length - 1; i >= 0; i -= 1) {
-          const ev = run.events[i];
-          const data = ev?.data as
-            | { type?: string; usage?: Record<string, unknown> | null }
-            | null
-            | undefined;
-          if (ev?.event === 'agent' && data?.type === 'usage' && data.usage) {
-            const u = data.usage;
-            if (typeof u.input_tokens === 'number') inputTokens = u.input_tokens;
-            if (typeof u.output_tokens === 'number') outputTokens = u.output_tokens;
-            if (inputTokens !== undefined || outputTokens !== undefined) break;
-          }
-        }
-        const haveUsage = inputTokens !== undefined || outputTokens !== undefined;
-        const totalTokens =
-          inputTokens !== undefined && outputTokens !== undefined
-            ? inputTokens + outputTokens
-            : undefined;
-        design.analytics.capture({
-          eventName: 'run_finished',
-          context,
-          appVersion: design.getAppVersion?.() ?? '0.0.0',
-          properties: {
-            ...baseProps,
-            area: 'chat_panel',
-            result,
-            artifact_count: 0,
-            total_duration_ms: Date.now() - runStartedAt,
-            ...(inputTokens !== undefined ? { input_tokens: inputTokens } : {}),
-            ...(outputTokens !== undefined ? { output_tokens: outputTokens } : {}),
-            ...(totalTokens !== undefined ? { total_tokens: totalTokens } : {}),
-            // Upgrade source to 'provider_usage' when the agent reported
-            // input/output totals; otherwise inherit baseProps' value
-            // ('estimated' when user_query_tokens > 0, else 'unknown').
-            ...(haveUsage ? { token_count_source: 'provider_usage' } : {}),
-          },
-          insertId: `${runInsertId}-finish`,
-        });
-      }).catch(() => {
-        // wait() can't reject in current runs.ts impl, but guard anyway.
-      });
-    }
-  });
+  // The canonical POST /api/runs handler lives in `server.ts` — it ran
+  // first in Express's registration order long before this file existed,
+  // so any handler we wired here was shadowed and never executed. Plugin
+  // snapshot resolution, clientType inference, and the daemon-side
+  // run_created/finished analytics all live in `server.ts` now.
+  // POST /api/chat is likewise owned by `server.ts`; keep the chat run
+  // launch path single-sourced so validation changes land on the live route.
 
   app.get('/api/runs', (req, res) => {
     const { projectId, conversationId, status } = req.query;
@@ -219,13 +109,113 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
     res.json(body);
   });
 
-  app.post('/api/chat', (req, res) => {
-    if (isDaemonShuttingDown()) {
-      return sendApiError(res, 503, 'UPSTREAM_UNAVAILABLE', 'daemon is shutting down');
+  // Feed a `tool_result` content block into a running stream-json child.
+  // Currently used to answer Claude's `AskUserQuestion` tool: the host UI
+  // collects the user's choice, the web POSTs the formatted answer here,
+  // and the daemon writes a JSONL line into the still-open stdin. Without
+  // this path Claude auto-errors the tool in headless mode and falls back
+  // to a markdown duplicate of the same options.
+  app.post('/api/runs/:id/tool-result', (req, res) => {
+    if (typeof submitToolResultToRun !== 'function') {
+      return sendApiError(res, 501, 'NOT_IMPLEMENTED', 'tool-result wiring is not available');
     }
-    const run = design.runs.create();
-    design.runs.stream(run, req, res);
-    design.runs.start(run, () => startChatRun(req.body || {}, run));
+    const body = (req.body || {}) as {
+      toolUseId?: unknown;
+      content?: unknown;
+      isError?: unknown;
+    };
+    const toolUseId = typeof body.toolUseId === 'string' ? body.toolUseId : '';
+    const content = typeof body.content === 'string' ? body.content : '';
+    const isError = body.isError === true;
+    if (!toolUseId) {
+      return sendApiError(res, 400, 'BAD_REQUEST', 'toolUseId is required');
+    }
+    const result = submitToolResultToRun(req.params.id, toolUseId, content, isError);
+    if (!result || !result.ok) {
+      const reason = result && result.reason ? result.reason : 'unknown';
+      if (reason === 'not_found') {
+        return sendApiError(res, 404, 'NOT_FOUND', 'run not found');
+      }
+      if (reason === 'run_terminal' || reason === 'stdin_closed') {
+        return sendApiError(res, 410, 'GONE', `run is no longer accepting tool results (${reason})`);
+      }
+      if (reason === 'stdin_text_mode') {
+        return sendApiError(res, 400, 'BAD_REQUEST', 'run does not support interactive tool results');
+      }
+      if (reason === 'bad_tool_use_id') {
+        return sendApiError(res, 400, 'BAD_REQUEST', 'toolUseId is invalid');
+      }
+      return sendApiError(res, 500, 'INTERNAL', `tool result write failed: ${reason}`);
+    }
+    res.json({ ok: true });
+  });
+
+  // Receives the user's thumbs-up/down (+ reason codes) for an assistant
+  // turn and forwards it to Langfuse as a `score-create`. Web persists the
+  // feedback itself via PUT /messages/:id; this endpoint exists only as a
+  // telemetry side channel — the daemon is the single network egress for
+  // Langfuse and gates on `telemetry.metrics + telemetry.content` consent.
+  //
+  // The consent + sink decision is fast (awaits a small file read, no
+  // network); we await it so the response status honestly reflects whether
+  // the score was enqueued, skipped for consent, or skipped because no
+  // Langfuse sink is configured. The actual Langfuse network call happens
+  // as a detached promise inside the bridge.
+  app.post('/api/runs/:id/feedback', async (req, res) => {
+    const runId = req.params.id;
+    const body = (req.body ?? {}) as Partial<{
+      projectId: string;
+      conversationId: string;
+      assistantMessageId: string;
+      rating: 'positive' | 'negative';
+      reasonCodes: string[];
+      hasCustomReason: boolean;
+      customReason: string;
+    }>;
+    if (!runId) {
+      return sendApiError(res, 400, 'INVALID_RUN_ID', 'runId missing');
+    }
+    if (body.rating !== 'positive' && body.rating !== 'negative') {
+      return sendApiError(res, 400, 'INVALID_RATING', 'rating must be positive or negative');
+    }
+    // Drop anything outside the contract-side reason allowlist and
+    // deduplicate; otherwise a malformed or replayed client payload could
+    // create unknown Langfuse categories or duplicate score ids in the
+    // same batch.
+    const reasonCodes = Array.isArray(body.reasonCodes)
+      ? Array.from(
+          new Set(
+            body.reasonCodes.filter(
+              (c): c is string =>
+                typeof c === 'string' && FEEDBACK_REASON_ALLOWLIST.has(c),
+            ),
+          ),
+        )
+      : [];
+    const customReason = typeof body.customReason === 'string' ? body.customReason : '';
+    const reportFeedback = ctx.telemetry?.reportFeedback;
+    if (!reportFeedback) {
+      res.status(202).json({ status: 'skipped_no_sink' });
+      return;
+    }
+    // Build score metadata bag that lands in the Langfuse score body.
+    // Mirrors the PostHog event so analysts can cross-reference.
+    const scoreMetadata: Record<string, unknown> = {
+      projectId: body.projectId,
+      conversationId: body.conversationId,
+      assistantMessageId: body.assistantMessageId,
+      hasCustomReason: body.hasCustomReason === true,
+      customReason,
+    };
+    const outcome = await reportFeedback({
+      runId,
+      rating: body.rating,
+      reasonCodes,
+      hasCustomReason: body.hasCustomReason === true,
+      customReason,
+      scoreMetadata,
+    });
+    res.status(202).json(outcome);
   });
 
   // ---- Connection tests (single-shot JSON; no SSE) ------------------------
@@ -250,13 +240,13 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
     const protocol = body.protocol;
     if (
       typeof protocol !== 'string' ||
-      !['anthropic', 'openai', 'azure', 'google', 'ollama'].includes(protocol)
+      !['anthropic', 'openai', 'azure', 'google', 'ollama', 'senseaudio'].includes(protocol)
     ) {
       return sendApiError(
         res,
         400,
         'BAD_REQUEST',
-        'protocol must be one of anthropic|openai|azure|google|ollama',
+        'protocol must be one of anthropic|openai|azure|google|ollama|senseaudio',
       );
     }
     if (
@@ -273,15 +263,21 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
       );
     }
     try {
-      const result = await listProviderModels({
-        protocol,
-        baseUrl: body.baseUrl,
-        apiKey: body.apiKey,
-        apiVersion:
-          typeof body.apiVersion === 'string' ? body.apiVersion : undefined,
-        signal: controller.signal,
-      });
-      return res.json(result);
+      const proxyDispatcher = proxyDispatcherRequestInit();
+      try {
+        const result = await listProviderModels({
+          protocol,
+          baseUrl: body.baseUrl,
+          apiKey: body.apiKey,
+          apiVersion:
+            typeof body.apiVersion === 'string' ? body.apiVersion : undefined,
+          signal: controller.signal,
+          requestInit: proxyDispatcher.requestInit,
+        });
+        return res.json(result);
+      } finally {
+        await proxyDispatcher.close();
+      }
     } catch (err: any) {
       console.warn(
         `[provider:models] uncaught: ${err instanceof Error ? err.message : String(err)}`,
@@ -311,13 +307,13 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
         const protocol = body.protocol;
         if (
           typeof protocol !== 'string' ||
-          !['anthropic', 'openai', 'azure', 'google', 'ollama'].includes(protocol)
+          !['anthropic', 'openai', 'azure', 'google', 'ollama', 'senseaudio'].includes(protocol)
         ) {
           return sendApiError(
             res,
             400,
             'BAD_REQUEST',
-            'protocol must be one of anthropic|openai|azure|google|ollama',
+            'protocol must be one of anthropic|openai|azure|google|ollama|senseaudio',
           );
         }
         if (
@@ -447,8 +443,13 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
   const redactAuthTokens = (text: string) =>
     text.replace(/Bearer [A-Za-z0-9_\-.+/=]+/g, 'Bearer [REDACTED]');
 
+  // DNS-aware wrapper. The sync `validateBaseUrl` only inspects the literal
+  // hostname string, so a public DNS name pointing at an internal address
+  // (`internal.example.com → 10.0.0.5`) still passes. We delegate to
+  // `validateBaseUrlResolved` here so every proxy/stream handler runs the
+  // same resolved-IP check before issuing the upstream request.
   const validateExternalApiBaseUrl = (baseUrl: string) => {
-    return validateBaseUrl(baseUrl);
+    return validateBaseUrlResolved(baseUrl);
   };
 
   const proxyErrorCode = (status: number) => {
@@ -532,7 +533,16 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
         if (!match || match.index === undefined) break;
         const frame = buffer.slice(0, match.index);
         buffer = buffer.slice(match.index + match[0].length);
-        if (await onFrame(collectSseFrame(frame))) return;
+        if (await onFrame(collectSseFrame(frame))) {
+          // Fire-and-forget cancel: awaiting hangs on some response-stream
+          // implementations (notably Response built from Uint8Array body,
+          // exposed by tests/proxy-routes.test.ts ollama case where the
+          // mock body's tee'd cancel() never resolves). The cancel signal
+          // is a hint; we're already returning from the function, so we
+          // don't gain anything by blocking on it.
+          void reader.cancel().catch(() => {});
+          return;
+        }
       }
     }
 
@@ -558,7 +568,11 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
         if (!line) continue;
         try {
           const data = JSON.parse(line);
-          if (await onFrame({ data })) return;
+          if (await onFrame({ data })) {
+            // See note in streamUpstreamSse — fire-and-forget cancel.
+            void reader.cancel().catch(() => {});
+            return;
+          }
         } catch {
           // Ignore malformed provider keepalive lines.
         }
@@ -627,9 +641,34 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
     return '';
   };
 
+  // Per-request role-marker guard for BYOK proxy streams (#3247).
+  function createDeltaGuard(sse: any) {
+    const guard = createRoleMarkerGuard('proxy');
+    return {
+      sendDelta(text: string) {
+        if (guard.contaminated || !text) return;
+        const safe = guard.feedText(text);
+        if (safe.length > 0) {
+          sse.send('delta', { delta: safe });
+        }
+        if (guard.contaminated) {
+          const warn = guard.warningEvent();
+          const markerText = warn?.marker ?? '## user';
+          sse.send('delta', {
+            delta: `\n\n---\n⚠️ **Security warning:** The model attempted to emit a fabricated role marker (\`${markerText}\`). Response was truncated to prevent unauthorized instruction injection. See issue #3247.\n`,
+          });
+        }
+      },
+      get contaminated() { 
+        return guard.contaminated; 
+      },
+    };
+  }
+
   app.post('/api/proxy/anthropic/stream', async (req, res) => {
     /** @type {Partial<ProxyStreamRequest>} */
     const proxyBody = req.body || {};
+    if (rejectProxyPluginContext(proxyBody, res)) return;
     const { baseUrl, apiKey, model, systemPrompt, messages, maxTokens } =
       proxyBody;
     if (!baseUrl || !apiKey || !model) {
@@ -641,7 +680,7 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
       );
     }
 
-    const validated = validateExternalApiBaseUrl(baseUrl);
+    const validated = await validateExternalApiBaseUrl(baseUrl);
     if (validated.error) {
       return sendApiError(
         res,
@@ -653,7 +692,7 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
 
     const url = appendVersionedApiPath(baseUrl, '/messages');
     console.log(
-      `[proxy:anthropic] ${req.method} ${validated.parsed.hostname} model=${model}`,
+      `[proxy:anthropic] ${req.method} ${validated.parsed!.hostname} model=${model}`,
     );
 
     const payload: any = {
@@ -668,9 +707,12 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
     }
 
     const sse = createSseResponse(res);
-    sse.send('start', { model });
+    let proxyDispatcher: ReturnType<typeof proxyDispatcherRequestInit> | null = null;
     try {
+      proxyDispatcher = proxyDispatcherRequestInit();
+      sse.send('start', { model });
       const response = await fetch(url, {
+        ...proxyDispatcher.requestInit,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -695,6 +737,7 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
       }
 
       let ended = false;
+      const guard = createDeltaGuard(sse);
       await streamUpstreamSse(response, ({ event, data }: any) => {
         if (!data) return false;
         if (event === 'error' || data.type === 'error') {
@@ -704,7 +747,12 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
           return true;
         }
         if (event === 'content_block_delta' && typeof data.delta?.text === 'string') {
-          sse.send('delta', { delta: data.delta.text });
+          guard.sendDelta(data.delta.text);
+          if (guard.contaminated) { 
+            sse.send('end', {}); 
+            ended = true; 
+            return true; 
+          }
         }
         if (event === 'message_stop') {
           sse.send('end', {});
@@ -719,12 +767,15 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
       console.error(`[proxy:anthropic] internal error: ${err.message}`);
       sendProxyError(sse, err.message, { code: 'INTERNAL_ERROR' });
       sse.end();
+    } finally {
+      await proxyDispatcher?.close();
     }
   });
 
   app.post('/api/proxy/openai/stream', async (req, res) => {
     /** @type {Partial<ProxyStreamRequest>} */
     const proxyBody = req.body || {};
+    if (rejectProxyPluginContext(proxyBody, res)) return;
     const { baseUrl, apiKey, model, systemPrompt, messages, maxTokens } =
       proxyBody;
     if (!baseUrl || !apiKey || !model) {
@@ -736,7 +787,7 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
       );
     }
 
-    const validated = validateExternalApiBaseUrl(baseUrl);
+    const validated = await validateExternalApiBaseUrl(baseUrl);
     if (validated.error) {
       return sendApiError(
         res,
@@ -748,7 +799,7 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
 
     const url = appendVersionedApiPath(baseUrl, '/chat/completions');
     console.log(
-      `[proxy:openai] ${req.method} ${validated.parsed.hostname} model=${model}`,
+      `[proxy:openai] ${req.method} ${validated.parsed!.hostname} model=${model}`,
     );
 
     const payloadMessages = Array.isArray(messages) ? [...messages] : [];
@@ -759,19 +810,28 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
     const payload: any = {
       model,
       messages: payloadMessages,
-      max_tokens:
+      ...buildOpenAIChatTokenParam(
+        model,
         typeof maxTokens === 'number' && maxTokens > 0 ? maxTokens : 8192,
+      ),
       stream: true,
     };
 
     const sse = createSseResponse(res);
-    sse.send('start', { model });
+    let proxyDispatcher: ReturnType<typeof proxyDispatcherRequestInit> | null = null;
     try {
+      proxyDispatcher = proxyDispatcherRequestInit();
+      sse.send('start', { model });
       const response = await fetch(url, {
+        ...proxyDispatcher.requestInit,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
+          ...(validated.parsed!.hostname === 'openrouter.ai' ? {
+            'HTTP-Referer': 'https://opendesign.dev',
+            'X-Title': 'Open Design',
+          } : {}),
         },
         body: JSON.stringify(payload),
         redirect: 'error',
@@ -791,6 +851,7 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
       }
 
       let ended = false;
+      const guard = createDeltaGuard(sse);
       await streamUpstreamSse(response, ({ payload, data }: any) => {
         if (payload === '[DONE]') {
           sse.send('end', {});
@@ -805,7 +866,14 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
           return true;
         }
         const delta = extractOpenAIText(data);
-        if (delta) sse.send('delta', { delta });
+        if (delta) { 
+          guard.sendDelta(delta); 
+          if (guard.contaminated) { 
+            sse.send('end', {}); 
+            ended = true; 
+            return true; 
+          } 
+        }
         return false;
       });
       if (!ended) sse.send('end', {});
@@ -814,12 +882,15 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
       console.error(`[proxy:openai] internal error: ${err.message}`);
       sendProxyError(sse, err.message, { code: 'INTERNAL_ERROR' });
       sse.end();
+    } finally {
+      await proxyDispatcher?.close();
     }
   });
 
   app.post('/api/proxy/azure/stream', async (req, res) => {
     /** @type {Partial<ProxyStreamRequest>} */
     const proxyBody = req.body || {};
+    if (rejectProxyPluginContext(proxyBody, res)) return;
     const { baseUrl, apiKey, model, systemPrompt, messages, maxTokens, apiVersion } =
       proxyBody;
     if (!baseUrl || !apiKey || !model) {
@@ -831,7 +902,7 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
       );
     }
 
-    const validated = validateExternalApiBaseUrl(baseUrl);
+    const validated = await validateExternalApiBaseUrl(baseUrl);
     if (validated.error) {
       return sendApiError(
         res,
@@ -860,7 +931,7 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
       url.searchParams.set('api-version', version);
     }
     console.log(
-      `[proxy:azure] ${req.method} ${validated.parsed.hostname} deployment=${model} api-version=${version || 'omitted'}`,
+      `[proxy:azure] ${req.method} ${validated.parsed!.hostname} deployment=${model} api-version=${version || 'omitted'}`,
     );
 
     const payloadMessages = Array.isArray(messages) ? [...messages] : [];
@@ -868,41 +939,74 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
       payloadMessages.unshift({ role: 'system', content: systemPrompt });
     }
 
+    const effectiveMaxTokens =
+      typeof maxTokens === 'number' && maxTokens > 0 ? maxTokens : 8192;
     const payload = {
       ...(usesVersionedOpenAIPath ? { model } : {}),
       messages: payloadMessages,
-      max_tokens:
-        typeof maxTokens === 'number' && maxTokens > 0 ? maxTokens : 8192,
+      ...buildLegacyMaxTokensParam(effectiveMaxTokens),
+      stream: true,
+    };
+    const retryPayload = {
+      ...(usesVersionedOpenAIPath ? { model } : {}),
+      messages: payloadMessages,
+      ...buildMaxCompletionTokensParam(effectiveMaxTokens),
       stream: true,
     };
 
     const sse = createSseResponse(res);
-    sse.send('start', { model });
+    let proxyDispatcher: ReturnType<typeof proxyDispatcherRequestInit> | null = null;
     try {
-      const response = await fetch(url, {
+      proxyDispatcher = proxyDispatcherRequestInit();
+      sse.send('start', { model });
+      const requestInit = {
+        ...proxyDispatcher.requestInit,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'api-key': apiKey,
         },
+        redirect: 'error' as const,
+      };
+      let response = await fetch(url, {
+        ...requestInit,
         body: JSON.stringify(payload),
-        redirect: 'error',
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error(
-          `[proxy:azure] upstream error: ${response.status} ${redactAuthTokens(errorText)}`,
-        );
-        sendProxyError(sse, `Upstream error: ${response.status}`, {
-          code: proxyErrorCode(response.status),
-          details: errorText,
-          retryable: response.status === 429 || response.status >= 500,
-        });
-        return sse.end();
+        let errorText = await response.text();
+        if (
+          response.status === 400 &&
+          isUnsupportedMaxTokensError(errorText)
+        ) {
+          console.warn(
+            `[proxy:azure] retrying request with max_completion_tokens deployment=${model}`,
+          );
+          response = await fetch(url, {
+            ...requestInit,
+            body: JSON.stringify(retryPayload),
+          });
+          if (response.ok) {
+            errorText = '';
+          } else {
+            errorText = await response.text();
+          }
+        }
+        if (!response.ok) {
+          console.error(
+            `[proxy:azure] upstream error: ${response.status} ${redactAuthTokens(errorText)}`,
+          );
+          sendProxyError(sse, `Upstream error: ${response.status}`, {
+            code: proxyErrorCode(response.status),
+            details: errorText,
+            retryable: response.status === 429 || response.status >= 500,
+          });
+          return sse.end();
+        }
       }
 
       let ended = false;
+      const guard = createDeltaGuard(sse);
       await streamUpstreamSse(response, ({ payload: ssePayload, data }: any) => {
         if (ssePayload === '[DONE]') {
           sse.send('end', {});
@@ -917,7 +1021,13 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
           return true;
         }
         const delta = extractOpenAIText(data);
-        if (delta) sse.send('delta', { delta });
+        if (delta) { guard.sendDelta(delta); 
+          if (guard.contaminated) { 
+            sse.send('end', {}); 
+            ended = true; 
+            return true; 
+          } 
+        }
         return false;
       });
       if (!ended) sse.send('end', {});
@@ -926,12 +1036,15 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
       console.error(`[proxy:azure] internal error: ${err.message}`);
       sendProxyError(sse, err.message, { code: 'INTERNAL_ERROR' });
       sse.end();
+    } finally {
+      await proxyDispatcher?.close();
     }
   });
 
   app.post('/api/proxy/google/stream', async (req, res) => {
     /** @type {Partial<ProxyStreamRequest>} */
     const proxyBody = req.body || {};
+    if (rejectProxyPluginContext(proxyBody, res)) return;
     const { baseUrl, apiKey, model, systemPrompt, messages, maxTokens } = proxyBody;
     if (!apiKey || !model) {
       return sendApiError(
@@ -943,7 +1056,7 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
     }
 
     const effectiveBaseUrl = baseUrl || 'https://generativelanguage.googleapis.com';
-    const validated = validateExternalApiBaseUrl(effectiveBaseUrl);
+    const validated = await validateExternalApiBaseUrl(effectiveBaseUrl);
     if (validated.error) {
       return sendApiError(
         res,
@@ -953,10 +1066,9 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
       );
     }
 
-    const clean = effectiveBaseUrl.replace(/\/+$/, '');
-    const url = `${clean}/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`;
+    const url = googleStreamGenerateContentUrl(effectiveBaseUrl, model);
     console.log(
-      `[proxy:google] ${req.method} ${validated.parsed.hostname} model=${model}`,
+      `[proxy:google] ${req.method} ${validated.parsed!.hostname} model=${model}`,
     );
 
     const contents = (Array.isArray(messages) ? messages : []).map((message) => ({
@@ -975,9 +1087,12 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
     }
 
     const sse = createSseResponse(res);
-    sse.send('start', { model });
+    let proxyDispatcher: ReturnType<typeof proxyDispatcherRequestInit> | null = null;
     try {
+      proxyDispatcher = proxyDispatcherRequestInit();
+      sse.send('start', { model });
       const response = await fetch(url, {
+        ...proxyDispatcher.requestInit,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1001,6 +1116,7 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
       }
 
       let ended = false;
+      const guard = createDeltaGuard(sse);
       await streamUpstreamSse(response, ({ data }: any) => {
         if (!data) return false;
         const streamError = extractStreamErrorMessage(data);
@@ -1010,7 +1126,13 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
           return true;
         }
         const delta = extractGeminiText(data);
-        if (delta) sse.send('delta', { delta });
+        if (delta) { guard.sendDelta(delta); 
+          if (guard.contaminated) { 
+            sse.send('end', {}); 
+            ended = true; 
+            return true; 
+          } 
+        }
         const blockMessage = extractGeminiBlockMessage(data);
         if (blockMessage) {
           sendProxyError(sse, blockMessage, { details: data });
@@ -1025,18 +1147,21 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
       console.error(`[proxy:google] internal error: ${err.message}`);
       sendProxyError(sse, err.message, { code: 'INTERNAL_ERROR' });
       sse.end();
+    } finally {
+      await proxyDispatcher?.close();
     }
   });
 
   app.post('/api/proxy/ollama/stream', async (req, res) => {
     const proxyBody = req.body || {};
+    if (rejectProxyPluginContext(proxyBody, res)) return;
     const { baseUrl, apiKey, model, systemPrompt, messages, maxTokens } = proxyBody;
     if (!apiKey || !model) {
       return sendApiError(res, 400, 'BAD_REQUEST', 'apiKey and model are required');
     }
 
     const effectiveBaseUrl = baseUrl || 'https://ollama.com';
-    const validated = validateExternalApiBaseUrl(effectiveBaseUrl);
+    const validated = await validateExternalApiBaseUrl(effectiveBaseUrl);
     if (validated.error) {
       return sendApiError(
         res,
@@ -1048,7 +1173,7 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
 
     const clean = effectiveBaseUrl.replace(/\/+$/, '').replace(/\/api\/?$/, '');
     const url = `${clean}/api/chat`;
-    console.log(`[proxy:ollama] ${req.method} ${validated.parsed.hostname} model=${model}`);
+    console.log(`[proxy:ollama] ${req.method} ${validated.parsed!.hostname} model=${model}`);
 
     const payloadMessages = Array.isArray(messages) ? [...messages] : [];
     if (typeof systemPrompt === 'string' && systemPrompt) {
@@ -1061,12 +1186,16 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
     }
 
     const sse = createSseResponse(res);
-    sse.send('start', { model });
+    let proxyDispatcher: ReturnType<typeof proxyDispatcherRequestInit> | null = null;
     try {
+      proxyDispatcher = proxyDispatcherRequestInit();
+      sse.send('start', { model });
       const response = await fetch(url, {
+        ...proxyDispatcher.requestInit,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify(payload),
+        redirect: 'error',
       });
 
       if (!response.ok) {
@@ -1081,6 +1210,7 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
       }
 
       let ended = false;
+      const guard = createDeltaGuard(sse);
       await streamUpstreamNdjson(response, ({ data }: any) => {
         if (!data) return false;
         if (data.done) {
@@ -1089,7 +1219,14 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
           return true;
         }
         const content = data.message?.content;
-        if (typeof content === 'string' && content) sse.send('delta', { delta: content });
+        if (typeof content === 'string' && content) { 
+          guard.sendDelta(content); 
+          if (guard.contaminated) { 
+            sse.send('end', {}); 
+            ended = true; 
+            return true; 
+          } 
+        }
         return false;
       });
       if (!ended) sse.send('end', {});
@@ -1098,6 +1235,379 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
       console.error(`[proxy:ollama] internal error: ${err.message}`);
       sendProxyError(sse, err.message, { code: 'INTERNAL_ERROR' });
       sse.end();
+    } finally {
+      await proxyDispatcher?.close();
+    }
+  });
+
+  // SenseAudio chat completions. Wire-compatible with OpenAI (POST
+  // /v1/chat/completions, Bearer auth, SSE `data: {...}` + `data: [DONE]`)
+  // plus a daemon-side tool loop: the handler injects an OpenAI
+  // `tools` array on every upstream request and, when the model
+  // responds with a `tool_calls` finish_reason, executes the call
+  // locally, appends the assistant + tool messages to the conversation,
+  // and re-issues the completion. This is how BYOK chat — which has
+  // no agent-runtime scaffolding — gets image-generation parity with
+  // the CLI agent path. Loop is bounded by MAX_BYOK_TOOL_LOOPS so a
+  // misbehaving model can't pin the daemon in an infinite tool dance.
+  const MAX_BYOK_TOOL_LOOPS = 3;
+
+  type AccumulatedToolCall = { id: string; name: string; arguments: string };
+  type TurnResult =
+    | { kind: 'text_end' }
+    | { kind: 'error' }
+    | {
+        kind: 'tool_calls';
+        assistantMessage: any;
+        toolCalls: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>;
+      };
+
+  app.post('/api/proxy/senseaudio/stream', async (req, res) => {
+    const proxyBody = req.body || {};
+    if (rejectProxyPluginContext(proxyBody, res)) return;
+    const {
+      baseUrl,
+      apiKey,
+      model,
+      systemPrompt,
+      messages,
+      maxTokens,
+      projectId,
+      byokImageModel,
+    } = proxyBody;
+    if (!apiKey || !model) {
+      return sendApiError(
+        res,
+        400,
+        'BAD_REQUEST',
+        'apiKey and model are required',
+      );
+    }
+    // projectId is required because the BYOK generate_image tool writes
+    // into the active project's folder; without one we'd have to fall
+    // back to a daemon-global cache that orphans the file. The web
+    // client always passes project.id from ProjectView, so a missing
+    // value means the request did not come through the chat surface.
+    if (typeof projectId !== 'string' || !isSafeProjectId(projectId)) {
+      return sendApiError(
+        res,
+        400,
+        'BAD_REQUEST',
+        'projectId is required and must be a safe identifier',
+      );
+    }
+
+    const effectiveBaseUrl = baseUrl || 'https://api.senseaudio.cn';
+    const validated = await validateExternalApiBaseUrl(effectiveBaseUrl);
+    if (validated.error) {
+      return sendApiError(
+        res,
+        validated.forbidden ? 403 : 400,
+        validated.forbidden ? 'FORBIDDEN' : 'BAD_REQUEST',
+        validated.error,
+      );
+    }
+
+    const url = appendVersionedApiPath(effectiveBaseUrl, '/chat/completions');
+    console.log(
+      `[proxy:senseaudio] ${req.method} ${validated.parsed?.hostname ?? '?'} model=${model} project=${projectId}`,
+    );
+
+    const workingMessages: any[] = Array.isArray(messages) ? [...messages] : [];
+    if (typeof systemPrompt === 'string' && systemPrompt) {
+      workingMessages.unshift({ role: 'system', content: systemPrompt });
+    }
+
+    // Tool execution context — built once per request. The image tool
+    // writes into `<projectsRoot>/<projectId>/byok-<id>.png` and returns
+    // a relative URL via `/api/projects/:id/files/:filename`. The web's
+    // Next.js rewrites `/api/:path*` to the daemon, so the chat UI
+    // loads images same-origin through the standard project file
+    // route — no CSP / CORS exceptions needed.
+    // User-configured BYOK default image model. Drop silently if the
+    // client sent an id outside the SenseAudio registry — the tool
+    // will fall back to the registry default and the LLM can still
+    // override per-call via the tool's `model` arg.
+    const validDefaultImageModel = isSenseAudioImageModel(byokImageModel)
+      ? byokImageModel
+      : undefined;
+
+    let proxyDispatcher: ReturnType<typeof proxyDispatcherRequestInit> | null = null;
+
+    const toolCtx: BYOKToolContext = {
+      projectRoot: ctx.paths.PROJECT_ROOT,
+      projectsRoot: ctx.paths.PROJECTS_DIR,
+      projectId,
+      upstreamApiKey: apiKey,
+      upstreamBaseUrl: effectiveBaseUrl,
+      requestInit: {},
+      // Spread-conditional because tsconfig's exactOptionalPropertyTypes
+      // forbids `field: undefined` on an optional slot. The byok-tools
+      // executor reads `ctx.defaultImageModel` with `isSenseAudioImageModel`
+      // anyway, so a missing key and an undefined value behave the same.
+      ...(validDefaultImageModel
+        ? { defaultImageModel: validDefaultImageModel }
+        : {}),
+    };
+
+    // Run one round-trip: POST to upstream, stream text deltas to the
+    // client as they arrive, accumulate any tool_call deltas. Returns
+    // a typed result describing what to do next (loop on tool calls,
+    // close the stream, or bail on error). Closures capture all the
+    // SSE helpers from registerChatRoutes.
+    const runSenseAudioTurn = async (
+      sse: any,
+      messagesForTurn: any[],
+    ): Promise<TurnResult> => {
+      const payload: any = {
+        model,
+        messages: messagesForTurn,
+        max_tokens:
+          typeof maxTokens === 'number' && maxTokens > 0 ? maxTokens : 8192,
+        stream: true,
+        tools: BYOK_SENSEAUDIO_TOOLS,
+        tool_choice: 'auto',
+      };
+      const response = await fetch(url, {
+        ...toolCtx.requestInit,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(payload),
+        redirect: 'error',
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(
+          `[proxy:senseaudio] upstream error: ${response.status} ${redactAuthTokens(errorText)}`,
+        );
+        sendProxyError(sse, `Upstream error: ${response.status}`, {
+          code: proxyErrorCode(response.status),
+          details: errorText,
+          retryable: response.status === 429 || response.status >= 500,
+        });
+        return { kind: 'error' };
+      }
+
+      const accum: Record<number, AccumulatedToolCall> = {};
+      let finishReason = '';
+      let providerError = '';
+
+      const guard = createDeltaGuard(sse);
+      await streamUpstreamSse(response, ({ payload, data }: any) => {
+        if (payload === '[DONE]') return true;
+        if (!data) return false;
+
+        const streamErr = extractStreamErrorMessage(data);
+        if (streamErr) {
+          providerError = streamErr;
+          return true;
+        }
+
+        const choices = (data as any).choices;
+        if (!Array.isArray(choices) || choices.length === 0) return false;
+        const choice = choices[0] || {};
+        const delta = choice.delta || {};
+
+        // Text content streams to the client unchanged. Tool turns and
+        // text turns can both share this path — the OpenAI protocol
+        // never emits text+tool_calls in the same chunk, but it can
+        // emit text before / after a tool_call in the same turn, and
+        // we want the user to see whatever the model decided to say.
+        if (typeof delta.content === 'string' && delta.content) {
+          guard.sendDelta(delta.content);
+          if (guard.contaminated) { 
+            sse.send('end', {}); 
+            return true; 
+          }
+        }
+
+        // Tool call deltas stream as fragments — `id` arrives once at
+        // the start, `function.name` once at the start, and
+        // `function.arguments` accumulates a chunked JSON string we
+        // have to concatenate. Parallel calls use the `index` field to
+        // distinguish slots. Default to 0 when omitted (older models).
+        if (Array.isArray(delta.tool_calls)) {
+          for (const tc of delta.tool_calls) {
+            const idx = typeof tc?.index === 'number' ? tc.index : 0;
+            if (!accum[idx]) {
+              accum[idx] = { id: '', name: '', arguments: '' };
+            }
+            const slot = accum[idx];
+            if (typeof tc.id === 'string' && tc.id) slot.id = tc.id;
+            if (typeof tc.function?.name === 'string' && tc.function.name) {
+              slot.name = tc.function.name;
+            }
+            if (typeof tc.function?.arguments === 'string') {
+              slot.arguments += tc.function.arguments;
+            }
+          }
+        }
+
+        if (typeof choice.finish_reason === 'string' && choice.finish_reason) {
+          finishReason = choice.finish_reason;
+        }
+        return false;
+      });
+
+      if (providerError) {
+        sendProxyError(sse, `Provider error: ${providerError}`, {
+          details: providerError,
+        });
+        return { kind: 'error' };
+      }
+
+      if (finishReason === 'tool_calls' && Object.keys(accum).length > 0) {
+        const indices = Object.keys(accum)
+          .map(Number)
+          .sort((a, b) => a - b);
+        const toolCalls = indices.map((i) => ({
+          id: accum[i]!.id || `call_${i}`,
+          type: 'function' as const,
+          function: {
+            name: accum[i]!.name,
+            arguments: accum[i]!.arguments,
+          },
+        }));
+        return {
+          kind: 'tool_calls',
+          assistantMessage: {
+            role: 'assistant',
+            content: null,
+            tool_calls: toolCalls,
+          },
+          toolCalls,
+        };
+      }
+
+      return { kind: 'text_end' };
+    };
+
+    const executeOneTool = async (call: {
+      id: string;
+      function: { name: string; arguments: string };
+    }): Promise<{ ok: boolean; url?: string; error?: string; kind?: 'image' | 'video' | 'speech' }> => {
+      const fnName = call?.function?.name ?? '';
+      if (fnName !== 'generate_image' && fnName !== 'generate_video' && fnName !== 'generate_speech') {
+        return {
+          ok: false,
+          error: `unknown tool: ${fnName || 'unnamed'}`,
+        };
+      }
+      const toolKind = fnName === 'generate_image' ? 'image' : fnName === 'generate_video' ? 'video' : 'speech';
+      let args: any = {};
+      try {
+        args = JSON.parse(call.function.arguments || '{}');
+      } catch {
+        return { ok: false, error: 'tool arguments were not valid JSON', kind: toolKind };
+      }
+      if (fnName === 'generate_image') {
+        const result = await executeGenerateImage(args, toolCtx);
+        return { ...result, kind: 'image' };
+      }
+      if (fnName === 'generate_speech') {
+        const result = await executeGenerateSpeech(args, toolCtx);
+        return { ...result, kind: 'speech' };
+      }
+      // generate_video — longer (up to 5 min), async-with-polling.
+      const result = await executeGenerateVideo(args, toolCtx);
+      return { ...result, kind: 'video' };
+    };
+
+    const sse = createSseResponse(res);
+    // SenseAudio's gateway issues one API key that works for both
+    // /v1/chat/completions and the image / TTS surfaces. Mirror the
+    // BYOK key into media-config so the CLI agent path (`od media
+    // generate`) picks it up automatically — fire-and-forget; the
+    // chat stream must not block on the disk write. seedProviderIfMissing
+    // is idempotent and preserves env-var-resolved keys.
+    seedProviderIfMissing(ctx.paths.PROJECT_ROOT, 'senseaudio', {
+      apiKey,
+      baseUrl: effectiveBaseUrl,
+    })
+      .then((seeded) => {
+        if (seeded) {
+          console.log(
+            '[proxy:senseaudio] seeded media-config.senseaudio from BYOK key',
+          );
+        }
+      })
+      .catch((err: unknown) => {
+        console.warn(
+          `[proxy:senseaudio] seed media-config failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      });
+
+    try {
+      proxyDispatcher = proxyDispatcherRequestInit();
+      toolCtx.requestInit = proxyDispatcher.requestInit;
+      sse.send('start', { model });
+      for (let loop = 0; loop < MAX_BYOK_TOOL_LOOPS; loop++) {
+        const turn = await runSenseAudioTurn(sse, workingMessages);
+        if (turn.kind === 'error') return sse.end();
+        if (turn.kind === 'text_end') {
+          sse.send('end', {});
+          return sse.end();
+        }
+        // turn.kind === 'tool_calls'
+        workingMessages.push(turn.assistantMessage);
+        for (const call of turn.toolCalls) {
+          const result = await executeOneTool(call);
+          // The tool result is delivered to the model as a `tool` role
+          // message — a structured payload the model can interpret. We
+          // also surface a daemon-side log line so a user reporting "no
+          // image showed up" can grep for the call id. The kind field
+          // distinguishes image vs video so the daemon picks the right
+          // embedding hint for the model (markdown image syntax for
+          // PNG, markdown link for MP4 since the chat renderer doesn't
+          // currently render <video> tags).
+          const toolName = call?.function?.name ?? 'unknown';
+          if (result.ok) {
+            console.log(
+              `[proxy:senseaudio] ${toolName} OK: ${call.id} → ${result.url}`,
+            );
+          } else {
+            console.warn(
+              `[proxy:senseaudio] ${toolName} FAILED: ${call.id} — ${result.error}`,
+            );
+          }
+          const content = result.ok
+            ? result.kind === 'video'
+              ? `Video generated successfully. URL: ${result.url}. Reply to the user with a clickable markdown link, e.g. [▶ Play video](${result.url}). Do NOT use markdown image syntax — the chat renderer does not embed <video> tags.`
+              : result.kind === 'speech'
+                ? `Speech generated successfully. URL: ${result.url}. Reply to the user with a clickable markdown link to the MP3, e.g. [▶ Play voiceover](${result.url}).`
+              : `Image generated successfully. URL: ${result.url}. Reply to the user with: ![generated image](${result.url})`
+            : result.kind === 'video'
+              ? `Video generation failed: ${result.error}. Apologize briefly and suggest a retry with a more specific prompt or a shorter duration.`
+              : result.kind === 'speech'
+                ? `Speech generation failed: ${result.error}. Apologize briefly and suggest a retry with a shorter script or a valid voice id.`
+              : `Image generation failed: ${result.error}. Apologize briefly and suggest a retry with a more specific prompt.`;
+          workingMessages.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content,
+          });
+        }
+      }
+      // Tool loop exhausted — the model still wants to call tools but we
+      // refuse a 4th round. Close the stream gracefully; the last text
+      // delta the model emitted (if any) is already on the wire.
+      console.warn(
+        '[proxy:senseaudio] tool loop bounded at MAX_BYOK_TOOL_LOOPS=3',
+      );
+      sse.send('end', {});
+      return sse.end();
+    } catch (err: any) {
+      console.error(`[proxy:senseaudio] internal error: ${err.message}`);
+      sendProxyError(sse, err.message, { code: 'INTERNAL_ERROR' });
+      sse.end();
+    } finally {
+      await proxyDispatcher?.close();
     }
   });
 

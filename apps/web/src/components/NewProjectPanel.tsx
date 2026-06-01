@@ -1,22 +1,29 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { createTabToTracking } from '@open-design/contracts/analytics';
 import {
-  createTabToTracking,
-  projectKindToTracking,
-} from '@open-design/contracts/analytics';
+  isOpenDesignHostAvailable,
+  pickAndImportHostProject,
+  type OpenDesignHostProjectImportSuccess,
+} from '@open-design/host';
 import { useAnalytics } from '../analytics/provider';
-import { trackHomeClickCreateButton } from '../analytics/events';
-import type { ConnectorDetail, ImportFolderResponse } from '@open-design/contracts';
-
-// Window.electronAPI is declared globally in apps/web/src/types/electron.d.ts
-// so the new openPath + pickAndImport methods (#451 / PR #974) and
-// existing openExternal stay in one place. PR #974 deleted the raw
-// `pickFolder` bridge: the renderer no longer receives a filesystem
-// path from the main process, only the daemon's import response.
+import {
+  trackDesignSystemApplyResult,
+  trackNewProjectModalElementClick,
+  trackNewProjectModalSurfaceView,
+  trackNewProjectModalTabClick,
+} from '../analytics/events';
+import type { ConnectorDetail } from '@open-design/contracts';
+import type {
+  TrackingDesignSystemApplyTargetKind,
+  TrackingDesignSystemOrigin,
+  TrackingDesignSystemStatusValue,
+} from '@open-design/contracts/analytics';
 
 import { useT } from '../i18n';
 import type { Dict } from '../i18n/types';
 import { fetchPromptTemplate } from '../providers/registry';
 import { isStoredMediaProviderEntryPresent } from '../state/config';
+import { isMediaProviderPickerReady } from '../media/provider-readiness';
 import type {
   AudioKind,
   DesignSystemSummary,
@@ -42,39 +49,10 @@ import {
   VIDEO_LENGTHS_SEC,
   VIDEO_MODELS,
 } from '../media/models';
+import { formatPickAndImportFailure } from '../utils/pickAndImportError';
 import { Icon } from './Icon';
 import { Skeleton } from './Loading';
 import { Toast } from './Toast';
-
-/**
- * Best-effort flattening of the `details` field that the
- * pickAndImport main-process handler attaches when the daemon returned
- * a structured error envelope (PR #974 round-4 mrcfps). Daemon errors
- * carry `error.message` and sometimes nested `error.details.reason`;
- * we surface the most operator-actionable string we can find without
- * over-coupling to any particular error code.
- */
-function formatPickAndImportErrorDetails(details: unknown): string | undefined {
-  if (typeof details === 'string' && details.length > 0) return details;
-  if (details == null || typeof details !== 'object') return undefined;
-  const record = details as Record<string, unknown>;
-  const error = record.error;
-  if (error != null && typeof error === 'object') {
-    const errRecord = error as Record<string, unknown>;
-    const message = errRecord.message;
-    const nestedDetails = errRecord.details;
-    if (typeof message === 'string' && message.length > 0) {
-      if (nestedDetails != null && typeof nestedDetails === 'object') {
-        const nestedReason = (nestedDetails as Record<string, unknown>).reason;
-        if (typeof nestedReason === 'string' && nestedReason.length > 0) {
-          return `${message} (${nestedReason})`;
-        }
-      }
-      return message;
-    }
-  }
-  return undefined;
-}
 
 // Snapshot of a curated prompt template, captured at New Project time and
 // folded into ProjectMetadata.promptTemplate. The user may have edited the
@@ -137,31 +115,38 @@ export interface CreateInput {
   metadata: ProjectMetadata;
 }
 
+export type ImportClaudeDesignOutcome =
+  | { ok: true }
+  | { ok: false; message?: string; details?: string };
+
 interface Props {
   skills: SkillSummary[];
   designSystems: DesignSystemSummary[];
   defaultDesignSystemId: string | null;
   templates: ProjectTemplate[];
-  onDeleteTemplate: (id: string) => Promise<boolean>;
+  onDeleteTemplate?: (id: string) => Promise<boolean>;
   promptTemplates: PromptTemplateSummary[];
   onCreate: (input: CreateInput & { requestId?: string }) => void;
-  onImportClaudeDesign?: (file: File) => Promise<void> | void;
+  onImportClaudeDesign?: (
+    file: File,
+  ) => Promise<ImportClaudeDesignOutcome | void> | ImportClaudeDesignOutcome | void;
   // Web fallback: the user types an absolute baseDir into the manual
   // input and the renderer POSTs `/api/import/folder` itself. Browser
   // builds have no `shell.openPath` surface, so the renderer naming a
   // path here cannot escalate (PR #974 trust model).
   onImportFolder?: (baseDir: string) => Promise<void> | void;
-  // Electron flow: the desktop main process owns the picker dialog and
+  // Host flow: the desktop main process owns the picker dialog and
   // the import call atomically (`pickAndImport` IPC). The renderer
   // never sees the path or the HMAC token; it only receives the
-  // daemon's import response and forwards it here so App-level state
-  // can update without a second fetch.
-  onImportFolderResponse?: (response: ImportFolderResponse) => Promise<void> | void;
+  // host-owned project identifiers and forwards them here so App-level
+  // state can refresh through the daemon API.
+  onImportFolderResponse?: (response: OpenDesignHostProjectImportSuccess) => Promise<void> | void;
   mediaProviders?: Record<string, MediaProviderCredentials>;
   connectors?: ConnectorDetail[];
   connectorsLoading?: boolean;
   onOpenConnectorsTab?: () => void;
   loading?: boolean;
+  initialTab?: CreateTab;
 }
 
 const TAB_LABEL_KEYS: Record<CreateTab, keyof Dict> = {
@@ -172,6 +157,66 @@ const TAB_LABEL_KEYS: Record<CreateTab, keyof Dict> = {
   media: 'newproj.tabMedia',
   other: 'newproj.tabOther',
 };
+
+// Maps the New Project tab + media surface to the apply-result target
+// kind enum. `media` collapses to image/video/audio inside callers;
+// this helper covers the non-media tabs and the live-artifact special
+// case. Media surfaces map case-by-case at the call site.
+function newProjectTabToApplyKind(
+  tab: CreateTab,
+): TrackingDesignSystemApplyTargetKind {
+  switch (tab) {
+    case 'prototype':
+      return 'prototype';
+    case 'deck':
+      return 'slide_deck';
+    case 'live-artifact':
+      return 'live_artifact';
+    case 'media':
+      // Media tab has its own surface picker; the apply emission
+      // happens before the user selects image/video/audio, so we
+      // mark it `unknown` rather than guessing. The picker is also
+      // typically hidden under media but the helper stays total.
+      return 'unknown';
+    case 'template':
+    case 'other':
+      return 'unknown';
+  }
+}
+
+// Maps a `DesignSystemSummary.source` value to the DS origin enum used
+// by `design_system_apply_result.design_system_source`. The summary
+// shape only carries `'built-in' | 'installed' | 'user'`; we map them
+// onto the doc's enum: user → manual_create, built-in → official_preset,
+// installed → template.
+function deriveDesignSystemOrigin(
+  system: DesignSystemSummary | undefined,
+): TrackingDesignSystemOrigin | undefined {
+  if (!system) return undefined;
+  switch (system.source) {
+    case 'user':
+      return 'manual_create';
+    case 'built-in':
+      return 'official_preset';
+    case 'installed':
+      return 'template';
+    default:
+      return 'unknown';
+  }
+}
+
+function deriveDesignSystemStatusValue(
+  system: DesignSystemSummary | undefined,
+): TrackingDesignSystemStatusValue | undefined {
+  if (!system) return undefined;
+  switch (system.status) {
+    case 'draft':
+    case 'published':
+      return system.status;
+    default:
+      return 'unknown';
+  }
+}
 
 const MEDIA_SURFACE_LABEL_KEYS: Record<MediaSurface, keyof Dict> = {
   image: 'newproj.surfaceImage',
@@ -217,11 +262,15 @@ export function NewProjectPanel({
   connectorsLoading = false,
   onOpenConnectorsTab,
   loading = false,
+  initialTab = 'prototype',
 }: Props) {
   const t = useT();
   const analytics = useAnalytics();
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [importing, setImporting] = useState(false);
+  const [importZipError, setImportZipError] = useState<
+    { message: string; details?: string } | null
+  >(null);
   const [baseDir, setBaseDir] = useState('');
   const [importingFolder, setImportingFolder] = useState(false);
   // PR #974 round-4 (mrcfps): pickAndImport now returns structured
@@ -232,7 +281,21 @@ export function NewProjectPanel({
   const [importFolderError, setImportFolderError] = useState<
     { message: string; details?: string } | null
   >(null);
-  const [tab, setTab] = useState<CreateTab>('prototype');
+  const [tab, setTab] = useState<CreateTab>(initialTab);
+  // P0 analytics — fire surface_view once per (panel mount, tab) pair so the
+  // funnel sees both initial open and tab switches without double-counting on
+  // unrelated re-renders. Ref keys on a tab string because the panel is a
+  // long-lived component the modal mounts/unmounts as the user opens/closes it.
+  const newProjectViewedTabRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (newProjectViewedTabRef.current === tab) return;
+    newProjectViewedTabRef.current = tab;
+    trackNewProjectModalSurfaceView(analytics.track, {
+      page_name: 'home',
+      area: 'new_project_modal',
+      tab_name: createTabToTracking(tab),
+    });
+  }, [tab, analytics.track]);
   // Media tab consolidates image / video / audio. The active surface picks
   // which set of options + skill resolution applies; submission still maps
   // back to the existing image/video/audio ProjectKind branches so the
@@ -328,6 +391,47 @@ export function NewProjectPanel({
     if (dsSelectionTouched) return;
     setSelectedDsIds(initialDefaultDsSelection);
   }, [dsSelectionTouched, initialDefaultDsSelection]);
+
+  // Fires `design_system_apply_result` with `auto_select` when the
+  // picker mounts/refreshes and pre-selects the user's default DS
+  // without an explicit click. Only emits once per default-id while
+  // the picker is showing, and only while the user hasn't manually
+  // changed the selection (so the dashboard separates auto vs manual
+  // attribution). The picker visibility guard skips media tabs where
+  // the DS picker isn't rendered.
+  const autoSelectFiredForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!showDesignSystemPicker) return;
+    if (dsSelectionTouched) return;
+    const primary = initialDefaultDsSelection[0];
+    if (!primary) return;
+    if (autoSelectFiredForRef.current === primary) return;
+    autoSelectFiredForRef.current = primary;
+    const picked = designSystems.find((d) => d.id === primary);
+    trackDesignSystemApplyResult(analytics.track, {
+      page_name: 'home',
+      area: 'design_system_picker',
+      action: 'auto_select',
+      result: 'success',
+      target_project_kind: newProjectTabToApplyKind(tab),
+      design_system_id: primary,
+      design_system_source: deriveDesignSystemOrigin(picked),
+      design_system_status: deriveDesignSystemStatusValue(picked),
+      design_system_applied: true,
+      design_system_selection_mode: 'default',
+      is_default: true,
+      is_auto_selected: true,
+      available_design_system_count: designSystems.length,
+      duration_ms: 0,
+    });
+  }, [
+    analytics.track,
+    designSystems,
+    dsSelectionTouched,
+    initialDefaultDsSelection,
+    showDesignSystemPicker,
+    tab,
+  ]);
 
   // When entering the template tab, snap to the first user-saved template
   // if there is one (and we don't already have a valid pick). The template
@@ -471,6 +575,51 @@ export function NewProjectPanel({
   function handleDesignSystemChange(ids: string[]) {
     setDsSelectionTouched(true);
     setSelectedDsIds(ids);
+    const previousPrimary = selectedDsIds[0] ?? null;
+    const nextPrimary = ids[0] ?? null;
+    // Only emit when the primary actually changed; secondary reorders
+    // inside multi-select don't count as a fresh apply.
+    if (previousPrimary === nextPrimary) return;
+    const targetKind = newProjectTabToApplyKind(tab);
+    if (ids.length === 0) {
+      trackDesignSystemApplyResult(analytics.track, {
+        page_name: 'home',
+        area: 'design_system_picker',
+        action: 'clear_selection',
+        result: 'success',
+        target_project_kind: targetKind,
+        design_system_applied: false,
+        design_system_selection_mode: 'none',
+        is_default: false,
+        is_auto_selected: false,
+        available_design_system_count: designSystems.length,
+        duration_ms: 0,
+      });
+      return;
+    }
+    if (!nextPrimary) return;
+    const picked = designSystems.find((d) => d.id === nextPrimary);
+    const isDefault = nextPrimary === defaultDesignSystemId;
+    trackDesignSystemApplyResult(analytics.track, {
+      page_name: 'home',
+      area: 'design_system_picker',
+      action: 'select_design_system',
+      result: 'success',
+      target_project_kind: targetKind,
+      design_system_id: nextPrimary,
+      design_system_source: deriveDesignSystemOrigin(picked),
+      design_system_status: deriveDesignSystemStatusValue(picked),
+      design_system_applied: true,
+      design_system_selection_mode: isDefault ? 'default' : 'manual',
+      is_default: isDefault,
+      // `is_auto_selected` reports whether this row was picked by the
+      // app (initial default selection from `initialDefaultDsSelection`)
+      // rather than by the user. Once `dsSelectionTouched` is set we
+      // know any subsequent change came from a click.
+      is_auto_selected: false,
+      available_design_system_count: designSystems.length,
+      duration_ms: 0,
+    });
   }
 
   useEffect(() => {
@@ -510,6 +659,7 @@ export function NewProjectPanel({
             ? videoPromptTemplate
             : null
         : null;
+    const trimmedName = name.trim();
     const metadata = buildMetadata({
       tab,
       mediaSurface,
@@ -536,25 +686,28 @@ export function NewProjectPanel({
     // Generate the click→result correlation id here so the home_click and
     // the eventual project_create_result share request_id.
     const requestId = analytics.newRequestId();
-    const trackedKind = projectKindToTracking(metadata?.kind ?? null) ?? 'prototype';
-    trackHomeClickCreateButton(
+    // v2 emits ui_click element=create on the New project modal; the
+    // project_create_result correlated through `requestId` carries the
+    // project_kind / fidelity payload, so we no longer duplicate them
+    // on the click event.
+    trackNewProjectModalElementClick(
       analytics.track,
       {
-        page: 'home',
-        area: 'create_panel',
-        element: 'create_button',
-        action: 'create_project',
-        source_tab: createTabToTracking(tab),
-        project_kind: trackedKind,
-        has_project_name: name.trim().length > 0,
+        page_name: 'home',
+        area: 'new_project_modal',
+        element: 'create',
+        tab_name: createTabToTracking(tab),
       },
       { requestId },
     );
     onCreate({
-      name: name.trim() || autoName(tab, mediaSurface, t),
+      name: trimmedName || autoName(tab, mediaSurface, t),
       skillId: skillIdForTab,
       designSystemId: primaryDs,
-      metadata,
+      metadata: {
+        ...metadata,
+        nameSource: trimmedName ? 'user' : 'generated',
+      },
       requestId,
     });
   }
@@ -564,35 +717,45 @@ export function NewProjectPanel({
     ev.target.value = '';
     if (!file || !onImportClaudeDesign) return;
     setImporting(true);
+    setImportZipError(null);
     try {
-      await onImportClaudeDesign(file);
+      const result = await onImportClaudeDesign(file);
+      if (result?.ok === false) {
+        setImportZipError({
+          message: result.message ? `Import failed: ${result.message}` : 'Import failed',
+          details: result.details,
+        });
+      }
+    } catch (err) {
+      setImportZipError({
+        message: err instanceof Error ? `Import failed: ${err.message}` : 'Import failed',
+      });
     } finally {
       setImporting(false);
     }
   }
 
-  // PR #974: the bridge no longer exposes `pickFolder` (raw path
-  // crossing to the renderer). The Electron flow now uses
-  // `pickAndImport`, which performs the picker + the HMAC-gated import
-  // atomically in the main process and returns the daemon response.
+  // PR #974: the host bridge does not expose raw folder paths to the
+  // renderer. The desktop flow uses `pickAndImport`, which performs the
+  // picker + the HMAC-gated import atomically in the main process and
+  // returns host-owned project identifiers.
   // The web fallback continues to use the manual baseDir input —
   // browser builds have no `shell.openPath` surface so a renderer-named
   // path cannot escalate.
-  const hasElectronPickAndImport =
-    typeof window !== 'undefined' && typeof window.electronAPI?.pickAndImport === 'function';
+  const hasHostPickAndImport = isOpenDesignHostAvailable();
 
   async function handleOpenFolder() {
-    if (hasElectronPickAndImport) {
+    if (hasHostPickAndImport) {
       if (!onImportFolderResponse) return;
       setImportFolderError(null);
       setImportingFolder(true);
       try {
-        const result = await window.electronAPI!.pickAndImport!({
+        const result = await pickAndImportHostProject({
           skillId: skillIdForTab,
         });
         if (!result) return;
         if (result.ok === true) {
-          await onImportFolderResponse(result.response);
+          await onImportFolderResponse(result);
           return;
         }
         // Round-4 (mrcfps #2): every non-OK shape used to fall through
@@ -602,16 +765,7 @@ export function NewProjectPanel({
         // network errors). The pickAndImport handler already pre-shapes
         // these into a `{ ok: false, reason, details? }` envelope.
         if ('canceled' in result && result.canceled === true) return;
-        const reason = 'reason' in result && typeof result.reason === 'string'
-          ? result.reason
-          : 'unknown failure';
-        const details = 'details' in result && result.details != null
-          ? formatPickAndImportErrorDetails(result.details)
-          : undefined;
-        setImportFolderError({
-          message: `Open folder failed: ${reason}`,
-          ...(details ? { details } : {}),
-        });
+        setImportFolderError(formatPickAndImportFailure(result));
       } finally {
         setImportingFolder(false);
       }
@@ -619,10 +773,18 @@ export function NewProjectPanel({
     }
     if (!onImportFolder) return;
     const trimmed = baseDir.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      setImportFolderError({ message: 'Path cannot be empty' });
+      return;
+    }
+    setImportFolderError(null);
     setImportingFolder(true);
     try {
       await onImportFolder(trimmed);
+    } catch (err) {
+      setImportFolderError({
+        message: err instanceof Error ? err.message : 'Failed to import folder',
+      });
     } finally {
       setImportingFolder(false);
     }
@@ -648,7 +810,17 @@ export function NewProjectPanel({
               data-testid={`new-project-tab-${entry}`}
               aria-selected={tab === entry}
               className={`newproj-tab ${tab === entry ? 'active' : ''}`}
-              onClick={() => setTab(entry)}
+              onClick={() => {
+                if (entry !== tab) {
+                  trackNewProjectModalTabClick(analytics.track, {
+                    page_name: 'home',
+                    area: 'new_project_modal',
+                    element: 'tab',
+                    tab_name: createTabToTracking(entry),
+                  });
+                }
+                setTab(entry);
+              }}
             >
               {t(TAB_LABEL_KEYS[entry])}
             </button>
@@ -675,13 +847,15 @@ export function NewProjectPanel({
           ) : null}
         </h3>
 
-        <input
-          className="newproj-name"
-          data-testid="new-project-name"
-          placeholder={t('newproj.namePlaceholder')}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
+        <div className="newproj-name-row">
+          <input
+            className="newproj-name"
+            data-testid="new-project-name"
+            placeholder={t('newproj.namePlaceholder')}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
 
         {showDesignSystemPicker ? (
           <DesignSystemPicker
@@ -878,9 +1052,9 @@ export function NewProjectPanel({
             </button>
           </>
         ) : null}
-        {(hasElectronPickAndImport ? onImportFolderResponse : onImportFolder) ? (
+        {(hasHostPickAndImport ? onImportFolderResponse : onImportFolder) ? (
           <div className="newproj-open-folder">
-            {!hasElectronPickAndImport ? (
+            {!hasHostPickAndImport ? (
               <input
                 type="text"
                 className="newproj-folder-input"
@@ -894,7 +1068,7 @@ export function NewProjectPanel({
             <button
               type="button"
               className="ghost newproj-import"
-              disabled={(!hasElectronPickAndImport && !baseDir.trim()) || importingFolder}
+              disabled={(!hasHostPickAndImport && !baseDir.trim()) || importingFolder}
               onClick={() => void handleOpenFolder()}
             >
               <Icon name="folder" size={13} />
@@ -904,6 +1078,14 @@ export function NewProjectPanel({
         ) : null}
       </div>
       <div className="newproj-footer">{t('newproj.privacyFooter')}</div>
+      {importZipError ? (
+        <Toast
+          message={importZipError.message}
+          details={importZipError.details ?? null}
+          ttlMs={6000}
+          onDismiss={() => setImportZipError(null)}
+        />
+      ) : null}
       {importFolderError ? (
         <Toast
           message={importFolderError.message}
@@ -1323,9 +1505,40 @@ function TemplatePicker({
   templates: ProjectTemplate[];
   value: string | null;
   onChange: (id: string | null) => void;
-  onDelete: (id: string) => Promise<boolean>;
+  onDelete?: (id: string) => Promise<boolean>;
 }) {
   const t = useT();
+  const [confirmDelete, setConfirmDelete] = useState<
+    { id: string; name: string } | null
+  >(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState(false);
+
+  function closeConfirm() {
+    setConfirmDelete(null);
+    setDeleting(false);
+    setDeleteError(false);
+  }
+
+  async function runDelete() {
+    if (!confirmDelete || !onDelete) return;
+    setDeleting(true);
+    setDeleteError(false);
+    let ok = false;
+    try {
+      ok = await onDelete(confirmDelete.id);
+    } catch {
+      ok = false;
+    }
+    if (ok) {
+      if (value === confirmDelete.id) onChange(null);
+      closeConfirm();
+    } else {
+      setDeleting(false);
+      setDeleteError(true);
+    }
+  }
+
   return (
     <div className="newproj-section">
       <label className="newproj-label">{t('newproj.templateLabel')}</label>
@@ -1351,10 +1564,7 @@ function TemplatePicker({
                 key={tpl.id}
                 active={value === tpl.id}
                 onClick={() => onChange(tpl.id)}
-                onDelete={async () => {
-                  const ok = await onDelete(tpl.id);
-                  if (ok && value === tpl.id) onChange(null);
-                }}
+                onDelete={onDelete ? () => setConfirmDelete({ id: tpl.id, name: tpl.name }) : () => {}}
                 name={tpl.name}
                 description={tpl.description ?? fallbackDesc}
               />
@@ -1362,6 +1572,43 @@ function TemplatePicker({
           })}
         </div>
       )}
+      {confirmDelete ? (
+        <div
+          className="modal-backdrop"
+          onClick={deleting ? undefined : closeConfirm}
+        >
+          <div
+            className="modal modal-confirm"
+            onClick={(e) => e.stopPropagation()}
+            role="alertdialog"
+            aria-modal="true"
+          >
+            <h2>{t('newproj.deleteTemplateTitle')}</h2>
+            <p className="modal-confirm-message">
+              {t('newproj.deleteTemplateConfirm', { name: confirmDelete.name })}
+            </p>
+            {deleteError ? (
+              <p className="modal-confirm-error" role="alert">
+                {t('newproj.deleteTemplateError')}
+              </p>
+            ) : null}
+            <div className="row">
+              <button type="button" onClick={closeConfirm} disabled={deleting}>
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                className="primary danger"
+                autoFocus
+                disabled={deleting}
+                onClick={runDelete}
+              >
+                {t('newproj.deleteTemplateConfirmCta')}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2196,8 +2443,8 @@ function MediaProjectOptions(props:
 
 export function supportedModels(surface: 'image' | 'video' | 'audio', models: MediaModel[]): MediaModel[] {
   const supportedProviders: Record<'image' | 'video' | 'audio', Set<string>> = {
-    image: new Set(['openai', 'volcengine', 'grok', 'nanobanana']),
-    video: new Set(['volcengine', 'hyperframes', 'grok']),
+    image: new Set(['openai', 'volcengine', 'grok', 'nanobanana', 'openrouter', 'imagerouter', 'leonardo', 'custom-image']),
+    video: new Set(['volcengine', 'hyperframes', 'grok', 'openrouter', 'imagerouter']),
     audio: new Set(['minimax', 'fishaudio', 'senseaudio', 'elevenlabs', 'openai', 'volcengine']),
   };
   return models.filter((model) => {
@@ -2238,6 +2485,7 @@ function MediaModelCards({
     for (const model of models) {
       const provider = findProvider(model.provider);
       const providerId = provider?.id ?? model.provider;
+      if (!isMediaProviderPickerReady(providerId, mediaProviders)) continue;
       const entry = mediaProviders?.[providerId];
       const configured =
         provider?.credentialsRequired === false ||
@@ -2268,6 +2516,16 @@ function MediaModelCards({
     }
     return null;
   }, [groups, value]);
+  const firstAvailableModelId = groups[0]?.models[0]?.id ?? null;
+
+  useEffect(() => {
+    if (selected) return;
+    if (firstAvailableModelId) {
+      onChange(firstAvailableModelId);
+      return;
+    }
+    if (value) onChange('');
+  }, [firstAvailableModelId, onChange, selected, value]);
 
   const filteredGroups = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -2571,28 +2829,31 @@ function buildMetadata(input: {
   }
   if (input.tab === 'media') {
     if (input.mediaSurface === 'image') {
+      const imageModel = input.imageModel.trim();
       return {
         kind,
-        imageModel: input.imageModel,
+        ...(imageModel ? { imageModel } : {}),
         imageAspect: input.imageAspect,
         ...buildPromptTemplateMetadata(input.promptTemplate),
         ...inspirations,
       };
     }
     if (input.mediaSurface === 'video') {
+      const videoModel = input.videoModel.trim();
       return {
         kind,
-        videoModel: input.videoModel,
+        ...(videoModel ? { videoModel } : {}),
         videoAspect: input.videoAspect,
         videoLength: input.videoLength,
         ...buildPromptTemplateMetadata(input.promptTemplate),
         ...inspirations,
       };
     }
+    const audioModel = input.audioModel.trim();
     return {
       kind,
       audioKind: input.audioKind,
-      audioModel: input.audioModel,
+      ...(audioModel ? { audioModel } : {}),
       audioDuration: input.audioDuration,
       ...(input.audioKind === 'speech' && input.voice.trim()
         ? { voice: input.voice.trim() }

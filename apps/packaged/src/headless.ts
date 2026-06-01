@@ -15,7 +15,7 @@ import {
 } from "@open-design/sidecar-proto";
 import { bootstrapSidecarRuntime, createJsonIpcServer, resolveAppIpcPath } from "@open-design/sidecar";
 
-import type { PackagedConfig } from "./config.js";
+import { PACKAGED_NAMESPACE_ENV, type PackagedConfig } from "./config.js";
 import { writePackagedDesktopIdentity, writePackagedWebIdentity } from "./identity.js";
 import { resolvePackagedNamespacePaths } from "./paths.js";
 import { startPackagedSidecars } from "./sidecars.js";
@@ -35,12 +35,17 @@ function resolveHeadlessNamespaceBaseRoot(): string {
   return join(dataBase, "open-design", "namespaces");
 }
 
+function resolveHeadlessAmrProfile(): PackagedConfig["amrProfile"] {
+  const value = process.env.OPEN_DESIGN_AMR_PROFILE?.trim();
+  if (value == null || value.length === 0) return null;
+  if (value === "prod" || value === "test" || value === "local") return value;
+  throw new Error(`unsupported packaged AMR profile: ${value}`);
+}
+
 function resolveHeadlessConfig(): PackagedConfig {
   const namespace =
     OPEN_DESIGN_SIDECAR_CONTRACT.normalizeNamespace(
-      process.env.OD_NAMESPACE ??
-      process.env.OD_SIDECAR_NAMESPACE ??
-      SIDECAR_DEFAULTS.namespace,
+      process.env[PACKAGED_NAMESPACE_ENV] ?? SIDECAR_DEFAULTS.namespace,
     );
 
   const namespaceBaseRoot = resolveHeadlessNamespaceBaseRoot();
@@ -53,6 +58,7 @@ function resolveHeadlessConfig(): PackagedConfig {
     join(__dirname, "..", "..", "..", "open-design");
 
   return {
+    amrProfile: resolveHeadlessAmrProfile(),
     appVersion: null,
     daemonCliEntry: null,
     daemonSidecarEntry: null,
@@ -101,12 +107,18 @@ async function main(): Promise<void> {
     contract: OPEN_DESIGN_SIDECAR_CONTRACT,
   });
 
-  // Write the identity marker so `tools-pack linux stop` can find and stop
-  // this process by PID via the same mechanism as the Electron packaged path.
-  const identity = await writePackagedDesktopIdentity({ paths, stamp });
+  // Write a headless-specific identity marker so `tools-pack linux stop --headless`
+  // can find this process without confusing it for a menu-launched
+  // AppImage that owns desktop-root.json in the same namespace.
+  const identity = await writePackagedDesktopIdentity({
+    identityPath: paths.headlessIdentityPath,
+    paths,
+    stamp,
+  });
 
   const sidecars = await startPackagedSidecars(runtime, paths, {
     appVersion: config.appVersion,
+    amrProfile: config.amrProfile,
     daemonCliEntry: config.daemonCliEntry,
     daemonSidecarEntry: config.daemonSidecarEntry,
     nodeCommand: config.nodeCommand,

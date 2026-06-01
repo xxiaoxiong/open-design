@@ -42,11 +42,9 @@ describe("mac standalone prebundle policy", () => {
 
   it("excludes internal packages replaced by mac standalone prebundles", () => {
     for (const packageName of [
-      "@open-design/contracts",
       "@open-design/daemon",
       "@open-design/desktop",
       "@open-design/packaged",
-      "@open-design/platform",
       "@open-design/sidecar",
       "@open-design/sidecar-proto",
       "@open-design/web",
@@ -58,6 +56,18 @@ describe("mac standalone prebundle policy", () => {
         }),
       ).toBe(false);
     }
+    expect(
+      shouldInstallInternalPackageForMacPrebundle({
+      packageName: "@open-design/contracts",
+      webOutputMode: "standalone",
+    }),
+  ).toBe(true);
+  expect(
+    shouldInstallInternalPackageForMacPrebundle({
+      packageName: "@open-design/platform",
+      webOutputMode: "standalone",
+    }),
+  ).toBe(true);
   });
 
   it("documents the explicit code-level bundle boundaries", () => {

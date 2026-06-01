@@ -82,6 +82,19 @@ export const DEFAULT_CONFIG: AppConfig = {
   pet: DEFAULT_PET,
   notifications: DEFAULT_NOTIFICATIONS,
   orbit: DEFAULT_ORBIT,
+  projectLocations: [],
+  defaultProjectLocationId: 'default',
+  // Telemetry defaults to ON so fresh-install users emit onboarding /
+  // ui_click events from the first frame. The disclosure modal still
+  // appears after `onboardingCompleted` flips, and Settings → Privacy
+  // remains the one-click opt-out. Without these defaults the gate at
+  // `daemon/src/analytics.ts` (`if (telemetry?.metrics !== true) return`)
+  // dropped every event fired during onboarding because no consent
+  // existed yet — observed live on the nightly.10 QA run, which left
+  // zero `page_view pn=onboarding` rows on PostHog despite the user
+  // completing the flow. `artifactManifest` stays off; the existing
+  // PrivacySection lets the user enable it explicitly.
+  telemetry: { metrics: true, content: true, artifactManifest: false },
 };
 
 /** Well-known providers with pre-filled base URLs. */
@@ -93,6 +106,8 @@ export interface KnownProvider {
   model: string;
   /** Optional provider-specific model choices shown in Settings. */
   models?: string[];
+  /** Some local/self-hosted endpoints do not require bearer credentials. */
+  requiresApiKey?: boolean;
 }
 
 // Some providers appear more than once because they expose both
@@ -148,6 +163,22 @@ export const KNOWN_PROVIDERS: KnownProvider[] = [
     models: ['gpt-4o', 'gpt-4o-mini', 'o3', 'o4-mini'],
   },
   {
+    label: 'OpenRouter',
+    protocol: 'openai',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    model: 'anthropic/claude-3.7-sonnet',
+    models: [
+      'anthropic/claude-3.7-sonnet',
+      'anthropic/claude-3.5-sonnet',
+      'google/gemini-2.5-flash',
+      'google/gemini-2.5-pro',
+      'openai/gpt-4o',
+      'openai/o3-mini',
+      'deepseek/deepseek-chat',
+      'deepseek/deepseek-r1',
+    ],
+  },
+  {
     label: 'Azure OpenAI',
     protocol: 'azure',
     baseUrl: '',
@@ -196,7 +227,7 @@ export const KNOWN_PROVIDERS: KnownProvider[] = [
     models: ['mimo-v2.5-pro'],
   },
   {
-    label: 'Ollama Cloud',
+    label: 'Ollama Cloud (managed)',
     protocol: 'ollama',
     baseUrl: 'https://ollama.com',
     model: 'gpt-oss:120b',
@@ -243,11 +274,35 @@ export const KNOWN_PROVIDERS: KnownProvider[] = [
     ],
   },
   {
+    label: 'Ollama Self-hosted (local)',
+    protocol: 'ollama',
+    baseUrl: 'http://localhost:11434',
+    model: 'gemma3:4b',
+    models: ['gemma3:4b', 'gemma3:12b', 'gemma3:27b', 'gpt-oss:20b'],
+    requiresApiKey: false,
+  },
+  {
     label: 'MiMo (Xiaomi) — Anthropic',
     protocol: 'anthropic',
     baseUrl: 'https://token-plan-cn.xiaomimimo.com/anthropic',
     model: 'mimo-v2.5-pro',
     models: ['mimo-v2.5-pro'],
+  },
+  {
+    label: 'SenseAudio',
+    protocol: 'senseaudio',
+    baseUrl: 'https://api.senseaudio.cn',
+    model: 'senseaudio-s2',
+    models: [
+      'senseaudio-s2',
+      'senseaudio-s2-flash',
+      'deepseek-v4-flash',
+      'deepseek-v4-pro',
+      'glm-5.1',
+      'kimi-k2.6',
+      'MiniMax-M2.7-highspeed',
+      'MiniMax-M2.7',
+    ],
   },
 ];
 
@@ -290,6 +345,10 @@ function inferApiProtocol(model: string, baseUrl: string): ApiProtocol {
     // protocol so both chat and the connection test hit the native Ollama
     // proxy instead of the Anthropic or OpenAI paths.
     if (normalized.includes('ollama.com')) return 'ollama';
+    // SenseAudio host gets routed to its own proxy so the daemon log line
+    // and the BYOK tab UI stay consistent with the protocol the user
+    // picked — even though the on-wire shape is OpenAI-compatible.
+    if (normalized.includes('senseaudio.cn')) return 'senseaudio';
     return isOpenAICompatible(model, baseUrl) ? 'openai' : 'anthropic';
   } catch {
     // Preserve the rest of the user's settings even if an old saved base URL is
@@ -381,6 +440,7 @@ interface PublicComposioConfigResponse {
 
 interface PublicMediaProviderConfigEntry {
   configured?: boolean;
+  source?: string;
   apiKeyTail?: string;
   baseUrl?: string;
   model?: string;
@@ -466,16 +526,21 @@ export function buildMediaProvidersForDaemonSave(
   for (const [providerId, currentEntry] of Object.entries(currentProviders ?? {})) {
     const daemonEntry = daemonProviders?.[providerId];
     const apiKey = currentEntry?.apiKey?.trim() ?? '';
+    const hasStoredKeyMarker = Boolean(
+      currentEntry?.apiKeyTail?.trim()
+      || daemonEntry?.apiKeyTail?.trim(),
+    );
     const preserveApiKey = !apiKey && Boolean(
       currentEntry?.apiKeyConfigured
-      && (daemonEntry?.apiKeyConfigured || daemonEntry?.apiKeyTail?.trim()),
+      && hasStoredKeyMarker,
     );
-    const baseUrl =
+    const explicitBaseUrl =
       currentEntry?.baseUrl?.trim()
       || daemonEntry?.baseUrl?.trim()
-      || defaultBaseUrlForProvider(providerId);
+      || '';
     const model = currentEntry?.model?.trim() || daemonEntry?.model?.trim() || '';
-    if (!apiKey && !preserveApiKey && !baseUrl && !model) continue;
+    if (!apiKey && !preserveApiKey && !explicitBaseUrl && !model) continue;
+    const baseUrl = explicitBaseUrl || defaultBaseUrlForProvider(providerId);
     providers[providerId] = {
       ...(apiKey ? { apiKey } : {}),
       ...(preserveApiKey ? { preserveApiKey: true } : {}),
@@ -517,6 +582,9 @@ export async function fetchMediaProvidersFromDaemon(): Promise<DaemonMediaProvid
         apiKeyConfigured: Boolean(entry?.configured),
         apiKeyTail: entry?.apiKeyTail ?? '',
         baseUrl: entry?.baseUrl ?? '',
+        ...(typeof entry?.source === 'string' && entry.source.trim()
+          ? { source: entry.source.trim() }
+          : {}),
         ...(typeof entry?.model === 'string' && entry.model.trim()
           ? { model: entry.model.trim() }
           : {}),
@@ -561,7 +629,7 @@ const DAEMON_OWNED_KEYS = new Set<keyof AppConfig>([
   'privacyDecisionAt',
 ]);
 
-const AGENT_CLI_SECRET_ENV_KEYS = new Set(['ANTHROPIC_API_KEY', 'OPENAI_API_KEY']);
+const AGENT_CLI_SECRET_ENV_KEYS = new Set(['ANTHROPIC_API_KEY', 'CODEX_API_KEY', 'OPENAI_API_KEY']);
 
 function sanitizeAgentCliEnv(agentCliEnv: AppConfig['agentCliEnv']): AppConfig['agentCliEnv'] {
   if (!agentCliEnv) return agentCliEnv;
@@ -638,12 +706,21 @@ export function mergeDaemonConfig(
   if (daemonConfig.customInstructions !== undefined) {
     next.customInstructions = daemonConfig.customInstructions ?? undefined;
   }
+  if (daemonConfig.projectLocations !== undefined) {
+    next.projectLocations = daemonConfig.projectLocations;
+  }
+  if (daemonConfig.defaultProjectLocationId !== undefined) {
+    next.defaultProjectLocationId = daemonConfig.defaultProjectLocationId ?? 'default';
+  }
   return next;
 }
 
 export function mergeDaemonMediaProviders(
   localConfig: AppConfig,
   daemonProviders: AppConfig['mediaProviders'] | null,
+  options?: {
+    preserveLocalProviderIds?: ReadonlySet<string>;
+  },
 ): AppConfig {
   if (daemonProviders == null) {
     return { ...localConfig };
@@ -661,7 +738,14 @@ export function mergeDaemonMediaProviders(
   const mediaProviders = { ...(localConfig.mediaProviders ?? {}) };
   for (const [providerId, daemonEntry] of Object.entries(daemonProviders ?? {})) {
     if (!isStoredMediaProviderEntryPresent(daemonEntry)) continue;
-    mediaProviders[providerId] = { ...daemonEntry };
+    const localEntry = mediaProviders[providerId];
+    const preserveLocalPendingEdit = Boolean(
+      options?.preserveLocalProviderIds?.has(providerId)
+      && hasRecoverableLocalMediaProviderFields(localEntry),
+    );
+    mediaProviders[providerId] = preserveLocalPendingEdit
+      ? { ...daemonEntry, ...localEntry }
+      : { ...daemonEntry };
   }
 
   return {
@@ -742,6 +826,8 @@ export async function syncConfigToDaemon(
     telemetry: config.telemetry,
     privacyDecisionAt: config.privacyDecisionAt,
     customInstructions: config.customInstructions ?? null,
+    projectLocations: config.projectLocations ?? [],
+    defaultProjectLocationId: config.defaultProjectLocationId ?? 'default',
   };
   try {
     const response = await fetch('/api/app-config', {

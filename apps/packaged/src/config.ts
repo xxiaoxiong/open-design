@@ -1,9 +1,16 @@
 import { access, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
-import { app } from "electron";
-
 import { SIDECAR_DEFAULTS, normalizeNamespace } from "@open-design/sidecar-proto";
+
+// `electron` is loaded lazily so this module can also be imported from the
+// headless entry, which runs in a plain Node process without the electron
+// dependency on disk. Top-level `import { app } from "electron"` would crash
+// headless at module-load with ERR_MODULE_NOT_FOUND.
+async function loadElectronApp() {
+  const electron = await import("electron");
+  return electron.app;
+}
 
 export const PACKAGED_CONFIG_PATH_ENV = "OD_PACKAGED_CONFIG_PATH";
 export const PACKAGED_NAMESPACE_ENV = "OD_PACKAGED_NAMESPACE";
@@ -12,8 +19,10 @@ export const PACKAGED_WEB_STANDALONE_ROOT_ENV = "OD_WEB_STANDALONE_ROOT";
 export const PACKAGED_WEB_OUTPUT_MODE_ENV = "OD_WEB_OUTPUT_MODE";
 
 export type PackagedWebOutputMode = "server" | "standalone";
+export type PackagedAmrProfile = "prod" | "test" | "local";
 
 export type RawPackagedConfig = {
+  amrProfile?: string;
   appVersion?: string;
   daemonCliEntryRelative?: string;
   daemonSidecarEntryRelative?: string;
@@ -38,6 +47,7 @@ export type RawPackagedConfig = {
 };
 
 export type PackagedConfig = {
+  amrProfile: PackagedAmrProfile | null;
   appVersion: string | null;
   daemonCliEntry: string | null;
   daemonSidecarEntry: string | null;
@@ -79,9 +89,10 @@ async function readRawPackagedConfig(): Promise<RawPackagedConfig> {
     return config;
   }
 
+  const electronApp = await loadElectronApp();
   return (
     (await readJsonIfExists(resolveDefaultConfigPath())) ??
-    (await readJsonIfExists(join(app.getAppPath(), "open-design-config.json"))) ??
+    (await readJsonIfExists(join(electronApp.getAppPath(), "open-design-config.json"))) ??
     {}
   );
 }
@@ -102,6 +113,13 @@ function resolvePackagedWebOutputMode(value: string | undefined): PackagedWebOut
   if (value == null || value.length === 0) return "server";
   if (value === "server" || value === "standalone") return value;
   throw new Error(`unsupported packaged web output mode: ${value}`);
+}
+
+function resolvePackagedAmrProfile(value: string | undefined): PackagedAmrProfile | null {
+  const cleaned = cleanOptionalString(value);
+  if (cleaned == null) return null;
+  if (cleaned === "prod" || cleaned === "test" || cleaned === "local") return cleaned;
+  throw new Error(`unsupported packaged AMR profile: ${value}`);
 }
 
 function isTruthyEnv(value: string | undefined): boolean {
@@ -133,8 +151,9 @@ export async function readPackagedConfig(): Promise<PackagedConfig> {
   const namespace = normalizeNamespace(
     process.env[PACKAGED_NAMESPACE_ENV] ?? raw.namespace ?? SIDECAR_DEFAULTS.namespace,
   );
+  const electronApp = await loadElectronApp();
   const namespaceBaseRoot =
-    resolveOptionalPath(raw.namespaceBaseRoot) ?? join(app.getPath("userData"), "namespaces");
+    resolveOptionalPath(raw.namespaceBaseRoot) ?? join(electronApp.getPath("userData"), "namespaces");
   const resourceRoot = resolveOptionalPath(raw.resourceRoot) ?? join(process.resourcesPath, "open-design");
   const relativeNodeCommand =
     raw.nodeCommandRelative == null || raw.nodeCommandRelative.length === 0
@@ -159,6 +178,7 @@ export async function readPackagedConfig(): Promise<PackagedConfig> {
   const webSidecarEntry = await resolvePackagedRelativeEntry(raw.webSidecarEntryRelative);
 
   return {
+    amrProfile: resolvePackagedAmrProfile(raw.amrProfile),
     appVersion: cleanOptionalString(raw.appVersion),
     daemonCliEntry,
     daemonSidecarEntry,
