@@ -221,6 +221,13 @@ export interface CreateProjectRequest {
   customInstructions?: string;
   /** Persisted to metadata.skipDiscoveryBrief for automated project runs. */
   skipDiscoveryBrief?: boolean;
+  /**
+   * Optional absolute path to attach the project to an existing folder.
+   * When set, the project works directly in this folder instead of .od/projects/<id>/.
+   * The daemon validates the path (must be absolute, not inside .od/, not a system path)
+   * and sets metadata.baseDir if valid.
+   */
+  attachToFolder?: string;
 }
 
 export interface UpdateProjectRequest {

@@ -839,7 +839,7 @@ function AssistantFooter({
         {usage?.outputTokens != null
           ? ` · ${t("assistant.outTokens", { n: usage.outputTokens })}`
           : ""}
-        {typeof usage?.costUsd === "number"
+        {typeof usage?.costUsd === "number" && usage.costUsd > 0.0001
           ? ` · $${usage.costUsd.toFixed(4)}`
           : ""}
       </span>
