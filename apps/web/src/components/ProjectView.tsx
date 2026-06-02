@@ -2967,7 +2967,6 @@ export function ProjectView({
   }, [
     activeConversationId,
     currentConversationBusy,
-    queuedChatSends,
     handleSend,
     removeQueuedChatSend,
   ]);
