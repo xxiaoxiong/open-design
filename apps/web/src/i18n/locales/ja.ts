@@ -990,6 +990,7 @@ export const ja: Dict = {
   'manualEdit.title': "Manual editor",
   'manualEdit.fallbackTitle': 'Edit',
   'manualEdit.movePanel': 'Move edit panel',
+  'manualEdit.editParams': 'パラメーターを編集',
   'manualEdit.closePanel': 'Close edit panel',
   'manualEdit.selectLayer': "Select a layer",
   'manualEdit.empty': "Click an element in the preview or choose a layer.",

@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import { Button, Textarea } from '@open-design/components';
 import { useRef } from 'react';
 
 import type { PreviewCommentSnapshot } from '../comments';
@@ -334,14 +335,14 @@ export function BoardComposerPopover({
               {notes.map((note, index) => (
                 <div key={`${target.elementId}-${index}`} className="board-note-item">
                   <span>{note}</span>
-                  <button type="button" className="ghost" onClick={() => onRemoveQueuedNote(index)}>
+                  <Button variant="ghost" onClick={() => onRemoveQueuedNote(index)}>
                     {t('chat.comments.remove')}
-                  </button>
+                  </Button>
                 </div>
               ))}
             </div>
           ) : null}
-          <textarea
+          <Textarea
             data-testid="comment-popover-input"
             value={draft}
             autoFocus
@@ -394,35 +395,32 @@ export function BoardComposerPopover({
             </div>
             <div className="comment-popover-actions-end">
               {target.selectionKind === 'pod' ? (
-                <button
-                  type="button"
-                  className="ghost"
+                <Button
+                  variant="ghost"
                   data-testid="comment-popover-add-note"
                   disabled={!draft.trim()}
                   onClick={onAddDraft}
                 >
                   {t('chat.comments.addNote')}
-                </button>
+                </Button>
               ) : (
-                <button
-                  type="button"
-                  className="ghost"
+                <Button
+                  variant="ghost"
                   data-testid="comment-popover-save"
                   disabled={!draft.trim() || !hasCommentChange}
                   onClick={() => void onSaveComment()}
                 >
                   {t('chat.comments.comment')}
-                </button>
+                </Button>
               )}
-              <button
-                type="button"
-                className="primary"
+              <Button
+                variant="primary"
                 data-testid="comment-add-send"
                 disabled={submitDisabled}
                 onClick={() => void onSendBatch()}
               >
                 {primaryLabel}
-              </button>
+              </Button>
             </div>
           </div>
         </section>

@@ -1127,6 +1127,7 @@ export const fa: Dict = {
   'manualEdit.title': "Manual editor",
   'manualEdit.fallbackTitle': 'Edit',
   'manualEdit.movePanel': 'Move edit panel',
+  'manualEdit.editParams': 'ویرایش پارامترها',
   'manualEdit.closePanel': 'Close edit panel',
   'manualEdit.selectLayer': "Select a layer",
   'manualEdit.empty': "Click an element in the preview or choose a layer.",

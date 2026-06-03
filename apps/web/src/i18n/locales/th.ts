@@ -1040,6 +1040,7 @@ export const th: Dict = {
   'manualEdit.title': "กล่องควบคุม",
   'manualEdit.fallbackTitle': 'Edit',
   'manualEdit.movePanel': 'Move edit panel',
+  'manualEdit.editParams': 'แก้ไขพารามิเตอร์',
   'manualEdit.closePanel': 'Close edit panel',
   'manualEdit.selectLayer': "เลือกเลเยอร์ขึ้นมา",
   'manualEdit.empty': "เลือกกล่องด้านบนเพื่อเปิดดู",

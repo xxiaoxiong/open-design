@@ -353,8 +353,8 @@
 }
 .picker select {
   border: none;
-  background: transparent;
-  padding: 4px 6px;
+  background-color: transparent;
+  padding: 4px 26px 4px 6px;
   width: auto;
   min-width: 120px;
   box-shadow: none;

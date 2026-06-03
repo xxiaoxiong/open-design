@@ -1103,6 +1103,7 @@ export const hu: Dict = {
   'manualEdit.title': "Manual editor",
   'manualEdit.fallbackTitle': 'Edit',
   'manualEdit.movePanel': 'Move edit panel',
+  'manualEdit.editParams': 'Paraméterek szerkesztése',
   'manualEdit.closePanel': 'Close edit panel',
   'manualEdit.selectLayer': "Select a layer",
   'manualEdit.empty': "Click an element in the preview or choose a layer.",

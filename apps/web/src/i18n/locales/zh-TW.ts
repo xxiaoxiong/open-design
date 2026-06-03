@@ -1319,6 +1319,7 @@ export const zhTW: Dict = {
   'manualEdit.title': "Manual editor",
   'manualEdit.fallbackTitle': '編輯',
   'manualEdit.movePanel': '移動編輯面板',
+  'manualEdit.editParams': '編輯參數',
   'manualEdit.closePanel': '關閉編輯面板',
   'manualEdit.selectLayer': "Select a layer",
   'manualEdit.empty': "Click an element in the preview or choose a layer.",

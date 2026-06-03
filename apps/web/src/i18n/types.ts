@@ -288,7 +288,10 @@ export interface Dict {
   'settings.hide': string;
   'settings.model': string;
   'settings.apiKeyInvalid': string;
+  'settings.apiKeyCleaned': string;
   'settings.modelsLoadedFromAccount': string;
+  'settings.modelSourceAccount': string;
+  'settings.modelSourceSuggested': string;
   'settings.fetchModels': string;
   'settings.fetchModelsTitle': string;
   'settings.fetchModelsRunning': string;
@@ -2083,6 +2086,7 @@ export interface Dict {
   'manualEdit.title': string;
   'manualEdit.fallbackTitle': string;
   'manualEdit.movePanel': string;
+  'manualEdit.editParams': string;
   'manualEdit.closePanel': string;
   'manualEdit.selectLayer': string;
   'manualEdit.empty': string;

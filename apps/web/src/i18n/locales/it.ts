@@ -1008,6 +1008,7 @@ export const it: Dict = {
   'manualEdit.title': 'Editor manuale',
   'manualEdit.fallbackTitle': 'Edit',
   'manualEdit.movePanel': 'Move edit panel',
+  'manualEdit.editParams': 'Modifica parametri',
   'manualEdit.closePanel': 'Close edit panel',
   'manualEdit.selectLayer': 'Seleziona un livello',
   'manualEdit.empty': 'Clicca un elemento nell\'anteprima o scegli un livello.',
