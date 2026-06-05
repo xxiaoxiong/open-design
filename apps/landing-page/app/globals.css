@@ -427,7 +427,7 @@ body::before {
    * left-aligned in its column and the side actions stay right-aligned in
    * theirs. */
   .nav-inner > .brand {
-    flex: 1 1 0;
+    flex: 1 0 0;
     min-width: 0;
     justify-content: flex-start;
   }
