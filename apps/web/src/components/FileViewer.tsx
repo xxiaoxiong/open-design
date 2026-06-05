@@ -1270,6 +1270,43 @@ export function LiveArtifactViewer({
     });
   }, [mode, previewUrl, liveArtifact.artifactId, projectId]);
 
+  // Bridge Ctrl/Cmd+wheel from the live-artifact iframe back to the parent
+  // preview zoom when the iframe is same-origin. Cross-origin previews fall
+  // back to the host wrapper onWheel below.
+  useEffect(() => {
+    if (mode !== 'preview') return undefined;
+    const node = iframeRef.current;
+    if (!node) return undefined;
+
+    const attach = () => {
+      try {
+        const doc = node.contentDocument;
+        if (!doc) return undefined;
+        const handler = (event: WheelEvent) => {
+          if (!(event.ctrlKey || event.metaKey)) return;
+          event.preventDefault();
+          const step = event.deltaY < 0 ? 25 : -25;
+          setZoom((prev) => Math.max(50, Math.min(200, prev + step)));
+        };
+        doc.addEventListener('wheel', handler, { passive: false });
+        return () => doc.removeEventListener('wheel', handler);
+      } catch {
+        return undefined;
+      }
+    };
+
+    if (node.contentDocument?.readyState === 'complete') {
+      return attach();
+    }
+    const onLoad = () => {
+      attach();
+    };
+    node.addEventListener('load', onLoad);
+    return () => {
+      node.removeEventListener('load', onLoad);
+    };
+  }, [mode, previewUrl, liveArtifact.artifactId, projectId, setZoom]);
+
   async function handleRefresh() {
     if (refreshing) return;
     setRefreshing(true);
@@ -1539,7 +1576,18 @@ export function LiveArtifactViewer({
           style={previewViewportStyle(previewViewport, previewScale, previewBodySize)}
         >
           <div className="preview-frame-clip">
-            <div style={previewScaleShellStyle(previewViewport, previewScale)}>
+            <div
+              style={previewScaleShellStyle(previewViewport, previewScale)}
+              onWheel={(event) => {
+                if (!(event.ctrlKey || event.metaKey)) return;
+                event.preventDefault();
+                const step = event.deltaY < 0 ? 25 : -25;
+                setZoom((prev) => {
+                  const next = prev + step;
+                  return Math.max(50, Math.min(200, next));
+                });
+              }}
+            >
               <PreviewDrawOverlay>
                 <iframe
                   ref={iframeRef}
