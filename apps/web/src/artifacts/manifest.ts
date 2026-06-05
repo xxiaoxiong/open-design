@@ -85,7 +85,6 @@ export function createHtmlArtifactManifest(input: {
     renderer: 'html',
     status: 'complete',
     exports: ['html', 'pdf', 'zip'],
-    primary: true,
     createdAt: now,
     updatedAt: now,
     sourceSkillId: input.sourceSkillId,
@@ -125,10 +124,6 @@ export function parseArtifactManifest(raw: string): ArtifactManifest | null {
         ? (parsed.status as ArtifactStatus)
         : 'complete',
       exports: parsed.exports as ArtifactExportKind[],
-      primary:
-        parsed.primary === true || typeof parsed.primary === 'string'
-          ? parsed.primary
-          : undefined,
       supportingFiles: Array.isArray(parsed.supportingFiles)
         ? parsed.supportingFiles.filter((x): x is string => typeof x === 'string')
         : undefined,
@@ -183,7 +178,6 @@ export function inferLegacyManifest(input: {
     renderer,
     status: 'complete',
     exports: exportsForKind(resolvedKind),
-    primary: resolvedKind === 'html' || resolvedKind === 'deck' ? true : undefined,
     metadata: input.metadata,
   };
 }

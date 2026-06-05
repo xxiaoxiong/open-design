@@ -10,8 +10,6 @@ import {
   SIDECAR_MESSAGES,
   SIDECAR_MODES,
   SIDECAR_SOURCES,
-  type DesktopEvalResult,
-  type DesktopScreenshotResult,
   type DesktopStatusSnapshot,
   type SidecarStamp,
 } from "@open-design/sidecar-proto";
@@ -28,36 +26,18 @@ import {
 
 import type { ToolPackConfig } from "./config.js";
 import { copyBundledResourceTrees, linuxResources } from "./resources.js";
-import { copyOptionalVelaCliBinary } from "./vela-cli.js";
-import { electronBuilderVersionForAppVersion, readRuntimeAppVersion } from "./versions.js";
-import { processWebSourcemaps } from "./web-sourcemaps.js";
 
 const execFileAsync = promisify(execFile);
 
 const PRODUCT_NAME = "Open Design";
 const APP_IMAGE_PRODUCT_NAME = "Open-Design";
 const DESKTOP_LOG_ECHO_ENV = "OD_DESKTOP_LOG_ECHO";
-// The containerized build sets this to the standalone pnpm binary fetched by
-// buildDockerArgs; runProductionInstall reads it to avoid invoking `npm` inside
-// `electronuserland/builder:base`, which strips npm/npx/corepack.
-const PRODUCTION_INSTALL_PNPM_BIN_ENV = "OD_TOOLS_PACK_PNPM_BIN";
-const CONTAINER_PNPM_PATH = "/tmp/pnpm";
-const CONTAINER_PNPM_HOME = "/tmp/pnpm-home";
-const CONTAINER_NODE_VERSION = "24.14.1";
-const CONTAINER_TOOLS_PACK_CLI_PATH = "tools/pack/bin/tools-pack.mjs";
 
-export const INTERNAL_PACKAGES = [
-  { directory: "packages/components", name: "@open-design/components" },
+const INTERNAL_PACKAGES = [
   { directory: "packages/contracts", name: "@open-design/contracts" },
-  { directory: "packages/registry-protocol", name: "@open-design/registry-protocol" },
   { directory: "packages/sidecar-proto", name: "@open-design/sidecar-proto" },
   { directory: "packages/sidecar", name: "@open-design/sidecar" },
   { directory: "packages/platform", name: "@open-design/platform" },
-  { directory: "packages/download", name: "@open-design/download" },
-  { directory: "packages/host", name: "@open-design/host" },
-  { directory: "packages/agui-adapter", name: "@open-design/agui-adapter" },
-  { directory: "packages/plugin-runtime", name: "@open-design/plugin-runtime" },
-  { directory: "packages/diagnostics", name: "@open-design/diagnostics" },
   { directory: "apps/daemon", name: "@open-design/daemon" },
   { directory: "apps/web", name: "@open-design/web" },
   { directory: "apps/desktop", name: "@open-design/desktop" },
@@ -66,16 +46,6 @@ export const INTERNAL_PACKAGES = [
 
 export function sanitizeNamespace(value: string): string {
   return value.replace(/[^A-Za-z0-9._-]+/g, "-");
-}
-
-export type LinuxLifecycleAction = "cleanup" | "install" | "start" | "stop" | "uninstall";
-export type LinuxLifecycleMode = "appimage" | "headless";
-
-export function resolveLinuxLifecycleMode(
-  options: { headless?: boolean },
-  _action: LinuxLifecycleAction,
-): LinuxLifecycleMode {
-  return options.headless === true ? "headless" : "appimage";
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -105,10 +75,6 @@ function toDockerMountPath(value: string): string {
   return value.replaceAll("\\", "/");
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
-
 export function buildDockerArgs(
   config: ToolPackConfig,
   user: DockerUserMapping,
@@ -133,65 +99,35 @@ export function buildDockerArgs(
   //   - config.to is enum-validated by resolveToolPackBuildOutput() in config.ts
   //     to one of "all" | "appimage" | "dir"
   //   - config.portable is a boolean
-  //   - config.appVersion is shell-quoted below because release versions can
-  //     carry punctuation that is not part of the namespace / target enums.
+  // None of these values can contain shell metacharacters, so direct
+  // interpolation into the inner command string is safe.
   //
-  // The `electronuserland/builder:base` image is intentionally minimal: it
-  // strips node/npm/npx/corepack from PATH. Every "ask the image to invoke a
-  // package-manager shim" path fails with `command not found`.
+  // We can't rely on `corepack pnpm` here: although Node 16.10+ ships corepack,
+  // the `electronuserland/builder:base` image strips the corepack binary, so
+  // the inner `bash -lc` fails with `corepack: command not found`. We also
+  // can't `corepack enable` ourselves — the container runs as the host's
+  // non-root uid (--user above) and corepack would try to write shims next
+  // to the system Node binary, which is owned by root in this image.
   //
-  // Download the official pnpm `linuxstatic-<arch>` standalone binary at
-  // container start. The binary bundles its own Node runtime, so it does not
-  // depend on the image's npm tooling. Select the asset by the container CPU so
-  // amd64 GitHub runners and arm64 local Docker hosts both work. Stage it under
-  // `/tmp/pnpm`, which is writable by the unprivileged container user. Then use
-  // it to install a pinned Node into PNPM_HOME so root lifecycle scripts and the
-  // final tools-pack CLI can run through an explicit `node .../tools-pack.mjs`
-  // entrypoint instead of generated `node_modules/.bin/*` shims.
-  //
-  // Route bootstrap and install diagnostics to stderr so stdout remains
-  // machine-readable when the inner `tools-pack linux build --json` emits JSON.
-  //
-  // The pinned version matches the `packageManager` field in the root
-  // package.json so reproducibility is preserved.
+  // Use `npx --yes pnpm@<version>` instead: `npx` ships with npm (always
+  // present in the image), `--yes` skips the install confirmation, and the
+  // package gets cached under `$HOME/.npm/_npx`, which is writable by the
+  // unprivileged user. The pinned version matches the `packageManager`
+  // field in the root package.json so reproducibility is preserved.
   const PNPM_VERSION = "10.33.2";
-  const pnpmLinuxStaticX64Sha256 = "a47be715939bafa420fbdc5e34f7f9d8292c032402162c89ccb611e944e526d6";
-  const pnpmLinuxStaticArm64Sha256 = "4d402d0ef12cdc4d81ca339904e68638d841f4e27c73e460534d06e6b56048a9";
-  const pnpmReleaseUrl = `https://github.com/pnpm/pnpm/releases/download/v${PNPM_VERSION}`;
-  const setupPnpm =
-    `command -v curl >/dev/null || { echo "curl not found in container image" >&2; exit 127; } && ` +
-    `mkdir -p ${CONTAINER_PNPM_HOME} && ` +
-    `case "$(uname -m)" in ` +
-    `x86_64) PNPM_ASSET=pnpm-linuxstatic-x64; PNPM_SHA256=${pnpmLinuxStaticX64Sha256} ;; ` +
-    `aarch64) PNPM_ASSET=pnpm-linuxstatic-arm64; PNPM_SHA256=${pnpmLinuxStaticArm64Sha256} ;; ` +
-    `*) echo "unsupported container arch: $(uname -m)" >&2; exit 1 ;; ` +
-    `esac && ` +
-    `curl --retry 3 --retry-all-errors --connect-timeout 10 --max-time 60 -fsSL "${pnpmReleaseUrl}/$PNPM_ASSET" -o ${CONTAINER_PNPM_PATH}.tmp && ` +
-    `echo "$PNPM_SHA256  ${CONTAINER_PNPM_PATH}.tmp" | sha256sum -c - && ` +
-    `mv ${CONTAINER_PNPM_PATH}.tmp ${CONTAINER_PNPM_PATH} && ` +
-    `chmod +x ${CONTAINER_PNPM_PATH} && ` +
-    `PNPM_HOME=${CONTAINER_PNPM_HOME} PATH=${CONTAINER_PNPM_HOME}:$PATH ${CONTAINER_PNPM_PATH} env use --global ${CONTAINER_NODE_VERSION} && ` +
-    `export PNPM_HOME=${CONTAINER_PNPM_HOME} PATH=${CONTAINER_PNPM_HOME}:$PATH && ` +
-    `command -v node >/dev/null`;
-  const pnpmCmd = CONTAINER_PNPM_PATH;
+  const pnpmCmd = `npx --yes pnpm@${PNPM_VERSION}`;
   const innerArgs = [
-    `node ${CONTAINER_TOOLS_PACK_CLI_PATH} linux build`,
+    `${pnpmCmd} tools-pack linux build`,
     `--to ${config.to}`,
     `--namespace ${config.namespace}`,
     "--dir /tools-pack",
   ];
-  if (config.requireVelaCli) {
-    innerArgs.push("--require-vela-cli");
-  }
   if (config.portable) {
     innerArgs.push("--portable");
   }
-  if (config.appVersion != null) {
-    innerArgs.push(`--app-version ${shellQuote(config.appVersion)}`);
-  }
-  const innerCommand = `{ ${setupPnpm} && ${pnpmCmd} install --frozen-lockfile; } >&2 && ` + innerArgs.join(" ");
+  const innerCommand = `${pnpmCmd} install --frozen-lockfile && ` + innerArgs.join(" ");
 
-  const dockerArgs = [
+  return [
     "run",
     "--rm",
     "--user",
@@ -212,38 +148,13 @@ export function buildDockerArgs(
     "ELECTRON_CACHE=/home/builder/.cache/electron",
     "-e",
     "ELECTRON_BUILDER_CACHE=/home/builder/.cache/electron-builder",
-    "-e",
-    `${PRODUCTION_INSTALL_PNPM_BIN_ENV}=${CONTAINER_PNPM_PATH}`,
-  ];
-  if (config.telemetryRelayUrl != null) {
-    dockerArgs.push("-e", `OPEN_DESIGN_TELEMETRY_RELAY_URL=${config.telemetryRelayUrl}`);
-  }
-  const velaBinHost = process.env.OPEN_DESIGN_VELA_CLI_BIN?.trim();
-  if (velaBinHost) {
-    // The container only mounts /project, /tools-pack and cache/home dirs by
-    // default, so a Vela CLI living outside those (a host path like
-    // `~/.local/bin/vela` is the common dev case) would be invisible inside.
-    // Bind-mount the containing directory read-only and rewrite the env to
-    // the container-side path so `copyOptionalVelaCliBinary` can actually
-    // read it.
-    const hostVelaDir = dirname(velaBinHost);
-    const velaBinBase = basename(velaBinHost);
-    const containerVelaDir = "/opt/vela-cli";
-    dockerArgs.push("-v", `${hostVelaDir}:${containerVelaDir}:ro`);
-    dockerArgs.push("-e", `OPEN_DESIGN_VELA_CLI_BIN=${containerVelaDir}/${velaBinBase}`);
-  }
-  if (config.amrProfile != null) {
-    dockerArgs.push("-e", `OPEN_DESIGN_AMR_PROFILE=${config.amrProfile}`);
-  }
-  dockerArgs.push(
     "-w",
     "/project",
     "electronuserland/builder:base",
     "bash",
     "-lc",
     innerCommand,
-  );
-  return dockerArgs;
+  ];
 }
 
 export type DesktopTemplateValues = {
@@ -352,38 +263,20 @@ async function runPnpm(
   });
 }
 
-export type ProductionInstallCommand = { command: string; args: string[] };
-
-// Picks the package manager used to materialize the assembled-app node_modules
-// during writeAssembledApp. The default (`npm`) preserves host behavior for
-// developer-machine builds. When the build runs inside
-// `electronuserland/builder:base` (which strips npm, npx, and corepack),
-// buildDockerArgs sets OD_TOOLS_PACK_PNPM_BIN to the standalone pnpm binary it
-// bootstrapped, and this resolver routes the install through that binary.
-// `--config.node-linker=hoisted` keeps the resulting layout flat so
-// electron-builder packs node_modules the same way it does for npm-installed
-// trees.
-export function resolveProductionInstallCommand(env: NodeJS.ProcessEnv): ProductionInstallCommand {
-  const pnpmBin = env[PRODUCTION_INSTALL_PNPM_BIN_ENV];
-  if (pnpmBin != null && pnpmBin.length > 0) {
-    return {
-      command: pnpmBin,
-      args: ["install", "--prod", "--no-lockfile", "--config.node-linker=hoisted"],
-    };
-  }
-  return { command: "npm", args: ["install", "--omit=dev", "--no-package-lock"] };
-}
-
-async function runProductionInstall(appRoot: string): Promise<void> {
-  const { command, args } = resolveProductionInstallCommand(process.env);
-  await execFileAsync(command, args, {
+async function runNpmInstall(appRoot: string): Promise<void> {
+  await execFileAsync("npm", ["install", "--omit=dev", "--no-package-lock"], {
     cwd: appRoot,
     env: process.env,
   });
 }
 
 async function readPackagedVersion(config: ToolPackConfig): Promise<string> {
-  return readRuntimeAppVersion(config);
+  const packageJsonPath = join(config.workspaceRoot, "apps", "packaged", "package.json");
+  const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8")) as { version?: unknown };
+  if (typeof packageJson.version !== "string" || packageJson.version.length === 0) {
+    throw new Error(`missing apps/packaged package version in ${packageJsonPath}`);
+  }
+  return packageJson.version;
 }
 
 async function buildWorkspaceArtifacts(config: ToolPackConfig): Promise<void> {
@@ -391,26 +284,13 @@ async function buildWorkspaceArtifacts(config: ToolPackConfig): Promise<void> {
   const previousWebNextEnv = await readFile(webNextEnvPath, "utf8").catch(() => null);
 
   await runPnpm(config, ["--filter", "@open-design/contracts", "build"]);
-  await runPnpm(config, ["--filter", "@open-design/registry-protocol", "build"]);
   await runPnpm(config, ["--filter", "@open-design/sidecar-proto", "build"]);
   await runPnpm(config, ["--filter", "@open-design/sidecar", "build"]);
   await runPnpm(config, ["--filter", "@open-design/platform", "build"]);
-  await runPnpm(config, ["--filter", "@open-design/host", "build"]);
-  await runPnpm(config, ["--filter", "@open-design/download", "build"]);
-  await runPnpm(config, ["--filter", "@open-design/agui-adapter", "build"]);
-  await runPnpm(config, ["--filter", "@open-design/plugin-runtime", "build"]);
-  await runPnpm(config, ["--filter", "@open-design/download", "build"]);
-  await runPnpm(config, ["--filter", "@open-design/host", "build"]);
-  await runPnpm(config, ["--filter", "@open-design/diagnostics", "build"]);
-  await runPnpm(config, ["--filter", "@open-design/components", "build"]);
   await runPnpm(config, ["--filter", "@open-design/daemon", "build"]);
   try {
     await runPnpm(config, ["--filter", "@open-design/web", "build"], { OD_WEB_OUTPUT_MODE: "server" });
     await runPnpm(config, ["--filter", "@open-design/web", "build:sidecar"]);
-    // Inject chunk IDs + upload browser sourcemaps to PostHog, then strip
-    // .map files before AppImage packaging. See
-    // `tools/pack/src/web-sourcemaps.ts`.
-    await processWebSourcemaps(config);
   } finally {
     if (previousWebNextEnv == null) {
       await rm(webNextEnvPath, { force: true });
@@ -460,11 +340,6 @@ async function copyResourceTree(config: ToolPackConfig, paths: LinuxPaths): Prom
   await mkdir(join(paths.resourceRoot, "bin"), { recursive: true });
   await cp(process.execPath, join(paths.resourceRoot, "bin", "node"));
   await chmod(join(paths.resourceRoot, "bin", "node"), 0o755);
-  await copyOptionalVelaCliBinary({
-    platform: "linux",
-    requireBundled: config.requireVelaCli,
-    resourceRoot: paths.resourceRoot,
-  });
 }
 
 // --- Step 4: writeAssembledApp helper ---
@@ -476,10 +351,6 @@ async function writeAssembledApp(
 ): Promise<void> {
   await rm(paths.assembledAppRoot, { force: true, recursive: true });
   await mkdir(paths.assembledAppRoot, { recursive: true });
-  await cp(
-    join(config.workspaceRoot, "apps", "desktop", "dist", "main", "preload.cjs"),
-    join(paths.assembledAppRoot, "preload.cjs"),
-  );
 
   const dependencies: Record<string, string> = {};
   for (const tarball of packed) {
@@ -487,19 +358,12 @@ async function writeAssembledApp(
   }
 
   const version = await readPackagedVersion(config);
-  const packageVersion = electronBuilderVersionForAppVersion(version);
   const packageJson = {
     name: "open-design-packaged",
-    version: packageVersion,
+    version,
     private: true,
     main: "main.cjs",
     dependencies,
-    description: "Local-first design product: detects your installed code-agent CLI, runs design skills + design systems, streams artifacts into a sandboxed preview.",
-    author: "Open Design Team",
-    repository: {
-      type: "git",
-      url: "https://github.com/nexu-io/open-design.git"
-    }
   };
   await writeFile(paths.assembledPackageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
 
@@ -510,13 +374,9 @@ async function writeAssembledApp(
     paths.packagedConfigPath,
     `${JSON.stringify(
       {
-        ...(config.amrProfile == null ? {} : { amrProfile: config.amrProfile }),
         appVersion: version,
         namespace: config.namespace,
         nodeCommandRelative: "open-design/bin/node",
-        ...(config.telemetryRelayUrl == null ? {} : { telemetryRelayUrl: config.telemetryRelayUrl }),
-        ...(config.posthogKey == null ? {} : { posthogKey: config.posthogKey }),
-        ...(config.posthogHost == null ? {} : { posthogHost: config.posthogHost }),
         ...(config.portable ? {} : { namespaceBaseRoot: config.roots.runtime.namespaceBaseRoot }),
       },
       null,
@@ -525,7 +385,7 @@ async function writeAssembledApp(
     "utf8",
   );
 
-  await runProductionInstall(paths.assembledAppRoot);
+  await runNpmInstall(paths.assembledAppRoot);
 }
 
 // --- Step 5: writeLinuxBuilderConfig helper ---
@@ -534,7 +394,6 @@ async function writeLinuxBuilderConfig(config: ToolPackConfig, paths: LinuxPaths
   const target = config.to === "dir" ? ["dir"] : ["AppImage"];
   const namespaceToken = sanitizeNamespace(config.namespace);
   const packagedVersion = await readPackagedVersion(config);
-  const packageVersion = electronBuilderVersionForAppVersion(packagedVersion);
 
   const builderConfig: Record<string, unknown> = {
     appId: "io.open-design.desktop",
@@ -548,15 +407,13 @@ async function writeLinuxBuilderConfig(config: ToolPackConfig, paths: LinuxPaths
       buildResources: dirname(linuxResources.icon),
     },
     electronVersion: config.electronVersion.replace(/^[^\d]*/, ""),
-    // See tools/pack/src/win/builder.ts: rely on electron-builder's own
-    // Electron download rather than node_modules' dist, which pnpm does not
-    // reliably materialize on CI runners.
+    electronDist: config.electronDistPath,
     executableName: PRODUCT_NAME,
     extraMetadata: {
       main: "./main.cjs",
       name: "open-design-packaged-app",
       productName: PRODUCT_NAME,
-      version: packageVersion,
+      version: packagedVersion,
       ...(config.portable ? {} : { odToolsPackRuntimeRoot: config.roots.runtime.namespaceBaseRoot }),
     },
     extraResources: [
@@ -775,19 +632,6 @@ export type LinuxStartResult = {
   status: DesktopStatusSnapshot | null;
 };
 
-export type LinuxInspectResult = {
-  eval?: DesktopEvalResult;
-  screenshot?: DesktopScreenshotResult;
-  status: DesktopStatusSnapshot | null;
-};
-
-export function shouldRejectLinuxHeadlessInspectOptions(options: {
-  expr?: string;
-  path?: string;
-}): boolean {
-  return options.expr != null || options.path != null;
-}
-
 type DesktopRootIdentityMarker = {
   appPath: string;
   executablePath: string;
@@ -817,14 +661,6 @@ export type LinuxStopResult = {
   stoppedPids: number[];
 };
 
-type ProcessSnapshots = Awaited<ReturnType<typeof listProcessSnapshots>>;
-type ProcessSnapshot = ProcessSnapshots[number];
-
-type DesktopAppImageMarkerValidation =
-  | { status: "valid"; candidate: ProcessSnapshot }
-  | { status: "not-running" }
-  | { status: "invalid"; candidate: ProcessSnapshot; processCommand: string };
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value != null && !Array.isArray(value);
 }
@@ -845,10 +681,11 @@ function isDesktopRootIdentityMarker(value: unknown): value is DesktopRootIdenti
   );
 }
 
-async function readRootIdentityMarker(markerPath: string): Promise<{
+async function readDesktopRootIdentityMarker(config: ToolPackConfig): Promise<{
   fallback: DesktopRootIdentityFallback;
   marker: DesktopRootIdentityMarker | null;
 }> {
+  const markerPath = desktopIdentityPath(config);
   let payload: unknown;
   try {
     payload = JSON.parse(await readFile(markerPath, "utf8"));
@@ -866,20 +703,6 @@ async function readRootIdentityMarker(markerPath: string): Promise<{
     fallback: { marker: payload, markerPath, reason: "marker-present" },
     marker: payload,
   };
-}
-
-async function readDesktopRootIdentityMarker(config: ToolPackConfig): Promise<{
-  fallback: DesktopRootIdentityFallback;
-  marker: DesktopRootIdentityMarker | null;
-}> {
-  return readRootIdentityMarker(desktopIdentityPath(config));
-}
-
-async function readHeadlessRootIdentityMarker(config: ToolPackConfig): Promise<{
-  fallback: DesktopRootIdentityFallback;
-  marker: DesktopRootIdentityMarker | null;
-}> {
-  return readRootIdentityMarker(headlessIdentityPath(config));
 }
 
 async function readProcessEnv(pid: number): Promise<Record<string, string>> {
@@ -905,65 +728,12 @@ async function readProcessExe(pid: number): Promise<string> {
   }
 }
 
-async function validateDesktopAppImageMarker(
-  config: ToolPackConfig,
-  marker: DesktopRootIdentityMarker,
-  snapshots: ProcessSnapshots,
-): Promise<DesktopAppImageMarkerValidation> {
-  const candidate = snapshots.find((s) => s.pid === marker.pid);
-  if (candidate == null) return { status: "not-running" };
-
-  // Validate the marker stamp (file content written by apps/packaged itself)
-  // rather than the process command line. Menu launches via the .desktop
-  // entry don't pass createProcessStampArgs to the AppImage -- they only set
-  // OD_PACKAGED_NAMESPACE -- so apps/packaged falls back to a SIDECAR_SOURCES.PACKAGED
-  // stamp. Validating the process command would reject those legitimate
-  // launches as `unmanaged`, which on uninstall would also remove the
-  // AppImage/desktop/icon files out from under the still-running app.
-  // Accept either TOOLS_PACK (CLI start) or PACKAGED (menu launch). Mirrors
-  // the dual-source acceptance pattern in mac/lifecycle.ts.
-  const expectedIpc = resolveAppIpcPath({
-    app: APP_KEYS.DESKTOP,
-    contract: OPEN_DESIGN_SIDECAR_CONTRACT,
-    namespace: config.namespace,
-  });
-  const stampOk =
-    marker.stamp.app === APP_KEYS.DESKTOP &&
-    marker.stamp.mode === SIDECAR_MODES.RUNTIME &&
-    marker.stamp.namespace === config.namespace &&
-    marker.stamp.ipc === expectedIpc &&
-    (marker.stamp.source === SIDECAR_SOURCES.TOOLS_PACK ||
-      marker.stamp.source === SIDECAR_SOURCES.PACKAGED);
-  const paths = resolveLinuxPaths(config);
-  const exePath = await readProcessExe(marker.pid);
-  const env = await readProcessEnv(marker.pid);
-  // marker.appPath is unreliable on Linux (apps/packaged writes "/"). Use the
-  // canonical install path we know about, falling back to the built AppImage
-  // for not-yet-installed builds.
-  const candidateAppImagePath =
-    (await pathExists(paths.installAppImagePath)) ? paths.installAppImagePath : await findBuiltAppImage(paths);
-  const cmdOk = candidateAppImagePath != null && matchesAppImageProcess(
-    { pid: marker.pid, executable: exePath, env },
-    candidateAppImagePath,
-  );
-
-  if (stampOk && cmdOk && marker.namespaceRoot === config.roots.runtime.namespaceRoot) {
-    return { candidate, status: "valid" };
-  }
-
-  return { candidate, processCommand: candidate.command, status: "invalid" };
-}
-
 function desktopLogPath(config: ToolPackConfig): string {
   return join(config.roots.runtime.namespaceRoot, "logs", APP_KEYS.DESKTOP, "latest.log");
 }
 
 function desktopIdentityPath(config: ToolPackConfig): string {
   return join(config.roots.runtime.namespaceRoot, "runtime", "desktop-root.json");
-}
-
-function headlessIdentityPath(config: ToolPackConfig): string {
-  return join(config.roots.runtime.namespaceRoot, "runtime", "headless-root.json");
 }
 
 function linuxDesktopStamp(config: ToolPackConfig): SidecarStamp {
@@ -1085,6 +855,7 @@ async function teardownOrphanedStart(rootPid: number): Promise<void> {
 }
 
 export async function stopPackedLinuxApp(config: ToolPackConfig): Promise<LinuxStopResult> {
+  const paths = resolveLinuxPaths(config);
   const { fallback, marker } = await readDesktopRootIdentityMarker(config);
 
   if (marker == null) {
@@ -1100,8 +871,8 @@ export async function stopPackedLinuxApp(config: ToolPackConfig): Promise<LinuxS
 
   // Validate the marker still represents a live, owned process.
   const snapshots = await listProcessSnapshots();
-  const validation = await validateDesktopAppImageMarker(config, marker, snapshots);
-  if (validation.status === "not-running") {
+  const candidate = snapshots.find((s) => s.pid === marker.pid);
+  if (candidate == null) {
     return {
       fallback: { ...fallback, reason: "marker-pid-not-running" },
       gracefulRequested: false,
@@ -1112,12 +883,45 @@ export async function stopPackedLinuxApp(config: ToolPackConfig): Promise<LinuxS
     };
   }
 
-  if (validation.status === "invalid") {
+  // Validate the marker stamp (file content written by apps/packaged itself)
+  // rather than the process command line. Menu launches via the .desktop
+  // entry don't pass createProcessStampArgs to the AppImage -- they only set
+  // OD_PACKAGED_NAMESPACE -- so apps/packaged falls back to a SIDECAR_SOURCES.PACKAGED
+  // stamp. Validating the process command would reject those legitimate
+  // launches as `unmanaged`, which on uninstall would also remove the
+  // AppImage/desktop/icon files out from under the still-running app.
+  // Accept either TOOLS_PACK (CLI start) or PACKAGED (menu launch). Mirrors
+  // the dual-source acceptance pattern in mac/lifecycle.ts.
+  const expectedIpc = resolveAppIpcPath({
+    app: APP_KEYS.DESKTOP,
+    contract: OPEN_DESIGN_SIDECAR_CONTRACT,
+    namespace: config.namespace,
+  });
+  const stampOk =
+    marker.stamp.app === APP_KEYS.DESKTOP &&
+    marker.stamp.mode === SIDECAR_MODES.RUNTIME &&
+    marker.stamp.namespace === config.namespace &&
+    marker.stamp.ipc === expectedIpc &&
+    (marker.stamp.source === SIDECAR_SOURCES.TOOLS_PACK ||
+      marker.stamp.source === SIDECAR_SOURCES.PACKAGED);
+  const exePath = await readProcessExe(marker.pid);
+  const env = await readProcessEnv(marker.pid);
+  // marker.appPath is unreliable on Linux (apps/packaged writes "/"). Use the
+  // canonical install path we know about, falling back to the built AppImage
+  // for not-yet-installed builds.
+  const candidateAppImagePath =
+    (await pathExists(paths.installAppImagePath)) ? paths.installAppImagePath : await findBuiltAppImage(paths);
+  const cmdOk = candidateAppImagePath != null && matchesAppImageProcess(
+    { pid: marker.pid, executable: exePath, env },
+    candidateAppImagePath,
+  );
+
+  if (!stampOk || !cmdOk || marker.namespaceRoot !== config.roots.runtime.namespaceRoot) {
     return {
       fallback: {
         ...fallback,
         marker: { pid: marker.pid, stamp: marker.stamp },
-        processCommand: validation.processCommand,
+        processCommand: candidate.command,
         reason: "marker-validation-failed",
       },
       gracefulRequested: false,
@@ -1170,48 +974,6 @@ export async function readPackedLinuxLogs(config: ToolPackConfig): Promise<{
     logs[app] = { lines, logPath };
   }
   return { logs, namespace: config.namespace };
-}
-
-export async function inspectPackedLinuxApp(
-  config: ToolPackConfig,
-  options: { expr?: string; headless?: boolean; path?: string },
-): Promise<LinuxInspectResult> {
-  if (options.headless === true && shouldRejectLinuxHeadlessInspectOptions(options)) {
-    throw new Error("linux inspect --headless supports status only; omit --expr and --path");
-  }
-
-  const stamp = linuxDesktopStamp(config);
-  const status = await requestJsonIpc<DesktopStatusSnapshot>(
-    stamp.ipc,
-    { type: SIDECAR_MESSAGES.STATUS },
-    { timeoutMs: 2000 },
-  ).catch(() => null);
-
-  if (options.headless === true) {
-    return { status };
-  }
-
-  return {
-    ...(options.expr == null
-      ? {}
-      : {
-          eval: await requestJsonIpc<DesktopEvalResult>(
-            stamp.ipc,
-            { input: { expression: options.expr }, type: SIDECAR_MESSAGES.EVAL },
-            { timeoutMs: 5000 },
-          ),
-        }),
-    ...(options.path == null
-      ? {}
-      : {
-          screenshot: await requestJsonIpc<DesktopScreenshotResult>(
-            stamp.ipc,
-            { input: { path: options.path }, type: SIDECAR_MESSAGES.SCREENSHOT },
-            { timeoutMs: 10000 },
-          ),
-        }),
-    status,
-  };
 }
 
 export type LinuxUninstallResult = {
@@ -1279,36 +1041,6 @@ export async function uninstallPackedLinuxApp(config: ToolPackConfig): Promise<L
     removed: { appImage: removedAppImage, desktop: removedDesktop, icon: removedIcon },
     stop,
     postUninstall: { desktopDatabase, iconCache },
-  };
-}
-
-export type LinuxHeadlessUninstallResult = {
-  launcherPath: string;
-  namespace: string;
-  removed: "ok" | "already-removed" | "skipped-process-running";
-  stop: LinuxStopResult;
-};
-
-export async function uninstallPackedLinuxHeadless(
-  config: ToolPackConfig,
-): Promise<LinuxHeadlessUninstallResult> {
-  const stop = await stopPackedLinuxHeadless(config);
-  const launcherPath = headlessLauncherPath(config);
-
-  if (!isSafeToRemoveInstallFiles(stop)) {
-    return {
-      launcherPath,
-      namespace: config.namespace,
-      removed: "skipped-process-running",
-      stop,
-    };
-  }
-
-  return {
-    launcherPath,
-    namespace: config.namespace,
-    removed: await tryRemove(launcherPath),
-    stop,
   };
 }
 
@@ -1436,7 +1168,7 @@ export async function installPackedLinuxHeadless(config: ToolPackConfig): Promis
   const script = [
     "#!/bin/sh",
     `# Open Design headless launcher — namespace: ${config.namespace}`,
-    `OD_PACKAGED_NAMESPACE=${JSON.stringify(config.namespace)} OD_DATA_DIR=${JSON.stringify(dataDir)} OD_RESOURCE_ROOT=${JSON.stringify(paths.resourceRoot)} exec ${JSON.stringify(nodePath)} ${JSON.stringify(entryPath)} "$@"`,
+    `OD_NAMESPACE=${JSON.stringify(config.namespace)} OD_DATA_DIR=${JSON.stringify(dataDir)} OD_RESOURCE_ROOT=${JSON.stringify(paths.resourceRoot)} exec ${JSON.stringify(nodePath)} ${JSON.stringify(entryPath)} "$@"`,
   ].join("\n") + "\n";
 
   await writeFile(launcherPath, script, { encoding: "utf8", mode: 0o755 });
@@ -1462,11 +1194,9 @@ export async function startPackedLinuxHeadless(config: ToolPackConfig): Promise<
   await mkdir(dirname(logPath), { recursive: true });
   await writeFile(logPath, "", "utf8");
 
-  // Remove stale headless identity markers from a previous run so waitForMarker
-  // and waitForWebIdentity below wait for the newly spawned process. Leave
-  // desktop-root.json alone: a menu-launched AppImage uses that marker and
-  // headless start/stop must not claim or erase it.
-  await rm(headlessIdentityPath(config), { force: true }).catch(() => undefined);
+  // Remove stale identity markers from a previous run so waitForMarker and
+  // waitForWebIdentity below wait for the newly spawned process.
+  await rm(desktopIdentityPath(config), { force: true }).catch(() => undefined);
   await rm(webIdentityPath(config), { force: true }).catch(() => undefined);
 
   // Open the log file so stdout/stderr from the headless process are captured.
@@ -1479,9 +1209,9 @@ export async function startPackedLinuxHeadless(config: ToolPackConfig): Promise<
       cwd: dirname(entryPath),
       env: {
         ...process.env,
-        // Bake in the packaged namespace so headless uses the same namespace
-        // as the tools-pack config regardless of the caller's environment.
-        OD_PACKAGED_NAMESPACE: config.namespace,
+        // Bake in the namespace so headless uses the same namespace as the
+        // tools-pack config regardless of the caller's environment.
+        OD_NAMESPACE: config.namespace,
         // Point the headless data root at the tools-pack runtime directory so
         // the identity marker is written to the path this function polls.
         // headless.ts computes: join(OD_DATA_DIR, "namespaces") which must
@@ -1496,11 +1226,11 @@ export async function startPackedLinuxHeadless(config: ToolPackConfig): Promise<
     await logHandle.close().catch(() => undefined);
   }
 
-  const markerPath = headlessIdentityPath(config);
+  const markerPath = desktopIdentityPath(config);
   const ready = await waitForMarker(markerPath, 35_000);
   if (!ready) {
     await teardownOrphanedStart(child.pid).catch(() => undefined);
-    throw new Error(`headless-root.json not written within 35s at ${markerPath}`);
+    throw new Error(`headless identity marker not written within 35s at ${markerPath}`);
   }
 
   const webIdentity = await waitForWebIdentity(config, child.pid, 60_000);
@@ -1519,7 +1249,7 @@ export async function startPackedLinuxHeadless(config: ToolPackConfig): Promise<
 }
 
 export async function stopPackedLinuxHeadless(config: ToolPackConfig): Promise<LinuxStopResult> {
-  const { fallback, marker } = await readHeadlessRootIdentityMarker(config);
+  const { fallback, marker } = await readDesktopRootIdentityMarker(config);
 
   if (marker == null) {
     return {
@@ -1545,10 +1275,9 @@ export async function stopPackedLinuxHeadless(config: ToolPackConfig): Promise<L
     };
   }
 
-  // Validate the stamp from headless-root.json. A menu-launched AppImage writes
-  // the same PACKAGED source to desktop-root.json, so the distinct marker path
-  // is the ownership boundary that keeps --headless stop/cleanup from claiming
-  // the AppImage runtime.
+  // Validate the stamp. Headless writes source=PACKAGED; skip the AppImage
+  // process-command check used by stopPackedLinuxApp since the headless entry
+  // is a plain Node process, not an AppImage.
   const expectedIpc = resolveAppIpcPath({
     app: APP_KEYS.DESKTOP,
     contract: OPEN_DESIGN_SIDECAR_CONTRACT,
@@ -1589,7 +1318,7 @@ export async function stopPackedLinuxHeadless(config: ToolPackConfig): Promise<L
   const result = await stopProcesses(treePids);
 
   if (result.remainingPids.length === 0) {
-    await rm(headlessIdentityPath(config), { force: true }).catch(() => undefined);
+    await rm(desktopIdentityPath(config), { force: true }).catch(() => undefined);
     await rm(webIdentityPath(config), { force: true }).catch(() => undefined);
   }
 
@@ -1602,14 +1331,8 @@ export async function stopPackedLinuxHeadless(config: ToolPackConfig): Promise<L
   };
 }
 
-export async function cleanupPackedLinuxNamespace(
-  config: ToolPackConfig,
-  options: { headless?: boolean } = {},
-): Promise<LinuxCleanupResult> {
-  const mode = resolveLinuxLifecycleMode(options, "cleanup");
-  const stop = mode === "headless"
-    ? await stopPackedLinuxHeadless(config)
-    : await stopPackedLinuxApp(config);
+export async function cleanupPackedLinuxNamespace(config: ToolPackConfig): Promise<LinuxCleanupResult> {
+  const stop = await stopPackedLinuxApp(config);
   const outputRoot = config.roots.output.namespaceRoot;
   const runtimeNamespaceRoot = config.roots.runtime.namespaceRoot;
 
@@ -1623,24 +1346,6 @@ export async function cleanupPackedLinuxNamespace(
       skipped: true,
       stop,
     };
-  }
-
-  if (mode === "headless") {
-    const { marker } = await readDesktopRootIdentityMarker(config);
-    if (marker != null) {
-      const desktop = await validateDesktopAppImageMarker(config, marker, await listProcessSnapshots());
-      if (desktop.status !== "not-running") {
-        return {
-          namespace: config.namespace,
-          outputRoot,
-          removedOutputRoot: false,
-          removedRuntimeNamespaceRoot: false,
-          runtimeNamespaceRoot,
-          skipped: true,
-          stop,
-        };
-      }
-    }
   }
 
   const hadOutput = await pathExists(outputRoot);

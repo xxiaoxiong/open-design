@@ -1,4 +1,3 @@
-import { Button, Select } from '@open-design/components';
 import { useT } from '../i18n';
 import type { AgentInfo, ExecMode } from '../types';
 
@@ -28,7 +27,7 @@ export function AgentPicker({
   return (
     <div className="picker agent-picker">
       <span className="picker-label">{t('agentPicker.label')}</span>
-      <Select
+      <select
         value={mode}
         onChange={(e) => onModeChange(e.target.value as ExecMode)}
         title={t('agentPicker.modeChoose')}
@@ -37,10 +36,10 @@ export function AgentPicker({
           {t('agentPicker.localCli')} {daemonLive ? '' : `· ${t('agentPicker.daemonOff')}`}
         </option>
         <option value="api">{t('agentPicker.byok')}</option>
-      </Select>
+      </select>
       {mode === 'daemon' ? (
         <>
-          <Select
+          <select
             value={agentId ?? ''}
             onChange={(e) => onAgentChange(e.target.value)}
             disabled={available.length === 0}
@@ -59,14 +58,14 @@ export function AgentPicker({
                 {a.available ? '' : ` · ${t('agentPicker.notInstalled')}`}
               </option>
             ))}
-          </Select>
-          <Button
-            size="icon"
+          </select>
+          <button
             onClick={onRefresh}
             title={t('agentPicker.rescan')}
+            className="icon-btn"
           >
             ↻
-          </Button>
+          </button>
         </>
       ) : null}
     </div>

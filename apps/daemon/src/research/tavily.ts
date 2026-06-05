@@ -11,7 +11,6 @@ export interface TavilySearchInput {
   searchDepth?: 'basic' | 'advanced';
   maxResults?: number;
   includeAnswer?: boolean;
-  requestInit?: Pick<RequestInit, 'dispatcher'>;
   signal?: AbortSignal;
 }
 
@@ -70,7 +69,6 @@ export async function tavilySearch(
   let resp: Response;
   try {
     resp = await fetch(`${base}/search`, {
-      ...input.requestInit,
       method: 'POST',
       headers: {
         'content-type': 'application/json',

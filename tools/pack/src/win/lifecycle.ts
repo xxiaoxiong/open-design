@@ -10,7 +10,6 @@ import {
   type DesktopEvalResult,
   type DesktopScreenshotResult,
   type DesktopStatusSnapshot,
-  type DesktopUpdateResult,
   type SidecarStamp,
 } from "@open-design/sidecar-proto";
 import { createSidecarLaunchEnv, requestJsonIpc, resolveAppIpcPath } from "@open-design/sidecar";
@@ -41,7 +40,6 @@ import type {
   WinInspectResult,
   WinInstallResult,
   WinInstallPayloadReport,
-  WinLifecycleTiming,
   WinListResult,
   WinResetResult,
   WinResidueObservation,
@@ -52,7 +50,6 @@ import type {
 } from "./types.js";
 
 const PACKAGED_CONFIG_PATH_ENV = "OD_PACKAGED_CONFIG_PATH";
-const UPDATE_ACTION_TIMEOUT_MS = 10 * 60 * 1000;
 
 function desktopStamp(config: ToolPackConfig): SidecarStamp {
   return {
@@ -132,15 +129,6 @@ async function collectInstallPayloadReport(paths: WinPaths): Promise<WinInstallP
   };
 }
 
-async function measureLifecycleStep<T>(timings: WinLifecycleTiming[], step: string, run: () => Promise<T>): Promise<T> {
-  const startedAt = Date.now();
-  try {
-    return await run();
-  } finally {
-    timings.push({ durationMs: Date.now() - startedAt, step });
-  }
-}
-
 async function observeWinResidues(config: ToolPackConfig, paths = resolveWinPaths(config)): Promise<WinResidueObservation> {
   return {
     installDirExists: await pathExists(paths.installDir),
@@ -158,34 +146,32 @@ async function observeWinResidues(config: ToolPackConfig, paths = resolveWinPath
 }
 
 export async function installPackedWinApp(config: ToolPackConfig): Promise<WinInstallResult> {
-  const lifecycleTimings: WinLifecycleTiming[] = [];
   const paths = resolveWinPaths(config);
-  const registeredPaths = await measureLifecycleStep(lifecycleTimings, "resolve registered paths", async () => resolveWinRegisteredPaths(config, paths));
+  const registeredPaths = await resolveWinRegisteredPaths(config, paths);
   if (!(await pathExists(paths.setupPath))) throw new Error(`no windows installer found at ${paths.setupPath}; run tools-pack win build first`);
   if (await pathExists(registeredPaths.uninstallerPath)) {
-    await measureLifecycleStep(lifecycleTimings, "pre-install uninstall", async () => uninstallPackedWinApp(config));
+    await uninstallPackedWinApp(config);
   } else {
-    await measureLifecycleStep(lifecycleTimings, "pre-install remove install dir", async () => removeTree(registeredPaths.installDir));
+    await removeTree(registeredPaths.installDir);
   }
-  await measureLifecycleStep(lifecycleTimings, "ensure install parent", async () => mkdir(dirname(paths.installDir), { recursive: true }));
-  await measureLifecycleStep(lifecycleTimings, "nsis install", async () => runTimed(paths.installTimingPath, "install", async () => {
+  await mkdir(dirname(paths.installDir), { recursive: true });
+  await runTimed(paths.installTimingPath, "install", async () => {
     await invokeNsis(paths, paths.setupPath, installArgs(config, paths), "install");
-  }));
+  });
   if (!(await pathExists(paths.installedExePath))) throw new Error(`installer completed but executable is missing at ${paths.installedExePath}`);
-  const registryEntries = await measureLifecycleStep(lifecycleTimings, "query registry", async () => queryWinRegistryEntries(paths, config));
-  const installPayload = await measureLifecycleStep(lifecycleTimings, "collect payload report", async () => collectInstallPayloadReport(paths));
-  await measureLifecycleStep(lifecycleTimings, "write install marker", async () => writeJsonMarker(paths.installMarkerPath, {
+  const registryEntries = await queryWinRegistryEntries(paths, config);
+  const installPayload = await collectInstallPayloadReport(paths);
+  await writeJsonMarker(paths.installMarkerPath, {
     installedAt: new Date().toISOString(),
     installDir: paths.installDir,
     installPayload,
     namespace: config.namespace,
     registryEntries: registryEntries.map((entry) => entry.keyPath),
-  }));
+  });
   return {
     desktopShortcutExists: await pathExists(paths.userDesktopShortcutPath),
     desktopShortcutPath: paths.userDesktopShortcutPath,
     installDir: paths.installDir,
-    lifecycleTimings,
     installerPath: paths.setupPath,
     installPayload,
     markerPath: paths.installMarkerPath,
@@ -297,33 +283,31 @@ export async function readPackedWinLogs(config: ToolPackConfig) {
 }
 
 export async function uninstallPackedWinApp(config: ToolPackConfig): Promise<WinUninstallResult> {
-  const lifecycleTimings: WinLifecycleTiming[] = [];
   const paths = resolveWinPaths(config);
-  const registeredPaths = await measureLifecycleStep(lifecycleTimings, "resolve registered paths", async () => resolveWinRegisteredPaths(config, paths));
-  const stop = await measureLifecycleStep(lifecycleTimings, "stop", async () => stopPackedWinApp(config));
+  const registeredPaths = await resolveWinRegisteredPaths(config, paths);
+  const stop = await stopPackedWinApp(config);
   if (await pathExists(registeredPaths.uninstallerPath)) {
-    await measureLifecycleStep(lifecycleTimings, "nsis uninstall", async () => runTimed(paths.uninstallTimingPath, "uninstall", async () => {
+    await runTimed(paths.uninstallTimingPath, "uninstall", async () => {
       await invokeNsis(paths, registeredPaths.uninstallerPath, config.silent ? ["/S"] : [], "uninstall");
-    }));
+    });
   }
-  await measureLifecycleStep(lifecycleTimings, "remove install dir", async () => removeTree(registeredPaths.installDir));
-  const registryResiduesRemoved = await measureLifecycleStep(lifecycleTimings, "cleanup registry residues", async () => cleanupWinRegistryResidues(registeredPaths, config));
-  const removalPlan = await measureLifecycleStep(lifecycleTimings, "create removal plan", async () => createWinRemovalPlan(config));
-  await measureLifecycleStep(lifecycleTimings, "write uninstall marker", async () => writeJsonMarker(paths.uninstallMarkerPath, {
+  await removeTree(registeredPaths.installDir);
+  const registryResiduesRemoved = await cleanupWinRegistryResidues(registeredPaths, config);
+  const removalPlan = await createWinRemovalPlan(config);
+  await writeJsonMarker(paths.uninstallMarkerPath, {
     namespace: config.namespace,
     removalPlan,
     registryResiduesRemoved,
     uninstalledAt: new Date().toISOString(),
-  }).catch(() => undefined));
+  }).catch(() => undefined);
   const removedDataRoot = removalPlan.some((target) => target.scope === "data" && target.willRemove && target.exists);
   const removedLogsRoot = removalPlan.some((target) => target.scope === "logs" && target.willRemove && target.exists);
   const removedSidecarRoot = removalPlan.some((target) => target.scope === "sidecars" && target.willRemove && target.exists);
   const removedProductUserDataRoot = removalPlan.some((target) => target.scope === "product-user-data" && target.willRemove && target.exists);
   for (const target of removalPlan) {
-    if (target.willRemove) await measureLifecycleStep(lifecycleTimings, `remove ${target.scope} root`, async () => removeTree(target.path));
+    if (target.willRemove) await removeTree(target.path);
   }
   return {
-    lifecycleTimings,
     markerPath: paths.uninstallMarkerPath,
     namespace: config.namespace,
     nsisLogPath: paths.nsisLogPath,
@@ -333,7 +317,7 @@ export async function uninstallPackedWinApp(config: ToolPackConfig): Promise<Win
     removedProductUserDataRoot,
     removedSidecarRoot,
     removalPlan,
-    residueObservation: await measureLifecycleStep(lifecycleTimings, "observe residues", async () => observeWinResidues(config, registeredPaths)),
+    residueObservation: await observeWinResidues(config, registeredPaths),
     stop,
     timingPath: paths.uninstallTimingPath,
     uninstallerPath: registeredPaths.uninstallerPath,
@@ -422,16 +406,9 @@ export async function resetPackedWinNamespaces(config: ToolPackConfig): Promise<
   return { namespaces, results };
 }
 
-function resolveUpdateAction(value: string | undefined): "status" | "check" | "download" | "install" | null {
-  if (value == null) return null;
-  if (value === "status" || value === "check" || value === "download" || value === "install") return value;
-  throw new Error("--update-action must be status, check, download, or install");
-}
-
-export async function inspectPackedWinApp(config: ToolPackConfig, options: { expr?: string; path?: string; updateAction?: string }): Promise<WinInspectResult> {
+export async function inspectPackedWinApp(config: ToolPackConfig, options: { expr?: string; path?: string }): Promise<WinInspectResult> {
   const stamp = desktopStamp(config);
   const status = await requestJsonIpc<DesktopStatusSnapshot>(stamp.ipc, { type: SIDECAR_MESSAGES.STATUS }, { timeoutMs: 2000 }).catch(() => null);
-  const updateAction = resolveUpdateAction(options.updateAction);
   return {
     ...(options.expr == null ? {} : {
       eval: await requestJsonIpc<DesktopEvalResult>(
@@ -445,13 +422,6 @@ export async function inspectPackedWinApp(config: ToolPackConfig, options: { exp
         stamp.ipc,
         { input: { path: options.path }, type: SIDECAR_MESSAGES.SCREENSHOT },
         { timeoutMs: 10000 },
-      ),
-    }),
-    ...(updateAction == null ? {} : {
-      update: await requestJsonIpc<DesktopUpdateResult>(
-        stamp.ipc,
-        { input: { action: updateAction }, type: SIDECAR_MESSAGES.UPDATE },
-        { timeoutMs: UPDATE_ACTION_TIMEOUT_MS },
       ),
     }),
     status,

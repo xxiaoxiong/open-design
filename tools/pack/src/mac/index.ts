@@ -1,6 +1,5 @@
 export { packMac } from "./build.js";
-export { PACKAGED_CONFIG_PATH_ENV, resolveSeededAppConfigPaths, seedPackagedAppConfig, writeLaunchPackagedConfig } from "./app-config.js";
-export { resolveMacInstallIdentity } from "./identity.js";
+export { resolveSeededAppConfigPaths, seedPackagedAppConfig } from "./app-config.js";
 export {
   cleanupPackedMacNamespace,
   installPackedMacDmg,
@@ -22,4 +21,3 @@ export type {
   MacStopResult,
   MacUninstallResult,
 } from "./types.js";
-export type { MacInstallIdentity } from "./identity.js";

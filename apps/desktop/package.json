@@ -1,6 +1,6 @@
 {
   "name": "@open-design/desktop",
-  "version": "0.10.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "main": "./dist/main/index.js",
@@ -15,13 +15,9 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run -c vitest.config.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.tests.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@open-design/diagnostics": "workspace:*",
-    "@open-design/download": "workspace:*",
-    "@open-design/host": "workspace:*",
     "@open-design/platform": "workspace:*",
     "@open-design/sidecar": "workspace:*",
     "@open-design/sidecar-proto": "workspace:*"
@@ -29,8 +25,7 @@
   "devDependencies": {
     "@types/node": "24.12.2",
     "electron": "41.3.0",
-    "typescript": "6.0.3",
-    "vitest": "4.1.6"
+    "typescript": "6.0.3"
   },
   "engines": {
     "node": "~24"

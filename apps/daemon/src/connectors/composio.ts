@@ -14,17 +14,8 @@ const DEFAULT_COMPOSIO_TIMEOUT_MS = 30_000;
 const DEFAULT_COMPOSIO_USER_ID = 'open-design-local-user';
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const DISCOVERY_CACHE_TTL_MS = 60_000;
+const CUSTOM_AUTH_REQUIRED_MESSAGE = 'Composio does not have managed credentials for this toolkit.';
 const PERSISTED_CATALOG_REFRESH_MS = 24 * 60 * 60 * 1000;
-
-const COMPOSIO_READ_ONLY_TOOL_SAFETY_OVERRIDES = new Set([
-  'notion:notion_search_notion_page',
-]);
-
-const COMPOSIO_READ_ONLY_TOOL_SAFETY = {
-  sideEffect: 'read',
-  approval: 'auto',
-  reason: 'Provider-specific override: this Composio tool is a read-only search/list operation.',
-} as const;
 
 interface ComposioToolkitCatalogEntry {
   name: string;
@@ -686,17 +677,14 @@ export class ComposioConnectorProvider {
   async prepareAuthConfig(definition: ConnectorCatalogDefinition, signal?: AbortSignal): Promise<ComposioAuthConfigPrepareResult> {
     if (definition.authentication !== 'composio') return { status: 'error', message: 'connector is not backed by Composio' };
     const unsupported = this.unsupportedManagedAuthConfigs.get(definition.id);
-    if (unsupported) {
-      const authConfigId = await this.getExistingAuthConfigIdForToolkit(definition, signal);
-      return authConfigId ? { status: 'ready', authConfigId } : { status: 'custom_required', message: unsupported };
-    }
+    if (unsupported) return { status: 'custom_required', message: unsupported };
     try {
       const resolution = await this.getOrCreateManagedAuthConfigId(definition, signal);
       return { status: 'ready', authConfigId: resolution.authConfigId };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const customMessage = getCustomAuthRequiredMessage(error, definition);
-      if (customMessage) {
+      if (isCustomAuthRequiredMessage(message)) {
+        const customMessage = normalizeCustomAuthRequiredMessage(message);
         this.unsupportedManagedAuthConfigs.set(definition.id, customMessage);
         return { status: 'custom_required', message: customMessage };
       }
@@ -878,26 +866,14 @@ export class ComposioConnectorProvider {
     if (!toolkitSlug) {
       throw new ConnectorServiceError('CONNECTOR_EXECUTION_FAILED', 'Composio connector is missing a toolkit slug', 500, { connectorId: definition.id });
     }
-    try {
-      return await this.requestJson<ComposioAuthConfigResponse>('/api/v3.1/auth_configs', {
-        method: 'POST',
-        body: JSON.stringify({
-          toolkit: { slug: toolkitSlug },
-          auth_config: { type: 'use_composio_managed_auth' },
-        }),
-        ...(signal === undefined ? {} : { signal }),
-      });
-    } catch (error) {
-      const customMessage = getCustomAuthRequiredMessage(error, definition);
-      if (!customMessage) throw error;
-      this.unsupportedManagedAuthConfigs.set(definition.id, customMessage);
-      throw new ConnectorServiceError('CONNECTOR_AUTH_CONFIG_REQUIRED', customMessage, 409, {
-        connectorId: definition.id,
-        provider: 'composio',
-        reason: 'managed_auth_unavailable',
-        upstreamMessage: error instanceof Error ? error.message : String(error),
-      });
-    }
+    return this.requestJson<ComposioAuthConfigResponse>('/api/v3.1/auth_configs', {
+      method: 'POST',
+      body: JSON.stringify({
+        toolkit: { slug: toolkitSlug },
+        auth_config: { type: 'use_composio_managed_auth' },
+      }),
+      ...(signal === undefined ? {} : { signal }),
+    });
   }
 
   private async getAuthConfigIdForToolkit(definition: ConnectorCatalogDefinition, signal?: AbortSignal): Promise<string | undefined> {
@@ -915,20 +891,6 @@ export class ComposioConnectorProvider {
       return authConfigId;
     }
     return undefined;
-  }
-
-  private async getExistingAuthConfigIdForToolkit(definition: ConnectorCatalogDefinition, signal?: AbortSignal): Promise<string | undefined> {
-    const persisted = this.getPersistedAuthConfigId(definition.id);
-    if (persisted) return persisted;
-
-    const discovered = this.discoveredAuthConfigIds?.[definition.id];
-    if (discovered) return discovered;
-
-    const existing = await this.getAuthConfigIdForToolkit(definition, signal);
-    if (!existing) return undefined;
-
-    this.storeAuthConfigId(definition, existing);
-    return existing;
   }
 
   private async createConnectedAccountLink(authConfigId: string, state: string, callbackUrl: string, signal?: AbortSignal): Promise<ComposioConnectedAccountResponse> {
@@ -1072,14 +1034,6 @@ export class ComposioConnectorProvider {
       .filter((tool) => tool.refreshEligible)
       .map((tool) => tool.name);
     const allowedToolNames = [...new Set([...staticDefinition.allowedToolNames, ...autoAllowedLiveToolNames])];
-    // `curatedToolNames` mirrors the static catalog ONLY — it
-    // intentionally never picks up `autoAllowedLiveToolNames`. It
-    // preserves the static catalog baseline, while summary badges use
-    // `toolCount` when present to reflect the advertised provider
-    // inventory. The execution-time gate keeps using
-    // `allowedToolNames`, so the dynamic auto-allow behavior is
-    // preserved end-to-end.
-    const curatedToolNames = [...staticDefinition.allowedToolNames];
     const name = getString(toolkit?.name) ?? staticDefinition.name;
     const category = firstCategoryName(toolkit?.meta?.categories) ?? firstCategoryName(toolkit?.categories) ?? staticDefinition.category;
     const liveDescription = getComposioToolkitDescription(toolkit);
@@ -1098,7 +1052,6 @@ export class ComposioConnectorProvider {
       ...(toolPage?.nextCursor === undefined ? {} : { toolsNextCursor: toolPage.nextCursor }),
       ...(toolPage === undefined ? {} : { toolsHasMore: toolPage.nextCursor !== undefined }),
       allowedToolNames,
-      curatedToolNames,
       ...(staticDefinition.featuredToolNames === undefined
         ? tools.length > 0 ? { featuredToolNames: tools.slice(0, 3).map((tool) => tool.name) } : {}
         : { featuredToolNames: staticDefinition.featuredToolNames }),
@@ -1459,19 +1412,7 @@ function applyComposioToolCuration(
   const overlay = COMPOSIO_CURATION_OVERLAY[connectorKey];
   const toolKey = providerToolId ? normalizeProviderToolId(providerToolId) : undefined;
   const curation = toolKey ? overlay?.[toolKey] : undefined;
-  const safetyOverride = toolKey
-    ? COMPOSIO_READ_ONLY_TOOL_SAFETY_OVERRIDES.has(`${connectorKey}:${toolKey}`)
-    : false;
-  const curated = curation === undefined
-    ? tool
-    : { ...tool, curation: { ...(tool.curation ?? {}), ...curation } };
-  return safetyOverride
-    ? {
-        ...curated,
-        safety: { ...COMPOSIO_READ_ONLY_TOOL_SAFETY },
-        refreshEligible: true,
-      }
-    : curated;
+  return curation === undefined ? tool : { ...tool, curation: { ...(tool.curation ?? {}), ...curation } };
 }
 
 function titleFromSlug(value: string): string {
@@ -1498,11 +1439,8 @@ function isCustomAuthRequiredMessage(message: string): boolean {
   return /default auth config not found/i.test(message) || /does not have managed credentials/i.test(message);
 }
 
-function getCustomAuthRequiredMessage(error: unknown, definition: ConnectorCatalogDefinition): string | undefined {
-  if (error instanceof ConnectorServiceError && error.code === 'CONNECTOR_AUTH_CONFIG_REQUIRED') return error.message;
-  const upstreamMessage = error instanceof Error ? error.message : String(error);
-  if (!isCustomAuthRequiredMessage(upstreamMessage)) return undefined;
-  return `${definition.name} requires a custom Composio auth config. Create or enable a ${definition.name} auth config in Composio with your own OAuth credentials, then retry this connection.`;
+function normalizeCustomAuthRequiredMessage(message: string): string {
+  return message || CUSTOM_AUTH_REQUIRED_MESSAGE;
 }
 
 async function getComposioErrorMessage(response: Response): Promise<string | undefined> {

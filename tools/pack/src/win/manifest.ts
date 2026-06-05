@@ -2,33 +2,22 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import type { ToolPackConfig } from "../config.js";
-import { readRuntimeAppVersion } from "../versions.js";
 import { pathExists } from "./fs.js";
 import type { WinBuiltAppManifest, WinPaths } from "./types.js";
 
 export async function readPackagedVersion(config: ToolPackConfig): Promise<string> {
-  return readRuntimeAppVersion(config);
+  const packageJsonPath = join(config.workspaceRoot, "apps", "packaged", "package.json");
+  const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8")) as { version?: unknown };
+  if (typeof packageJson.version !== "string" || packageJson.version.length === 0) {
+    throw new Error(`missing apps/packaged package version in ${packageJsonPath}`);
+  }
+  return packageJson.version;
 }
 
-type PackagedConfigEntrypoints = {
-  daemonCliEntryRelative?: string;
-  daemonSidecarEntryRelative?: string;
-  webSidecarEntryRelative?: string;
-};
-
-function createPackagedConfig(
-  config: ToolPackConfig,
-  packagedVersion: string,
-  entrypoints: PackagedConfigEntrypoints = {},
-): Record<string, unknown> {
+function createPackagedConfig(config: ToolPackConfig, packagedVersion: string): Record<string, unknown> {
   return {
-    ...(config.amrProfile == null ? {} : { amrProfile: config.amrProfile }),
     appVersion: packagedVersion,
-    ...entrypoints,
     namespace: config.namespace,
-    ...(config.telemetryRelayUrl == null ? {} : { telemetryRelayUrl: config.telemetryRelayUrl }),
-    ...(config.posthogKey == null ? {} : { posthogKey: config.posthogKey }),
-    ...(config.posthogHost == null ? {} : { posthogHost: config.posthogHost }),
     webOutputMode: config.webOutputMode,
     ...(config.portable ? {} : { namespaceBaseRoot: config.roots.runtime.namespaceBaseRoot }),
   };
@@ -38,12 +27,11 @@ export async function writePackagedConfigFile(
   filePath: string,
   config: ToolPackConfig,
   packagedVersion: string,
-  entrypoints: PackagedConfigEntrypoints = {},
 ): Promise<void> {
   await mkdir(dirname(filePath), { recursive: true });
   await writeFile(
     filePath,
-      `${JSON.stringify(createPackagedConfig(config, packagedVersion, entrypoints), null, 2)}\n`,
+    `${JSON.stringify(createPackagedConfig(config, packagedVersion), null, 2)}\n`,
     "utf8",
   );
 }
@@ -52,9 +40,8 @@ export async function writePackagedConfig(
   config: ToolPackConfig,
   paths: WinPaths,
   packagedVersion: string,
-  entrypoints: PackagedConfigEntrypoints = {},
 ): Promise<void> {
-  await writePackagedConfigFile(paths.packagedConfigPath, config, packagedVersion, entrypoints);
+  await writePackagedConfigFile(paths.packagedConfigPath, config, packagedVersion);
 }
 
 export async function writeBuiltAppManifest(

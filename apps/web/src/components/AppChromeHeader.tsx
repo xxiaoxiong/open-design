@@ -1,54 +1,41 @@
 import type { ReactNode } from 'react';
 import { useT } from '../i18n';
-import { RemixIcon } from './RemixIcon';
+import { Icon } from './Icon';
 
 interface Props {
   actions?: ReactNode;
   children?: ReactNode;
-  fileActionsBefore?: ReactNode;
   onBack?: () => void;
   backLabel?: string;
-  showTrafficSpace?: boolean;
 }
 
-export const APP_CHROME_FILE_ACTIONS_ID = 'app-chrome-file-actions';
-export const APP_CHROME_FILE_ACTIONS_SELECTOR = '[data-app-chrome-file-actions="true"]';
-
-export function AppChromeHeader({
-  actions,
-  children,
-  fileActionsBefore,
-  onBack,
-  backLabel,
-  showTrafficSpace = true,
-}: Props) {
+export function AppChromeHeader({ actions, children, onBack, backLabel }: Props) {
   const t = useT();
   const resolvedBackLabel = backLabel ?? t('project.backToProjects');
 
   return (
     <header className="app-chrome-header">
-      {showTrafficSpace ? <div className="app-chrome-traffic-space" aria-hidden /> : null}
+      <div className="app-chrome-traffic-space" aria-hidden />
+      <div className="app-chrome-brand" aria-label={t('app.brand')}>
+        <span className="app-chrome-mark" aria-hidden>
+          {/* decorative, parent has aria-label */}
+          <img src="/app-icon.svg" alt="" className="brand-mark-img" draggable={false} />
+        </span>
+        <span className="app-chrome-name">{t('app.brand')}</span>
+      </div>
       {onBack ? (
         <button
           type="button"
-          className="app-chrome-back od-tooltip"
+          className="app-chrome-back"
           onClick={onBack}
           title={resolvedBackLabel}
-          data-tooltip={resolvedBackLabel}
-          data-tooltip-placement="bottom"
           aria-label={resolvedBackLabel}
         >
-          <RemixIcon name="arrow-left-line" size={16} />
+          <Icon name="arrow-left" size={15} />
         </button>
       ) : null}
       {children ? <div className="app-chrome-content">{children}</div> : null}
       <div className="app-chrome-drag" aria-hidden />
-      {fileActionsBefore ? <div className="app-chrome-file-actions-before">{fileActionsBefore}</div> : null}
-      <div
-        id={APP_CHROME_FILE_ACTIONS_ID}
-        className="app-chrome-file-actions"
-        data-app-chrome-file-actions="true"
-      />
       {actions ? <div className="app-chrome-actions">{actions}</div> : null}
     </header>
   );
@@ -66,14 +53,12 @@ export function SettingsIconButton({
   return (
     <button
       type="button"
-      className="settings-icon-btn od-tooltip"
+      className="settings-icon-btn"
       onClick={onClick}
       title={title}
-      data-tooltip={title}
-      data-tooltip-placement="bottom"
       aria-label={ariaLabel}
     >
-      <RemixIcon name="settings-line" size={18} />
+      <Icon name="settings" size={17} />
     </button>
   );
 }

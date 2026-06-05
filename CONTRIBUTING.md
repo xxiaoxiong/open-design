@@ -4,7 +4,7 @@ Thanks for thinking about contributing. OD is small on purpose — most of the v
 
 This guide tells you exactly where to look for each type of contribution and what bar a PR has to clear before we merge it.
 
-<p align="center"><b>English</b> · <a href="docs/i18n/CONTRIBUTING.pt-BR.md">Português (Brasil)</a> · <a href="docs/i18n/CONTRIBUTING.de.md">Deutsch</a> · <a href="docs/i18n/CONTRIBUTING.fr.md">Français</a> · <a href="docs/i18n/CONTRIBUTING.zh-CN.md">简体中文</a> · <a href="docs/i18n/CONTRIBUTING.ja-JP.md">日本語</a></p>
+<p align="center"><b>English</b> · <a href="CONTRIBUTING.pt-BR.md">Português (Brasil)</a> · <a href="CONTRIBUTING.de.md">Deutsch</a> · <a href="CONTRIBUTING.fr.md">Français</a> · <a href="CONTRIBUTING.zh-CN.md">简体中文</a> · <a href="CONTRIBUTING.ja-JP.md">日本語</a></p>
 
 ---
 
@@ -16,7 +16,7 @@ This guide tells you exactly where to look for each type of contribution and wha
 | Make OD speak a new brand's visual language | a **Design System** | [`design-systems/<brand>/DESIGN.md`](design-systems/) | one Markdown file |
 | Hook up a new coding-agent CLI | an **Agent adapter** | [`apps/daemon/src/agents.ts`](apps/daemon/src/agents.ts) | ~10 lines in one array |
 | Add a feature, fix a bug, lift a UX pattern from [`open-codesign`][ocod] | code | `apps/web/src/`, `apps/daemon/` | normal PR |
-| Improve docs, port a section to Français / Deutsch / 中文, fix typos | docs | `README.md`, `docs/i18n/README.fr.md`, `docs/i18n/README.de.md`, `docs/i18n/README.zh-CN.md`, `docs/`, `QUICKSTART.md` | one PR |
+| Improve docs, port a section to Français / Deutsch / 中文, fix typos | docs | `README.md`, `README.fr.md`, `README.de.md`, `README.zh-CN.md`, `docs/`, `QUICKSTART.md` | one PR |
 
 If you're not sure which bucket your idea is in, [open a discussion / issue first](https://github.com/nexu-io/open-design/issues/new) and we'll point you at the right surface.
 
@@ -36,66 +36,9 @@ pnpm typecheck            # tsc -b --noEmit
 pnpm --filter @open-design/web build  # web package build when needed
 ```
 
-Node `~24` and pnpm `10.33.x` are required. `nvm` / `fnm` are optional; use `nvm install 24 && nvm use 24` or `fnm install 24 && fnm use 24` if you prefer managing Node that way. macOS, Linux, and WSL2 are the primary paths. Windows native is supported; see [`docs/windows-troubleshooting.md`](docs/windows-troubleshooting.md) for the common setup gotchas.
+Node `~24` and pnpm `10.33.x` are required. `nvm` / `fnm` are optional; use `nvm install 24 && nvm use 24` or `fnm install 24 && fnm use 24` if you prefer managing Node that way. macOS, Linux, and WSL2 are the primary paths. Windows native should work but isn't a primary target — file an issue if it doesn't.
 
-## Docker Setup
-
-Run Open Design without installing Node.js or pnpm.
-
-### Prerequisites
-
-Make sure Docker Desktop with Compose v2 is installed:
-
-```bash
-docker compose version
-```
-
-### Start Open Design
-
-```bash
-cd deploy
-docker compose up -d
-```
-
-Open in your browser:
-
-```text
-http://localhost:7456
-```
-
-### Common Commands
-
-```bash
-# View logs
-docker compose logs -f
-
-# Restart containers
-docker compose restart
-
-# Stop containers
-docker compose down
-
-# Pull latest image
-docker compose pull
-docker compose up -d
-```
-
-### Optional Environment Overrides
-
-Create a `deploy/.env` file:
-
-```env
-OPEN_DESIGN_PORT=7456
-OPEN_DESIGN_MEM_LIMIT=384m
-OPEN_DESIGN_ALLOWED_ORIGINS=https://yourdomain.com
-OPEN_DESIGN_IMAGE=docker.io/vanjayak/open-design:latest
-```
-
-> Projects and database data are persisted automatically using Docker volumes.
-
-For the full Docker guide and advanced configuration, see `QUICKSTART.md`.
-
-
+You don't need any agent CLI on your `PATH` to develop OD itself — the daemon will tell you "no agents found" and fall back to the **Anthropic API · BYOK** path, which is the fastest dev loop anyway.
 
 ---
 
@@ -103,19 +46,74 @@ For the full Docker guide and advanced configuration, see `QUICKSTART.md`.
 
 A skill is a folder under [`skills/`](skills/) with a `SKILL.md` at the root, following Claude Code's [`SKILL.md` convention][skill] plus our optional `od:` extension. **No registration step.** Drop the folder in, restart the daemon, the picker shows it.
 
-### → See [`docs/skills-contributing.md`](docs/skills-contributing.md) for the full guide
+### Skill folder layout
 
-That file walks through:
+```text
+skills/your-skill/
+├── SKILL.md                    # required
+├── assets/template.html        # optional but recommended — the seed file
+├── references/                 # optional — knowledge files the agent reads
+│   ├── layouts.md
+│   ├── components.md
+│   └── checklist.md
+└── example.html                # strongly recommended — a real, hand-built sample
+```
 
-- **Quick start** — clone → copy a closest existing skill → run `pnpm tools-dev run web` → see the picker → open PR.
-- **What a skill IS / IS NOT** — saves you a week if your idea turns out to be a feature or vendor integration in disguise.
-- **Skill anatomy** — minimum folder layout and `SKILL.md` frontmatter cheat sheet.
-- **Running locally** — the four commands that actually matter.
-- **Merge bar** — copy-pasteable checklist of every thing a reviewer will check.
-- **PR description template** — drop into your PR body and fill in.
-- **Common rejection patterns** — the close reasons we've used recently, with concrete examples.
+### `SKILL.md` frontmatter
 
-The protocol spec (full frontmatter grammar — typed inputs, slider parameters, craft references, testing primitives) lives separately in [`docs/skills-protocol.md`](docs/skills-protocol.md).
+The first three keys are the Claude Code base spec — `name`, `description`, `triggers`. Everything under `od:` is OD-specific and optional, but **`od.mode`** decides which group the skill shows up in (Prototype / Deck / Template / Design system).
+
+```yaml
+---
+name: your-skill
+description: |
+  One-paragraph elevator pitch. The agent reads this verbatim to decide
+  if the user's brief matches. Be concrete: surface, audience, what's in
+  the artifact, what's not.
+triggers:
+  - "your trigger phrase"
+  - "another phrase"
+  - "中文触发词"
+od:
+  mode: prototype           # prototype | deck | template | design-system
+  platform: desktop         # desktop | mobile
+  scenario: marketing       # free-form tag for grouping
+  featured: 1               # any positive integer surfaces it under "Showcase examples"
+  preview:
+    type: html              # html | jsx | pptx | markdown
+    entry: index.html
+  design_system:
+    requires: true          # does the skill read the active DESIGN.md?
+    sections: [color, typography, layout, components]
+  example_prompt: "A copy-pastable prompt that nicely shows what this skill does."
+---
+
+# Your Skill
+
+Body is free-form Markdown describing the workflow the agent should follow…
+```
+
+The full grammar — typed inputs, slider parameters, capability gating — lives in [`docs/skills-protocol.md`](docs/skills-protocol.md).
+
+### Bar for merging a new skill
+
+We're picky about skills because they're the user-facing surface. A new skill must:
+
+1. **Ship a real `example.html`.** Hand-built, opens straight from disk, looks like something a designer would actually deliver. No lorem ipsum, no `<svg><rect/></svg>` placeholder hero. If you can't build the example yourself, the skill probably isn't ready.
+2. **Pass the anti-AI-slop checklist** in the body. No purple gradients, no generic emoji icons, no rounded card with a left-border accent, no Inter as a *display* face, no invented stats. Read the **Anti-AI-slop machinery** section of the README for the full list.
+3. **Honest placeholders.** When the agent doesn't have a real number, write `—` or a labelled grey block, not "10× faster".
+4. **Have a `references/checklist.md`** with at least P0 gates (the stuff the agent has to pass before emitting `<artifact>`). Lift the format from [`skills/guizang-ppt/references/checklist.md`](skills/guizang-ppt/) or [`skills/dating-web/references/checklist.md`](skills/dating-web/).
+5. **Add a screenshot** at `docs/screenshots/skills/<skill>.png` if the skill is featured. PNG, ~1024×640 retina, captured from the real `example.html` at zoomed-out browser scale.
+6. **Be a single self-contained folder.** No CDN imports beyond what other skills already use; no fonts you didn't license; no images larger than ~250 KB.
+
+If you fork an existing skill (e.g. start from `dating-web` and remix into a `recruiting-web`), keep the original LICENSE and authorship in `references/` and call it out in your PR description.
+
+### Skills that already ship — pick one to imitate
+
+- Visual showcase, single-screen prototype: [`skills/dating-web/`](skills/dating-web/), [`skills/digital-eguide/`](skills/digital-eguide/)
+- Multi-frame mobile flow: [`skills/mobile-onboarding/`](skills/mobile-onboarding/), [`skills/gamified-app/`](skills/gamified-app/)
+- Document / template (no design system required): [`skills/pm-spec/`](skills/pm-spec/), [`skills/weekly-update/`](skills/weekly-update/)
+- Deck mode: [`skills/guizang-ppt/`](skills/guizang-ppt/) (bundled verbatim from [op7418/guizang-ppt-skill][guizang]) and [`skills/simple-deck/`](skills/simple-deck/)
 
 ---
 
@@ -245,7 +243,6 @@ Beyond that:
 
 - **One concern per PR.** Adding a skill + refactoring the parser + bumping a dep is three PRs.
 - **Title is imperative + scope.** `add dating-web skill`, `fix daemon SSE backpressure when CLI hangs`, `docs: clarify .od layout`.
-- **Use the PR template.** Fill every section of [`.github/pull_request_template.md`](.github/pull_request_template.md) — Why, What users will see, Surface area, Screenshots (if UI), Bug fix verification (if bug fix), Validation. Empty sections earn a "please fill in" reply.
 - **Body explains the why.** "What does this do" is usually obvious from the diff; "why does this need to exist" rarely is.
 - **Reference an issue** if there is one. If there isn't and the PR is non-trivial, open one first so we can agree the change is wanted before you spend the time.
 - **No squash-during-review.** Push fixups; we'll squash on merge.
@@ -287,22 +284,6 @@ To keep the project focused, please don't open PRs that:
 - **Bundle a binary** without a license file and authorship attribution next to it.
 
 If you're not sure whether your idea fits, open a discussion before writing the code.
-
----
-
-## Becoming a Maintainer
-
-If you've been contributing consistently and want to know what the path to becoming a Maintainer looks like, the rules live in **[`MAINTAINERS.md`](MAINTAINERS.md)**. The short version:
-
-- A Maintainer can review, approve, and close issues. The merge button stays with the Core Team — your approval still counts as the required approval for merge.
-- The bar is **≥ 20 merged PRs** plus a published account-quality check (anti-bot, anti-sock-puppet) plus a Core Team judgment on contribution quality. There is no application form; the Core Team raises candidates internally and reaches out.
-- There are **no quotas, no SLAs, and no fixed term.** Stepping down is easy and reversible (Emeritus → return when life calms down).
-- All the thresholds, the nomination flow, the step-down rules, and the early-project waiver are in [`MAINTAINERS.md`](MAINTAINERS.md). Read that document if any of the above interests you.
-
-The tl;dr: ship good PRs, review thoughtfully, hang out in [Discussions][discussions] / [Discord][discord], and the rest takes care of itself.
-
-[discussions]: https://github.com/nexu-io/open-design/discussions
-[discord]: https://discord.gg/qhbcCH8Am4
 
 ---
 

@@ -15,40 +15,17 @@ export interface ManualEditFields {
 }
 
 export interface ManualEditStyles {
-  fontFamily: string;
+  color: string;
+  backgroundColor: string;
   fontSize: string;
   fontWeight: string;
-  color: string;
   textAlign: string;
-  lineHeight: string;
-  letterSpacing: string;
-  width: string;
-  height: string;
-  minHeight: string;
-  gap: string;
-  flexDirection: string;
-  justifyContent: string;
-  alignItems: string;
-  backgroundColor: string;
-  opacity: string;
   padding: string;
-  paddingTop: string;
-  paddingRight: string;
-  paddingBottom: string;
-  paddingLeft: string;
   margin: string;
-  marginTop: string;
-  marginRight: string;
-  marginBottom: string;
-  marginLeft: string;
-  border: string;
-  borderTopWidth: string;
-  borderRightWidth: string;
-  borderBottomWidth: string;
-  borderLeftWidth: string;
-  borderStyle: string;
-  borderColor: string;
   borderRadius: string;
+  border: string;
+  width: string;
+  minHeight: string;
 }
 
 export interface ManualEditTarget {
@@ -62,8 +39,6 @@ export interface ManualEditTarget {
   fields: ManualEditFields;
   attributes: Record<string, string>;
   styles: ManualEditStyles;
-  isLayoutContainer: boolean;
-  isHidden?: boolean;
   outerHtml: string;
 }
 
@@ -71,7 +46,6 @@ export type ManualEditPatch =
   | { id: string; kind: 'set-text'; value: string }
   | { id: string; kind: 'set-link'; text: string; href: string }
   | { id: string; kind: 'set-image'; src: string; alt: string }
-  | { id: string; kind: 'remove-element' }
   | { kind: 'set-token'; token: string; value: string }
   | { id: string; kind: 'set-style'; styles: Partial<ManualEditStyles> }
   | { id: string; kind: 'set-attributes'; attributes: Record<string, string> }
@@ -97,51 +71,20 @@ export interface ManualEditSelectMessage {
   target: ManualEditTarget;
 }
 
-export interface ManualEditHoverMessage {
-  type: 'od-edit-hover';
-  target: ManualEditTarget;
-}
-
-export interface ManualEditBackgroundMessage {
-  type: 'od-edit-background';
-}
-
-export interface ManualEditPreviewAppliedMessage {
-  type: 'od-edit-preview-style-applied';
-  id: string;
-  version: number;
-  ok: boolean;
-  error?: string;
-}
-
-export interface ManualEditTextCommitMessage {
-  type: 'od-edit-text-commit';
-  id: string;
-  value: string;
-}
-
-export type ManualEditBridgeMessage =
-  | ManualEditTargetMessage
-  | ManualEditSelectMessage
-  | ManualEditHoverMessage
-  | ManualEditBackgroundMessage
-  | ManualEditPreviewAppliedMessage
-  | ManualEditTextCommitMessage;
-
-export const MANUAL_EDIT_STYLE_PROPS: readonly (keyof ManualEditStyles)[] = [
-  'fontFamily', 'fontSize', 'fontWeight', 'color', 'textAlign', 'lineHeight', 'letterSpacing',
-  'width', 'height', 'minHeight',
-  'gap', 'flexDirection', 'justifyContent', 'alignItems',
-  'backgroundColor', 'opacity',
-  'padding', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
-  'margin', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft',
-  'border', 'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
-  'borderStyle', 'borderColor', 'borderRadius',
-];
+export type ManualEditBridgeMessage = ManualEditTargetMessage | ManualEditSelectMessage;
 
 export function emptyManualEditStyles(): ManualEditStyles {
-  return MANUAL_EDIT_STYLE_PROPS.reduce<ManualEditStyles>((acc, key) => {
-    acc[key] = '';
-    return acc;
-  }, {} as ManualEditStyles);
+  return {
+    color: '',
+    backgroundColor: '',
+    fontSize: '',
+    fontWeight: '',
+    textAlign: '',
+    padding: '',
+    margin: '',
+    borderRadius: '',
+    border: '',
+    width: '',
+    minHeight: '',
+  };
 }

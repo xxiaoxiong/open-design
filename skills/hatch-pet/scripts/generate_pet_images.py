@@ -9,8 +9,7 @@ import hashlib
 import json
 import os
 import shutil
-import urllib.request
-import uuid
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -71,22 +70,6 @@ def select_jobs(
     return selected
 
 
-def _multipart_body(fields: list[tuple]) -> tuple[bytes, str]:
-    boundary = uuid.uuid4().hex
-    parts = []
-    for name, value in fields:
-        if isinstance(value, tuple):
-            fname, data, ct = value
-            parts.append(
-                f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{fname}"\r\nContent-Type: {ct}\r\n\r\n'.encode()
-                + data + b"\r\n"
-            )
-        else:
-            parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
-    parts.append(f"--{boundary}--\r\n".encode())
-    return b"".join(parts), f"multipart/form-data; boundary={boundary}"
-
-
 def run_image_edit(
     *,
     model: str,
@@ -97,23 +80,32 @@ def run_image_edit(
     api_key: str,
 ) -> dict[str, object]:
     output_json.parent.mkdir(parents=True, exist_ok=True)
-    fields: list[tuple] = [("model", model)]
-    for image_path in image_paths:
-        fields.append(("image[]", (image_path.name, image_path.read_bytes(), "image/png")))
-    fields.extend([
-        ("prompt", prompt_file.read_text(encoding="utf-8")),
-        ("size", size),
-        ("output_format", "png"),
-    ])
-    body, content_type = _multipart_body(fields)
-    req = urllib.request.Request(
+    command = [
+        "curl",
+        "-sS",
+        "-X",
+        "POST",
         "https://api.openai.com/v1/images/edits",
-        data=body,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": content_type},
-        method="POST",
+        "-H",
+        f"Authorization: Bearer {api_key}",
+        "-F",
+        f"model={model}",
+    ]
+    for image_path in image_paths:
+        command.extend(["-F", f"image[]=@{image_path}"])
+    command.extend(
+        [
+            "-F",
+            f"prompt=<{prompt_file}",
+            "-F",
+            f"size={size}",
+            "-F",
+            "output_format=png",
+            "-o",
+            str(output_json),
+        ]
     )
-    with urllib.request.urlopen(req, timeout=300) as resp:
-        output_json.write_bytes(resp.read())
+    subprocess.run(command, check=True)
     response = json.loads(output_json.read_text(encoding="utf-8"))
     if response.get("error"):
         raise SystemExit(json.dumps(response["error"], indent=2))
@@ -129,20 +121,26 @@ def run_image_generation(
     api_key: str,
 ) -> dict[str, object]:
     output_json.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps({
-        "model": model,
-        "prompt": prompt_file.read_text(encoding="utf-8"),
-        "size": size,
-        "output_format": "png",
-    }).encode()
-    req = urllib.request.Request(
+    command = [
+        "curl",
+        "-sS",
+        "-X",
+        "POST",
         "https://api.openai.com/v1/images/generations",
-        data=payload,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=300) as resp:
-        output_json.write_bytes(resp.read())
+        "-H",
+        f"Authorization: Bearer {api_key}",
+        "-F",
+        f"model={model}",
+        "-F",
+        f"prompt=<{prompt_file}",
+        "-F",
+        f"size={size}",
+        "-F",
+        "output_format=png",
+        "-o",
+        str(output_json),
+    ]
+    subprocess.run(command, check=True)
     response = json.loads(output_json.read_text(encoding="utf-8"))
     if response.get("error"):
         raise SystemExit(json.dumps(response["error"], indent=2))
@@ -214,9 +212,7 @@ def path_list(run_dir: Path, job: dict[str, object]) -> list[Path]:
     for item in inputs:
         if not isinstance(item, dict) or not isinstance(item.get("path"), str):
             raise SystemExit(f"job {job.get('id')} has invalid input image entry")
-        path = (run_dir / item["path"]).resolve()
-        if not path.is_relative_to(run_dir):
-            raise SystemExit(f"path traversal detected in input_images for job {job.get('id')}")
+        path = run_dir / item["path"]
         if not path.is_file():
             raise SystemExit(f"input image for job {job.get('id')} not found: {path}")
         paths.append(path)
@@ -255,12 +251,8 @@ def main() -> None:
         output_raw = job.get("output_path")
         if not isinstance(prompt_raw, str) or not isinstance(output_raw, str):
             raise SystemExit(f"job {job_id} is missing prompt_file or output_path")
-        prompt_file = (run_dir / prompt_raw).resolve()
-        output_image = (run_dir / output_raw).resolve()
-        if not prompt_file.is_relative_to(run_dir):
-            raise SystemExit(f"path traversal detected in prompt_file for job {job_id}")
-        if not output_image.is_relative_to(run_dir):
-            raise SystemExit(f"path traversal detected in output_path for job {job_id}")
+        prompt_file = run_dir / prompt_raw
+        output_image = run_dir / output_raw
         print(f"Generating {job_id} with secondary fallback")
         image_paths = path_list(run_dir, job)
         if image_paths:

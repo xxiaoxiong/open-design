@@ -5,9 +5,6 @@ import { LOCALE_LABEL, LOCALES, type Locale } from "../apps/web/src/i18n/types.t
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const localesDirectory = path.join(repoRoot, "apps/web/src/i18n/locales");
 const i18nIndexPath = path.join(repoRoot, "apps/web/src/i18n/index.tsx");
-// English canonical docs (README.md, CONTRIBUTING.md, ...) stay at repo root for
-// GitHub project-page visibility; their translations live under docs/i18n/.
-const translationsDir = "docs/i18n";
 
 type CheckResult = {
   name: string;
@@ -26,8 +23,7 @@ type CoreDocLink = {
   syntax: "html" | "markdown";
 };
 
-const coreDocTargetPattern =
-  "((?:(?:\\.\\./\\.\\./|docs/i18n/))?(?:QUICKSTART(?:\\.[A-Za-z0-9-]+)?\\.md|CONTRIBUTING(?:\\.[A-Za-z0-9-]+)?\\.md))";
+const coreDocTargetPattern = "(QUICKSTART(?:\\.[A-Za-z0-9-]+)?\\.md|CONTRIBUTING(?:\\.[A-Za-z0-9-]+)?\\.md)";
 
 function repositoryPath(filePath: string): string {
   return path.relative(repoRoot, filePath).split(path.sep).join("/");
@@ -94,43 +90,12 @@ async function checkUiLocaleRegistration(): Promise<CheckResult> {
   return { name: "UI locale registration", errors };
 }
 
-// README.md (English) lives at repo root; README.<locale>.md live under docs/i18n/.
-// Returns canonical names (README.md, README.zh-CN.md, ...) sorted with English first.
 async function rootReadmeFiles(): Promise<string[]> {
-  const names = new Set<string>();
-  const rootEntries = await readdir(repoRoot, { withFileTypes: true });
-  for (const entry of rootEntries) {
-    if (entry.isFile() && entry.name === "README.md") names.add(entry.name);
-  }
-  const translationEntries = await readdir(path.join(repoRoot, translationsDir), { withFileTypes: true });
-  for (const entry of translationEntries) {
-    if (entry.isFile() && /^README\.[A-Za-z0-9-]+\.md$/.test(entry.name)) names.add(entry.name);
-  }
-  return Array.from(names).sort((left, right) =>
-    left === "README.md" ? -1 : right === "README.md" ? 1 : left.localeCompare(right),
-  );
-}
-
-// Physical path of a canonical doc name: English (no locale) at root, translations under docs/i18n/.
-function docPhysicalPath(canonicalName: string): string {
-  const isEnglish = /^(README|CONTRIBUTING|QUICKSTART|MAINTAINERS)\.md$/.test(canonicalName);
-  return isEnglish ? path.join(repoRoot, canonicalName) : path.join(repoRoot, translationsDir, canonicalName);
-}
-
-// The href a document at `fromName` should use to link to canonical doc `toName`.
-// Same directory (both translations, or both root English) → bare name.
-// Translation → English root → ../../NAME. English root → translation → docs/i18n/NAME.
-function expectedDocHref(fromName: string, toName: string): string {
-  const fromEnglish = /^(README|CONTRIBUTING|QUICKSTART|MAINTAINERS)\.md$/.test(fromName);
-  const toEnglish = /^(README|CONTRIBUTING|QUICKSTART|MAINTAINERS)\.md$/.test(toName);
-  if (fromEnglish === toEnglish) return toName;
-  if (!fromEnglish && toEnglish) return `../../${toName}`;
-  return `${translationsDir}/${toName}`;
-}
-
-// Strip any docs/i18n/ or ../../ prefix to recover the canonical doc name from a link target.
-function canonicalDocName(target: string): string {
-  return target.replace(/^(?:\.\.\/\.\.\/|docs\/i18n\/)/, "");
+  const entries = await readdir(repoRoot, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isFile() && /^README(?:\.[A-Za-z0-9-]+)?\.md$/.test(entry.name))
+    .map((entry) => entry.name)
+    .sort((left, right) => (left === "README.md" ? -1 : right === "README.md" ? 1 : left.localeCompare(right)));
 }
 
 function extractReadmeSwitcher(source: string): ReadmeSwitcherEntry[] | null {
@@ -200,40 +165,38 @@ async function checkReadmeSwitchers(): Promise<CheckResult> {
   const readmes = await rootReadmeFiles();
   const readmeSet = new Set(readmes);
   const canonicalName = "README.md";
-  const canonicalSource = await readFile(docPhysicalPath(canonicalName), "utf8");
+  const canonicalSource = await readFile(path.join(repoRoot, canonicalName), "utf8");
   const canonicalEntries = extractReadmeSwitcher(canonicalSource);
 
   if (!canonicalEntries) {
     return { name: "root README language switchers", errors: [`${canonicalName} has no root README language switcher.`] };
   }
 
-  // Normalize each switcher entry's href to a canonical README name, so files in
-  // different directories (root English vs docs/i18n translations) compare equal.
-  const canonicalOrder = canonicalEntries.map((entry) => (entry.href == null ? canonicalName : canonicalDocName(entry.href)));
+  const canonicalTargets = canonicalEntries.map((entry) => entry.href ?? canonicalName);
   const expectedTargets = new Set(readmes.map(readmeTarget));
-  const canonicalTargetSet = new Set(canonicalOrder);
+  const canonicalTargetSet = new Set(canonicalTargets);
 
   if (
     canonicalTargetSet.size !== expectedTargets.size ||
-    canonicalOrder.some((target) => !expectedTargets.has(target)) ||
+    canonicalTargets.some((target) => !expectedTargets.has(target)) ||
     Array.from(expectedTargets).some((target) => !canonicalTargetSet.has(target))
   ) {
     errors.push(
-      `${canonicalName} switcher targets differ from README files. Expected ${Array.from(expectedTargets).join(", ")}; found ${canonicalOrder.join(", ")}.`,
+      `${canonicalName} switcher targets differ from root README files. Expected ${Array.from(expectedTargets).join(", ")}; found ${canonicalTargets.join(", ")}.`,
     );
   }
 
   for (const readme of readmes) {
-    const source = await readFile(docPhysicalPath(readme), "utf8");
+    const source = await readFile(path.join(repoRoot, readme), "utf8");
     const entries = extractReadmeSwitcher(source);
     if (!entries) {
       errors.push(`${readme} has no root README language switcher.`);
       continue;
     }
 
-    const order = entries.map((entry) => (entry.href == null ? readme : canonicalDocName(entry.href)));
-    if (order.join("\n") !== canonicalOrder.join("\n")) {
-      errors.push(`${readme} switcher order differs. Expected ${canonicalOrder.join(", ")}; found ${order.join(", ")}.`);
+    const targets = entries.map((entry) => entry.href ?? readme);
+    if (targets.join("\n") !== canonicalTargets.join("\n")) {
+      errors.push(`${readme} switcher order differs. Expected ${canonicalTargets.join(", ")}; found ${targets.join(", ")}.`);
     }
 
     const boldEntries = entries.filter((entry) => entry.bold);
@@ -243,14 +206,8 @@ async function checkReadmeSwitchers(): Promise<CheckResult> {
 
     for (const entry of entries) {
       if (entry.href == null) continue;
-      const targetName = canonicalDocName(entry.href);
-      if (!readmeSet.has(targetName)) {
-        errors.push(`${readme} links to missing README ${entry.href}.`);
-        continue;
-      }
-      const expectedHref = expectedDocHref(readme, targetName);
-      if (entry.href !== expectedHref) {
-        errors.push(`${readme} switcher links to ${entry.href} but should use ${expectedHref} from its location.`);
+      if (!readmeSet.has(entry.href)) {
+        errors.push(`${readme} links to missing root README ${entry.href}.`);
       }
     }
   }
@@ -263,16 +220,15 @@ async function checkCoreDocLinks(): Promise<CheckResult> {
   const readmes = await rootReadmeFiles();
 
   for (const readme of readmes) {
-    const source = await readFile(docPhysicalPath(readme), "utf8");
+    const source = await readFile(path.join(repoRoot, readme), "utf8");
     const locale = readmeLocale(readme);
     const links = extractCoreDocLinks(source);
-    // Normalize link targets to canonical doc names, dropping any docs/i18n/ or ../../ prefix.
-    const linkedTargets = new Set(links.map((link) => canonicalDocName(link.target)));
+    const linkedTargets = new Set(links.map((link) => link.target));
 
     for (const link of links) {
-      const target = canonicalDocName(link.target);
-      if (!(await pathExists(docPhysicalPath(target)))) {
-        errors.push(`${readme} links to missing core doc ${link.target}.`);
+      const target = link.target;
+      if (!(await pathExists(path.join(repoRoot, target)))) {
+        errors.push(`${readme} links to missing core doc ${target}.`);
       }
 
       if (locale == null) continue;
@@ -281,7 +237,7 @@ async function checkCoreDocLinks(): Promise<CheckResult> {
       if (sourceName == null || target !== sourceName || isExplicitEnglishCoreDocLink(link)) continue;
 
       const localizedName = localizedCoreDocName(sourceName, locale);
-      if (await pathExists(docPhysicalPath(localizedName))) {
+      if (await pathExists(path.join(repoRoot, localizedName))) {
         errors.push(`${readme} links to ${sourceName}, but ${localizedName} exists for this README locale.`);
       }
     }
@@ -289,7 +245,7 @@ async function checkCoreDocLinks(): Promise<CheckResult> {
     if (locale == null) continue;
     for (const sourceName of ["QUICKSTART.md", "CONTRIBUTING.md"] as const) {
       const localizedName = localizedCoreDocName(sourceName, locale);
-      if ((await pathExists(docPhysicalPath(localizedName))) && links.some((link) => coreDocSourceName(canonicalDocName(link.target)) === sourceName)) {
+      if ((await pathExists(path.join(repoRoot, localizedName))) && links.some((link) => coreDocSourceName(link.target) === sourceName)) {
         if (!linkedTargets.has(localizedName)) {
           errors.push(`${readme} links to ${sourceName} docs, but does not link to localized ${localizedName}.`);
         }

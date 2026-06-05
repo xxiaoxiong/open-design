@@ -1,26 +1,8 @@
 export type ProxyMessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
-export type ProxyMessageContent =
-  | string
-  | Array<ProxyTextContentBlock | ProxyImageContentBlock>;
-
-export interface ProxyTextContentBlock {
-  type: 'text';
-  text: string;
-}
-
-export interface ProxyImageContentBlock {
-  type: 'image';
-  source: {
-    type: 'base64';
-    media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
-    data: string;
-  };
-}
-
 export interface ProxyMessage {
   role: ProxyMessageRole;
-  content: ProxyMessageContent;
+  content: string;
 }
 
 export interface ProxyStreamRequest {

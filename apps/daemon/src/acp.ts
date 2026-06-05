@@ -1,94 +1,12 @@
-import { spawn, type ChildProcess } from 'node:child_process';
-import type { Writable } from 'node:stream';
+// @ts-nocheck
+import { spawn } from 'node:child_process';
 import path from 'node:path';
 
 const ACP_PROTOCOL_VERSION = 1;
 const DEFAULT_TIMEOUT_MS = 15_000;
-const MAX_TIMEOUT_MS = 24 * 60 * 60 * 1000;
-// Gap-between-chunks watchdog for an ACP session stage. The timer resets on
-// every line received from the agent, so this bounds *silent* periods, not
-// total runtime. Default kept in line with the outer chat-run inactivity
-// watchdog (10 min) so agents that spend several minutes silently writing
-// large artifacts do not get killed before the outer watchdog can apply.
-// Callers can override via `stageTimeoutMs`; the chat server reads
-// `OD_ACP_STAGE_TIMEOUT_MS` from the environment.
-// A non-positive `stageTimeoutMs` (`<= 0`) disables the watchdog entirely,
-// mirroring the outer chat watchdog's escape-hatch semantics — without this,
-// `OD_ACP_STAGE_TIMEOUT_MS=0` would call `setTimeout(..., 0)` and fail every
-// ACP session on the next tick instead of disabling the watchdog.
-const DEFAULT_STAGE_TIMEOUT_MS = 600_000;
+const DEFAULT_STAGE_TIMEOUT_MS = 180_000;
 
-type JsonRpcId = string | number;
-type JsonObject = Record<string, unknown>;
-type RpcWritable = Pick<Writable, 'write' | 'end'>;
-type AcpChildProcess = ChildProcess;
-type TimerHandle = ReturnType<typeof setTimeout>;
-
-export interface AcpMcpServerInput {
-  type?: unknown;
-  name?: unknown;
-  command?: unknown;
-  args?: unknown;
-  env?: unknown;
-}
-
-interface AcpSessionOptions {
-  mcpServers?: AcpMcpServerInput[];
-}
-
-export interface ModelOption {
-  id: string;
-  label: string;
-}
-
-interface AcpModelConfigOption {
-  configId: string;
-  currentValue: string | null;
-  values: unknown[];
-}
-
-const MODEL_CONFIG_OPTION_IDS = new Set(['model', 'models', 'modelid', 'modelids']);
-
-interface DetectAcpModelsOptions {
-  bin: string;
-  args: string[];
-  cwd?: string;
-  env?: NodeJS.ProcessEnv;
-  timeoutMs?: number;
-  clientName?: string;
-  clientVersion?: string;
-  defaultModelOption?: ModelOption;
-}
-
-interface AttachAcpSessionOptions {
-  child: AcpChildProcess;
-  prompt: string;
-  cwd?: string;
-  model?: string | null;
-  imagePaths?: string[];
-  mcpServers?: AcpMcpServerInput[];
-  send: (event: string, payload: unknown) => void;
-  clientName?: string;
-  clientVersion?: string;
-  stageTimeoutMs?: number;
-  modelUnavailableErrorCode?: 'AMR_MODEL_UNAVAILABLE';
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-function resolveAcpTimeoutMs(env: NodeJS.ProcessEnv, fallbackMs: number): number {
-  const raw = Number(env.OD_ACP_TIMEOUT_MS);
-  if (!Number.isFinite(raw)) return fallbackMs;
-  return Math.min(MAX_TIMEOUT_MS, Math.max(0, Math.floor(raw)));
-}
-
-function asObject(value: unknown): JsonObject | null {
-  return value && typeof value === 'object' ? value as JsonObject : null;
-}
-
-export function buildAcpSessionNewParams(cwd: string, { mcpServers }: AcpSessionOptions = {}) {
+export function buildAcpSessionNewParams(cwd, { mcpServers } = {}) {
   const servers = Array.isArray(mcpServers) ? mcpServers : [];
   return {
     cwd: path.resolve(cwd),
@@ -107,80 +25,49 @@ export function buildAcpSessionNewParams(cwd: string, { mcpServers }: AcpSession
   };
 }
 
-function sendRpc(writable: RpcWritable, id: JsonRpcId, method: string, params: unknown): void {
+function sendRpc(writable, id, method, params) {
   writable.write(
     `${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`,
   );
 }
 
-function sendRpcResult(writable: RpcWritable, id: JsonRpcId, result: unknown): void {
+function sendRpcResult(writable, id, result) {
   writable.write(`${JSON.stringify({ jsonrpc: '2.0', id, result })}\n`);
 }
 
-function buildPromptBlocks(prompt: string, imagePaths: string[]): Array<Record<string, string>> {
-  const blocks: Array<Record<string, string>> = [{ type: 'text', text: prompt }];
-  for (const imagePath of imagePaths) {
-    if (typeof imagePath !== 'string' || imagePath.trim().length === 0) continue;
-    blocks.push({ type: 'resource_link', uri: imagePath });
-  }
-  return blocks;
-}
-
-function isJsonRpcId(value: unknown): value is JsonRpcId {
+function isJsonRpcId(value) {
   return typeof value === 'number' || typeof value === 'string';
 }
 
-function rpcErrorMessage(raw: unknown): string {
-  const obj = asObject(raw);
-  const error = asObject(obj?.error);
-  if (!obj || !error) {
+function rpcErrorMessage(raw) {
+  if (!raw || typeof raw !== 'object' || !raw.error || typeof raw.error !== 'object') {
     return '';
   }
   const message =
-    typeof error.message === 'string'
-      ? error.message
-      : typeof error.code === 'number'
-        ? String(error.code)
+    typeof raw.error.message === 'string'
+      ? raw.error.message
+      : typeof raw.error.code === 'number'
+        ? String(raw.error.code)
         : 'json-rpc error';
-  return typeof obj.id === 'number'
-    ? `json-rpc id ${obj.id}: ${message}`
+  return typeof raw.id === 'number'
+    ? `json-rpc id ${raw.id}: ${message}`
     : message;
 }
 
-function rpcErrorData(raw: unknown): unknown {
-  const obj = asObject(raw);
-  const error = asObject(obj?.error);
-  return error && 'data' in error ? error.data : undefined;
-}
-
-function rpcErrorRetryable(data: unknown): boolean | undefined {
-  const details = asObject(data);
-  return typeof details?.retryable === 'boolean' ? details.retryable : undefined;
-}
-
-interface FormattedUsage {
-  input_tokens?: number;
-  output_tokens?: number;
-  cached_read_tokens?: number;
-  thought_tokens?: number;
-  total_tokens?: number;
-}
-
-function formatUsage(usage: unknown): FormattedUsage | null {
-  const src = asObject(usage);
-  if (!src) return null;
-  const out: FormattedUsage = {};
-  if (typeof src.inputTokens === 'number') out.input_tokens = src.inputTokens;
-  if (typeof src.outputTokens === 'number') out.output_tokens = src.outputTokens;
-  if (typeof src.cachedReadTokens === 'number') {
-    out.cached_read_tokens = src.cachedReadTokens;
+function formatUsage(usage) {
+  if (!usage || typeof usage !== 'object') return null;
+  const out = {};
+  if (typeof usage.inputTokens === 'number') out.input_tokens = usage.inputTokens;
+  if (typeof usage.outputTokens === 'number') out.output_tokens = usage.outputTokens;
+  if (typeof usage.cachedReadTokens === 'number') {
+    out.cached_read_tokens = usage.cachedReadTokens;
   }
-  if (typeof src.thoughtTokens === 'number') out.thought_tokens = src.thoughtTokens;
-  if (typeof src.totalTokens === 'number') out.total_tokens = src.totalTokens;
+  if (typeof usage.thoughtTokens === 'number') out.thought_tokens = usage.thoughtTokens;
+  if (typeof usage.totalTokens === 'number') out.total_tokens = usage.totalTokens;
   return Object.keys(out).length > 0 ? out : null;
 }
 
-function choosePermissionOutcome(options: unknown): string | null {
+function choosePermissionOutcome(options) {
   const list = Array.isArray(options) ? options : [];
   const approveForSession = list.find((option) => option?.optionId === 'approve_for_session');
   if (approveForSession) return 'approve_for_session';
@@ -191,85 +78,10 @@ function choosePermissionOutcome(options: unknown): string | null {
   return null;
 }
 
-function normalizeConfigOptionToken(value: unknown): string {
-  return typeof value === 'string'
-    ? value.trim().toLowerCase().replace(/[\s_-]+/g, '')
-    : '';
-}
-
-function isModelConfigOption(option: JsonObject, configId: string): boolean {
-  const category = normalizeConfigOptionToken(option.category);
-  if (category === 'model') return true;
-  const id = normalizeConfigOptionToken(configId);
-  if (id === 'model') return true;
-  if (category) return false;
-  const name = normalizeConfigOptionToken(option.name);
-  return MODEL_CONFIG_OPTION_IDS.has(id) || name === 'model';
-}
-
-function findModelConfigOption(configOptions: unknown): AcpModelConfigOption | null {
-  const options = Array.isArray(configOptions) ? configOptions : [];
-  for (const rawOption of options) {
-    const option = asObject(rawOption);
-    if (!option) continue;
-    const configId = typeof option.id === 'string' ? option.id.trim() : '';
-    if (!configId) continue;
-    const type = typeof option.type === 'string' ? option.type.trim() : '';
-    if (type && type !== 'select') continue;
-    if (!isModelConfigOption(option, configId)) continue;
-    const currentValue =
-      typeof option.currentValue === 'string' && option.currentValue.trim()
-        ? option.currentValue.trim()
-        : null;
-    return {
-      configId,
-      currentValue,
-      values: Array.isArray(option.options) ? option.options : [],
-    };
-  }
-  return null;
-}
-
-function normalizeModelConfigOptions(
-  configOptions: unknown,
-  defaultModelOption: ModelOption,
-): { currentModelId: string | null; models: ModelOption[] } | null {
-  const modelConfig = findModelConfigOption(configOptions);
-  if (!modelConfig) return null;
-  const seen = new Set([defaultModelOption.id]);
-  const out = [defaultModelOption];
-  for (const rawValue of modelConfig.values) {
-    const value = asObject(rawValue);
-    if (!value) continue;
-    const id =
-      typeof value.value === 'string' && value.value.trim()
-        ? value.value.trim()
-        : typeof value.id === 'string'
-          ? value.id.trim()
-          : '';
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    const name = typeof value.name === 'string' ? value.name.trim() : '';
-    const isCurrent = id === modelConfig.currentValue;
-    const labelBase = name && name !== id ? `${name} (${id})` : id;
-    out.push({ id, label: isCurrent ? `${labelBase} • current` : labelBase });
-  }
-  return { currentModelId: modelConfig.currentValue, models: out };
-}
-
-export function normalizeModels(
-  models: unknown,
-  defaultModelOption: ModelOption,
-  configOptions?: unknown,
-): ModelOption[] {
-  const configModels = normalizeModelConfigOptions(configOptions, defaultModelOption);
-  if (configModels && configModels.models.length > 1) {
-    return configModels.models;
-  }
-  const modelsObj = asObject(models);
-  const available = Array.isArray(modelsObj?.availableModels) ? modelsObj.availableModels : [];
+function normalizeModels(models, defaultModelOption) {
+  const available = Array.isArray(models?.availableModels) ? models.availableModels : [];
   const currentModelId =
-    typeof modelsObj?.currentModelId === 'string' ? modelsObj.currentModelId : null;
+    typeof models?.currentModelId === 'string' ? models.currentModelId : null;
   const seen = new Set([defaultModelOption.id]);
   const out = [defaultModelOption];
   for (const model of available) {
@@ -281,285 +93,37 @@ export function normalizeModels(
     const labelBase = name && name !== id ? `${name} (${id})` : id;
     out.push({ id, label: isCurrent ? `${labelBase} • current` : labelBase });
   }
-  return out.length > 1 || !configModels ? out : configModels.models;
+  return out;
 }
 
-function modelSelectionErrorIsRecoverable(code: unknown): boolean {
-  return code === -32603 || code === -32602 || code === -32601 || code === -32002;
-}
-
-function currentModelFromSessionResult(result: JsonObject): string | null {
-  const configCurrent = findModelConfigOption(result.configOptions)?.currentValue;
-  if (configCurrent) return configCurrent;
-  const models = asObject(result.models);
-  return typeof models?.currentModelId === 'string' && models.currentModelId.trim()
-    ? models.currentModelId.trim()
-    : null;
-}
-
-export function createJsonLineStream(onMessage: (message: unknown, rawLine: string) => void) {
+export function createJsonLineStream(onMessage) {
   let buffer = '';
-  let pendingJson = '';
-  let pendingJsonLineCount = 0;
-
-  const emit = (candidate: string): boolean => {
-    try {
-      onMessage(JSON.parse(candidate), candidate);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  const startPendingJson = (line: string) => {
-    pendingJson = line;
-    pendingJsonLineCount = 1;
-  };
-
-  const resetPendingJson = () => {
-    pendingJson = '';
-    pendingJsonLineCount = 0;
-  };
-
-  const handleLine = (line: string) => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-    if (pendingJson) {
-      const nextCandidate = `${pendingJson}\n${trimmed}`;
-      if (emit(nextCandidate)) {
-        resetPendingJson();
-        return;
-      }
-      pendingJsonLineCount += 1;
-      const state = classifyJsonCandidate(nextCandidate);
-      if (
-        state === 'incomplete' &&
-        nextCandidate.length <= 128_000 &&
-        pendingJsonLineCount <= 256
-      ) {
-        pendingJson = nextCandidate;
-        return;
-      }
-      resetPendingJson();
-      handleLine(trimmed);
-      return;
-    }
-    if (emit(trimmed)) return;
-    // ACP is line-delimited JSON-RPC, but a few bridges have emitted
-    // pretty-printed JSON during startup. Keep a bounded aggregate so an
-    // otherwise valid multiline initialize response does not get discarded
-    // line-by-line and leave the session stuck in spawn pending.
-    if (
-      (trimmed.startsWith('{') || trimmed.startsWith('[')) &&
-      classifyJsonCandidate(trimmed) === 'incomplete'
-    ) {
-      startPendingJson(trimmed);
-    }
-  };
-
   return {
-    feed(chunk: string) {
+    feed(chunk) {
       buffer += chunk;
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';
       for (const line of lines) {
-        handleLine(line);
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          onMessage(JSON.parse(trimmed), trimmed);
+        } catch {
+          // Ignore non-JSON log lines on stdout.
+        }
       }
     },
     flush() {
       const trimmed = buffer.trim();
       buffer = '';
-      if (trimmed) {
-        handleLine(trimmed);
+      if (!trimmed) return;
+      try {
+        onMessage(JSON.parse(trimmed), trimmed);
+      } catch {
+        // Ignore trailing non-JSON log lines on stdout.
       }
-      if (pendingJson && emit(pendingJson)) {
-        pendingJson = '';
-      }
-      // Ignore trailing non-JSON log lines on stdout.
     },
   };
-}
-
-function classifyJsonCandidate(value: string): 'complete' | 'incomplete' | 'invalid' {
-  type Frame =
-    | { kind: 'object'; expect: 'keyOrEnd' | 'colon' | 'value' | 'commaOrEnd' }
-    | { kind: 'array'; expect: 'valueOrEnd' | 'commaOrEnd' };
-  const stack: Frame[] = [];
-  let rootComplete = false;
-
-  const afterValue = () => {
-    const parent = stack.at(-1);
-    if (!parent) {
-      rootComplete = true;
-      return;
-    }
-    parent.expect = 'commaOrEnd';
-  };
-
-  const closeFrame = (kind: 'object' | 'array'): boolean => {
-    const current = stack.pop();
-    if (!current || current.kind !== kind) return false;
-    afterValue();
-    return true;
-  };
-
-  const parseString = (start: number): number | null => {
-    for (let index = start + 1; index < value.length; index += 1) {
-      const char = value[index];
-      if (char === '\\') {
-        index += 1;
-        continue;
-      }
-      if (char === '"') return index;
-    }
-    return null;
-  };
-
-  const parseLiteral = (start: number, literal: string): number | null | false => {
-    for (let offset = 0; offset < literal.length; offset += 1) {
-      const char = value[start + offset];
-      if (char === undefined) return null;
-      if (char !== literal[offset]) return false;
-    }
-    return start + literal.length - 1;
-  };
-
-  const parseNumber = (start: number): number | false => {
-    let index = start;
-    if (value[index] === '-') index += 1;
-    if (value[index] === '0') {
-      index += 1;
-    } else if (/[1-9]/.test(value[index] ?? '')) {
-      while (/[0-9]/.test(value[index] ?? '')) index += 1;
-    } else {
-      return false;
-    }
-    if (value[index] === '.') {
-      index += 1;
-      if (!/[0-9]/.test(value[index] ?? '')) return false;
-      while (/[0-9]/.test(value[index] ?? '')) index += 1;
-    }
-    if (value[index] === 'e' || value[index] === 'E') {
-      index += 1;
-      if (value[index] === '+' || value[index] === '-') index += 1;
-      if (!/[0-9]/.test(value[index] ?? '')) return false;
-      while (/[0-9]/.test(value[index] ?? '')) index += 1;
-    }
-    return index - 1;
-  };
-
-  const parseValue = (index: number): number | null | false => {
-    const char = value[index];
-    if (char === '"') {
-      const end = parseString(index);
-      if (end === null) return null;
-      afterValue();
-      return end;
-    }
-    if (char === '{') {
-      stack.push({ kind: 'object', expect: 'keyOrEnd' });
-      return index;
-    }
-    if (char === '[') {
-      stack.push({ kind: 'array', expect: 'valueOrEnd' });
-      return index;
-    }
-    if (char === 't') {
-      const end = parseLiteral(index, 'true');
-      if (end === false || end === null) return end;
-      afterValue();
-      return end;
-    }
-    if (char === 'f') {
-      const end = parseLiteral(index, 'false');
-      if (end === false || end === null) return end;
-      afterValue();
-      return end;
-    }
-    if (char === 'n') {
-      const end = parseLiteral(index, 'null');
-      if (end === false || end === null) return end;
-      afterValue();
-      return end;
-    }
-    if (char === '-' || /[0-9]/.test(char ?? '')) {
-      const end = parseNumber(index);
-      if (end === false) return false;
-      afterValue();
-      return end;
-    }
-    return false;
-  };
-
-  for (let index = 0; index < value.length; index += 1) {
-    const char = value[index];
-    if (char === undefined) break;
-    if (/\s/.test(char)) continue;
-
-    const current = stack.at(-1);
-    if (!current) {
-      if (rootComplete) return 'invalid';
-      const end = parseValue(index);
-      if (end === false) return 'invalid';
-      if (end === null) return 'incomplete';
-      index = end;
-      continue;
-    }
-
-    if (current.kind === 'object') {
-      if (current.expect === 'keyOrEnd') {
-        if (char === '}') {
-          if (!closeFrame('object')) return 'invalid';
-          continue;
-        }
-        if (char !== '"') return 'invalid';
-        const end = parseString(index);
-        if (end === null) return 'incomplete';
-        current.expect = 'colon';
-        index = end;
-        continue;
-      }
-      if (current.expect === 'colon') {
-        if (char !== ':') return 'invalid';
-        current.expect = 'value';
-        continue;
-      }
-      if (current.expect === 'value') {
-        const end = parseValue(index);
-        if (end === false) return 'invalid';
-        if (end === null) return 'incomplete';
-        index = end;
-        continue;
-      }
-      if (char === '}') {
-        if (!closeFrame('object')) return 'invalid';
-        continue;
-      }
-      if (char !== ',') return 'invalid';
-      current.expect = 'keyOrEnd';
-      continue;
-    }
-
-    if (current.expect === 'valueOrEnd') {
-      if (char === ']') {
-        if (!closeFrame('array')) return 'invalid';
-        continue;
-      }
-      const end = parseValue(index);
-      if (end === false) return 'invalid';
-      if (end === null) return 'incomplete';
-      index = end;
-      continue;
-    }
-    if (char === ']') {
-      if (!closeFrame('array')) return 'invalid';
-      continue;
-    }
-    if (char !== ',') return 'invalid';
-    current.expect = 'valueOrEnd';
-  }
-
-  return rootComplete && stack.length === 0 ? 'complete' : 'incomplete';
 }
 
 export async function detectAcpModels({
@@ -571,9 +135,8 @@ export async function detectAcpModels({
   clientName = 'open-design-detect',
   clientVersion = 'runtime-adapter',
   defaultModelOption = { id: 'default', label: 'Default (CLI config)' },
-}: DetectAcpModelsOptions): Promise<ModelOption[]> {
-  const effectiveTimeoutMs = resolveAcpTimeoutMs(env, timeoutMs);
-  return await new Promise<ModelOption[]>((resolve, reject) => {
+}) {
+  return await new Promise((resolve, reject) => {
     const child = spawn(bin, args, {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -587,27 +150,26 @@ export async function detectAcpModels({
     let expectedId = 1;
     let nextId = 2;
 
-    let timer: TimerHandle | null = null;
-    const finish = <T extends ModelOption[] | Error>(fn: (value: T) => void, value: T) => {
+    const finish = (fn, value) => {
       if (settled) return;
       settled = true;
-      if (timer) clearTimeout(timer);
+      clearTimeout(timer);
       try {
         child.stdin.end();
       } catch {}
       fn(value);
     };
 
-    const fail = (message: string) => {
+    const fail = (message) => {
       finish(reject, new Error(message));
       if (!child.killed) child.kill('SIGTERM');
     };
 
-    const writeRpc = (id: JsonRpcId, method: string, params: unknown) => {
+    const writeRpc = (id, method, params) => {
       try {
         sendRpc(child.stdin, id, method, params);
       } catch (err) {
-        fail(`stdin write failed: ${errorMessage(err)}`);
+        fail(`stdin write failed: ${err.message}`);
       }
     };
 
@@ -618,26 +180,23 @@ export async function detectAcpModels({
     };
 
     const parser = createJsonLineStream((raw) => {
-      const obj = asObject(raw);
-      const error = asObject(obj?.error);
-      const result = asObject(obj?.result);
       const rpcErr = rpcErrorMessage(raw);
       if (rpcErr) {
         // JSON-RPC -32603 "Internal error" during model detection:
         // If this is for the current expected-id (initialize/session/new),
         // it's a real probe failure — reject immediately.
         // Otherwise it's cleanup noise — suppress it.
-        if (error?.code === -32603 && obj?.id !== expectedId) return;
+        if (raw.error?.code === -32603 && raw.id !== expectedId) return;
         fail(rpcErr);
         return;
       }
-      if (obj?.id !== expectedId || !result) return;
+      if (raw.id !== expectedId || !raw.result || typeof raw.result !== 'object') return;
       if (expectedId === 1) {
         sendSessionNew();
         return;
       }
       if (expectedId === 2) {
-        const models = normalizeModels(result.models, defaultModelOption, result.configOptions);
+        const models = normalizeModels(raw.result.models, defaultModelOption);
         finish(resolve, models);
         if (!child.killed) child.kill('SIGTERM');
       }
@@ -659,11 +218,9 @@ export async function detectAcpModels({
       }
     });
 
-    if (effectiveTimeoutMs > 0) {
-      timer = setTimeout(() => {
-        fail(`ACP model detection timed out after ${effectiveTimeoutMs}ms`);
-      }, effectiveTimeoutMs);
-    }
+    const timer = setTimeout(() => {
+      fail(`ACP model detection timed out after ${timeoutMs}ms`);
+    }, timeoutMs);
 
     writeRpc(1, 'initialize', {
       protocolVersion: ACP_PROTOCOL_VERSION,
@@ -678,113 +235,53 @@ export function attachAcpSession({
   prompt,
   cwd,
   model,
-  imagePaths = [],
   mcpServers,
   send,
   clientName = 'open-design',
   clientVersion = 'runtime-adapter',
   stageTimeoutMs = DEFAULT_STAGE_TIMEOUT_MS,
-  modelUnavailableErrorCode,
-}: AttachAcpSessionOptions) {
+}) {
   const runStartedAt = Date.now();
   const effectiveCwd = path.resolve(cwd || process.cwd());
-  if (!child.stdin || !child.stdout) {
-    throw new Error('ACP child process must expose stdin and stdout streams');
-  }
-  const stdin = child.stdin;
-  const stdout = child.stdout;
   let expectedId = 1;
   let nextId = 2;
-  let promptRequestId: JsonRpcId | null = null;
-  let setModelRequestId: JsonRpcId | null = null;
-  let sessionId: string | null = null;
-  let activeModel: string | null = null;
-  let modelConfigId: string | null = null;
+  let promptRequestId = null;
+  let setModelRequestId = null;
+  let sessionId = null;
+  let activeModel = null;
   let emittedThinkingStart = false;
   let emittedFirstTokenStatus = false;
-  let emittedTextChunk = false;
-  let emittedToolCall = false;
-  let emittedTextBuffer = '';
   let finished = false;
   let fatal = false;
-  let aborted = false;
-  let stageTimer: TimerHandle | null = null;
+  let stageTimer = null;
 
-  const stageWatchdogDisabled = stageTimeoutMs <= 0;
-  const resetStageTimer = (label: string) => {
-    if (stageTimer) clearTimeout(stageTimer);
-    // `stageTimeoutMs <= 0` disables the watchdog. Mirrors the outer chat
-    // inactivity watchdog escape hatch (see server.ts → inactivityTimer).
-    // Without this, an operator setting `OD_ACP_STAGE_TIMEOUT_MS=0` would
-    // schedule a 0ms timeout that fires on the next tick and kills the
-    // session immediately.
-    if (stageWatchdogDisabled) return;
+  const resetStageTimer = (label) => {
+    clearTimeout(stageTimer);
     stageTimer = setTimeout(() => {
       fail(`ACP ${label} timed out after ${stageTimeoutMs}ms`);
     }, stageTimeoutMs);
   };
 
   const clearStageTimer = () => {
-    if (stageTimer) clearTimeout(stageTimer);
+    clearTimeout(stageTimer);
     stageTimer = null;
   };
 
-  const amrModelUnavailablePayload = (message: string) => ({
-    message,
-    error: {
-      code: 'AMR_MODEL_UNAVAILABLE',
-      message,
-      retryable: false,
-      details: { kind: 'amr_model', action: 'choose_model' },
-    },
-  });
-
-  const isModelUnavailableError = (message: string) => {
-    const value = message.toLowerCase();
-    return (
-      value.includes('model not found') ||
-      value.includes('providermodelnotfounderror') ||
-      value.includes('unknown model') ||
-      value.includes('invalid model')
-    );
-  };
-
-  const fail = (
-    message: string,
-    options: { forceModelUnavailable?: boolean; details?: unknown; retryable?: boolean } = {},
-  ) => {
+  const fail = (message) => {
     if (finished) return;
     finished = true;
     fatal = true;
     clearStageTimer();
-    const useModelUnavailable =
-      modelUnavailableErrorCode &&
-      (options.forceModelUnavailable || isModelUnavailableError(message));
-    send(
-      'error',
-      useModelUnavailable
-        ? amrModelUnavailablePayload(message)
-        : options.details === undefined && options.retryable === undefined
-          ? { message }
-          : {
-              message,
-              error: {
-                code: 'AGENT_EXECUTION_FAILED',
-                message,
-                retryable: options.retryable ?? false,
-                ...(options.details === undefined ? {} : { details: options.details }),
-              },
-            },
-    );
+    send('error', { message });
     if (!child.killed) child.kill('SIGTERM');
   };
 
-  const writeRpc = (id: JsonRpcId, method: string, params: unknown, timeoutLabel: string) => {
+  const writeRpc = (id, method, params, timeoutLabel) => {
     resetStageTimer(timeoutLabel);
     try {
-      sendRpc(stdin, id, method, params);
+      sendRpc(child.stdin, id, method, params);
     } catch (err) {
-      fail(`stdin write failed: ${errorMessage(err)}`);
+      fail(`stdin write failed: ${err.message}`);
     }
   };
 
@@ -796,81 +293,72 @@ export function attachAcpSession({
       'session/prompt',
       {
         sessionId,
-        prompt: buildPromptBlocks(prompt, imagePaths),
+        prompt: [{ type: 'text', text: prompt }],
       },
       'session/prompt',
     );
     nextId += 1;
   };
 
-  const replyPermission = (raw: JsonObject) => {
-    const params = asObject(raw.params);
-    const optionId = choosePermissionOutcome(params?.options);
+  const replyPermission = (raw) => {
+    const optionId = choosePermissionOutcome(raw.params?.options);
     if (!optionId || !isJsonRpcId(raw.id)) {
       fail(`unhandled ACP permission request: ${JSON.stringify(raw)}`);
       return;
     }
     resetStageTimer('session/request_permission');
     try {
-      sendRpcResult(stdin, raw.id, {
+      sendRpcResult(child.stdin, raw.id, {
         outcome: { outcome: 'selected', optionId },
       });
     } catch (err) {
-      fail(`stdin write failed: ${errorMessage(err)}`);
+      fail(`stdin write failed: ${err.message}`);
     }
   };
 
-  const recoverFromModelSelectionError = () => {
-    setModelRequestId = null;
-    activeModel = activeModel || 'default';
-    send('agent', { type: 'status', label: 'model', model: activeModel });
-    sendPrompt();
-  };
-
   const parser = createJsonLineStream((raw, rawLine) => {
-    if (aborted) return;
     resetStageTimer('response');
-    const obj = asObject(raw);
-    if (!obj) return;
-    const error = asObject(obj.error);
-    const params = asObject(obj.params);
-    const result = asObject(obj.result);
-    const rpcErr = rpcErrorMessage(obj);
+    const rpcErr = rpcErrorMessage(raw);
     if (rpcErr) {
       // After response completion, any late-arriving errors from the agent
       // (pipe-broken, cleanup race conditions, etc.) are safe to ignore.
       if (finished) return;
       // JSON-RPC error handling:
-      // -32603 unexpected-id errors are cleanup noise. Expected-id model
-      // selection failures are recoverable; all other RPC errors are real
-      // protocol failures for initialize/session/new/session/prompt.
-      if (
-        obj.id === setModelRequestId &&
-        modelSelectionErrorIsRecoverable(error?.code) &&
-        promptRequestId === null
-      ) {
-        recoverFromModelSelectionError();
+      // -32603 "Internal error": unexpected-id errors are cleanup noise — suppress.
+      //   Expected-id errors for session/set_model fall through to the recovery
+      //   block. All others (initialize, session/new, session/prompt) are real
+      //   failures — call fail().
+      // -32602 "Invalid params": these are real validation failures. Only
+      //   suppress when they match setModelRequestId so the recovery block handles
+      //   them. Any other -32602 (unexpected-id or non-set_model expected-id) is
+      //   a genuine protocol error — call fail().
+      if (raw.error?.code === -32603 && raw.id !== expectedId) {
         return;
       }
-      if (error?.code === -32603 && obj.id !== expectedId) {
+      if (raw.error?.code === -32602 && raw.id !== setModelRequestId) {
+        fail(rpcErr);
         return;
       }
-      const details = rpcErrorData(obj);
-      const retryable = rpcErrorRetryable(details);
-      fail(rpcErr, {
-        details,
-        ...(retryable === undefined ? {} : { retryable }),
-      });
+      if (raw.error?.code === -32603 && raw.id === expectedId) {
+        if (raw.id === setModelRequestId) {
+          // Fall through — the recovery block will handle this
+        } else {
+          fail(rpcErr);
+          return;
+        }
+      }
+      if (raw.error?.code === -32602 && raw.id === setModelRequestId) {
+        // Fall through — the recovery block will handle this
+      }
+    }
+    if (raw.method === 'session/request_permission') {
+      replyPermission(raw);
       return;
     }
-    if (obj.method === 'session/request_permission') {
-      replyPermission(obj);
-      return;
-    }
-    const update = asObject(params?.update);
-    if (obj.method === 'session/update' && update) {
+    if (raw.method === 'session/update' && raw.params?.update) {
+      const update = raw.params.update;
       if (update.sessionUpdate === 'agent_thought_chunk') {
-        const text = asObject(update.content)?.text;
+        const text = update.content?.text;
         if (typeof text === 'string' && text.length > 0) {
           if (!emittedThinkingStart) {
             emittedThinkingStart = true;
@@ -881,40 +369,40 @@ export function attachAcpSession({
         return;
       }
       if (update.sessionUpdate === 'agent_message_chunk') {
-        const text = asObject(update.content)?.text;
+        const text = update.content?.text;
         if (typeof text === 'string' && text.length > 0) {
-          const delta = text.startsWith(emittedTextBuffer)
-            ? text.slice(emittedTextBuffer.length)
-            : text;
-          if (delta.length > 0) {
-            emittedTextChunk = true;
-            emittedTextBuffer += delta;
-            if (!emittedFirstTokenStatus) {
-              emittedFirstTokenStatus = true;
-              send('agent', {
-                type: 'status',
-                label: 'streaming',
-                ttftMs: Date.now() - runStartedAt,
-              });
-            }
-            send('agent', { type: 'text_delta', delta });
+          if (!emittedFirstTokenStatus) {
+            emittedFirstTokenStatus = true;
+            send('agent', {
+              type: 'status',
+              label: 'streaming',
+              ttftMs: Date.now() - runStartedAt,
+            });
           }
+          send('agent', { type: 'text_delta', delta: text });
         }
-        return;
-      }
-      if (
-        update.sessionUpdate === 'tool_call' ||
-        update.sessionUpdate === 'tool_call_update'
-      ) {
-        // The turn did real work (a tool call / file edit), which is valid output even
-        // when the model emits no closing assistant text. Track it so the prompt-complete
-        // handler does not misreport such a turn as "no output / model unavailable".
-        emittedToolCall = true;
         return;
       }
       return;
     }
-    if (obj.id !== expectedId || !result) {
+    // Recovery: if session/set_model failed with -32603 or -32602, fall back to
+    // sending the prompt with the default (already-active) model.
+    // -32603: agent doesn't support set_model at all (internal error).
+    // -32602: agent rejects the model ID or set_model params (invalid params).
+    // This is scoped to the exact set_model request id to avoid
+    // triggering on prompt or other request failures.
+    if (
+      (raw.error?.code === -32603 || raw.error?.code === -32602) &&
+      raw.id === setModelRequestId &&
+      promptRequestId === null
+    ) {
+      setModelRequestId = null;
+      activeModel = activeModel || 'default';
+      send('agent', { type: 'status', label: 'model', model: activeModel });
+      sendPrompt();
+      return;
+    }
+    if (raw.id !== expectedId || !raw.result || typeof raw.result !== 'object') {
       return;
     }
     if (expectedId === 1) {
@@ -922,35 +410,32 @@ export function attachAcpSession({
       writeRpc(
         nextId,
         'session/new',
-        buildAcpSessionNewParams(
-          effectiveCwd,
-          mcpServers ? { mcpServers } : {},
-        ),
+        buildAcpSessionNewParams(effectiveCwd, { mcpServers }),
         'session/new',
       );
       nextId += 1;
       return;
     }
     if (expectedId === 2) {
-      sessionId = typeof result.sessionId === 'string' ? result.sessionId : null;
-      const modelConfig = findModelConfigOption(result.configOptions);
-      modelConfigId = modelConfig?.configId ?? null;
-      activeModel = currentModelFromSessionResult(result);
+      sessionId = typeof raw.result.sessionId === 'string' ? raw.result.sessionId : null;
+      activeModel =
+        typeof raw.result.models?.currentModelId === 'string'
+          ? raw.result.models.currentModelId
+          : null;
       if (sessionId && activeModel) {
         send('agent', { type: 'status', label: 'model', model: activeModel });
       }
       if (sessionId && model && model !== 'default') {
         setModelRequestId = nextId;
         expectedId = nextId;
-        const setModelMethod = modelConfigId ? 'session/set_config_option' : 'session/set_model';
-        const setModelParams = modelConfigId
-          ? { sessionId, configId: modelConfigId, value: model }
-          : { sessionId, modelId: model };
         writeRpc(
           nextId,
-          setModelMethod,
-          setModelParams,
-          setModelMethod,
+          'session/set_model',
+          {
+            sessionId,
+            modelId: model,
+          },
+          'session/set_model',
         );
         nextId += 1;
         return;
@@ -962,15 +447,8 @@ export function attachAcpSession({
       sendPrompt();
       return;
     }
-    if (promptRequestId !== null && obj.id === promptRequestId) {
-      if (!emittedTextChunk && !emittedToolCall && modelUnavailableErrorCode) {
-        fail(
-          'ACP session completed without producing any assistant text. Refresh the AMR model list, choose a supported model, and retry this run.',
-          { forceModelUnavailable: true },
-        );
-        return;
-      }
-      const usage = formatUsage(result.usage);
+    if (promptRequestId !== null && raw.id === promptRequestId) {
+      const usage = formatUsage(raw.result.usage);
       if (usage) {
         send('agent', {
           type: 'usage',
@@ -980,39 +458,23 @@ export function attachAcpSession({
       }
       finished = true;
       clearStageTimer();
-      stdin.end();
-      // Some ACP agents (e.g. Devin for Terminal) keep the child process
-      // alive after stdin closes, waiting for the next prompt. Each Open
-      // Design run spawns its own agent process per turn, so the child must
-      // terminate for `child.on('close')` to fire and the chat run to
-      // finalize — otherwise the chat stays stuck in the "working" state.
-      // Give the child a short grace period to exit on its own first; if it
-      // doesn't, SIGTERM forces it. This mirrors the pattern in
-      // detectAcpModels() which already kills the child after a clean
-      // model-discovery probe completes (see line ~270 in this file).
-      const cleanExitTimer = setTimeout(() => {
-        if (!child.killed) child.kill('SIGTERM');
-      }, 500);
-      child.once('close', () => clearTimeout(cleanExitTimer));
+      child.stdin.end();
       return;
     }
-    if (sessionId && model && model !== 'default' && obj.id === expectedId) {
-      activeModel = currentModelFromSessionResult(result) ?? model;
+    if (sessionId && model && model !== 'default' && raw.id === expectedId) {
+      activeModel = model;
       send('agent', { type: 'status', label: 'model', model: activeModel });
       sendPrompt();
     }
   });
 
-  stdout.on('data', (chunk: string) => parser.feed(chunk));
-  child.on('close', (code, signal) => {
+  child.stdout.on('data', (chunk) => parser.feed(chunk));
+  child.on('close', () => {
     clearStageTimer();
     parser.flush();
-    if (!finished && !aborted && !fatal) {
-      fail(`ACP session exited before completion (code=${code ?? 'null'}, signal=${signal ?? 'none'})`);
-    }
   });
-  child.on('error', (err: Error) => fail(err.message));
-  stdin.on('error', (err: Error) => fail(`stdin error: ${err.message}`));
+  child.on('error', (err) => fail(err.message));
+  child.stdin.on('error', (err) => fail(`stdin error: ${err.message}`));
 
   writeRpc(1, 'initialize', {
     protocolVersion: ACP_PROTOCOL_VERSION,
@@ -1023,41 +485,6 @@ export function attachAcpSession({
   return {
     hasFatalError() {
       return fatal;
-    },
-    completedSuccessfully() {
-      // Returns true when the prompt request resolved without a fatal error
-      // and was not aborted. The chat consumer treats this as a successful
-      // run even if the child process subsequently exited via SIGTERM
-      // (which is expected for agents that don't shut down on stdin.end()).
-      return finished && !fatal && !aborted;
-    },
-    abort() {
-      if (aborted || finished) return;
-      aborted = true;
-      finished = true;
-      clearStageTimer();
-      if (!child.stdin || child.stdin.destroyed || child.stdin.writableEnded)
-        return;
-      // Only cancel an established session; before session/new resolves there
-      // is no sessionId to cancel, but we must still close stdin below.
-      if (sessionId) {
-        try {
-          sendRpc(child.stdin, nextId, 'session/cancel', { sessionId });
-          nextId += 1;
-        } catch {
-          // The caller owns process-signal fallback if the ACP transport is gone.
-        }
-      }
-      // Always close stdin so the agent receives EOF and shuts down its own
-      // runtime — the vela ACP bridge tears down its private OpenCode server on
-      // EOF — instead of lingering (and leaking that server) until the caller's
-      // SIGTERM fallback fires. This also covers aborts during ACP startup,
-      // before session/new returns. Mirrors the clean-completion path above.
-      try {
-        child.stdin.end();
-      } catch {
-        // Best effort; the caller still owns the SIGTERM/SIGKILL fallback.
-      }
     },
   };
 }

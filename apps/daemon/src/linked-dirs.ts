@@ -20,7 +20,7 @@ function isFilesystemRoot(p: string): boolean {
   return p === '/';
 }
 
-export function isBlocked(realPath: string): boolean {
+function isBlocked(realPath: string): boolean {
   if (isFilesystemRoot(realPath)) return true;
   return BLOCKED_CANONICAL.some(
     (p: string) =>

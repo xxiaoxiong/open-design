@@ -4,10 +4,7 @@ import type { ToolPackConfig } from "../config.js";
 import { MAC_PREBUNDLED_APP_DIR_NAME } from "../mac-prebundle.js";
 import {
   ELECTRON_BUILDER_ASAR,
-  ELECTRON_BUILDER_BUILD_DEPENDENCIES_FROM_SOURCE,
   ELECTRON_BUILDER_FILE_PATTERNS,
-  ELECTRON_REBUILD_MODE,
-  ELECTRON_REBUILD_NATIVE_MODULES,
   MAC_ELECTRON_LANGUAGES,
   WEB_STANDALONE_RESOURCE_NAME,
 } from "./constants.js";
@@ -50,11 +47,6 @@ export async function collectMacSizeReport(
       compression: config.macCompression,
       electronLanguages: MAC_ELECTRON_LANGUAGES,
       filePatterns: ELECTRON_BUILDER_FILE_PATTERNS,
-      nativeRebuild: {
-        buildFromSource: ELECTRON_BUILDER_BUILD_DEPENDENCIES_FROM_SOURCE,
-        mode: ELECTRON_REBUILD_MODE,
-        modules: ELECTRON_REBUILD_NATIVE_MODULES,
-      },
       targets,
       webOutputMode: config.webOutputMode,
     },

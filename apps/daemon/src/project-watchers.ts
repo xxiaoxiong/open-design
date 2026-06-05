@@ -1,8 +1,35 @@
+// @ts-nocheck
 import path from 'node:path';
-import chokidar, { type FSWatcher } from 'chokidar';
+import chokidar from 'chokidar';
+import type { FSWatcher } from 'chokidar';
 
-import { isIgnoredProjectDirName } from './project-ignored-dirs.js';
 import { projectDir, resolveProjectDir } from './projects.js';
+
+export type ProjectWatchEvent = {
+  type: 'file-changed';
+  path: string;
+  kind: 'add' | 'change' | 'unlink';
+};
+
+type ProjectWatchCallback = (evt: ProjectWatchEvent) => void;
+
+type ProjectWatcherEntry = {
+  dir: string;
+  watcher: FSWatcher;
+  ready?: Promise<void>;
+  subscribers: Set<ProjectWatchCallback>;
+  closing: Promise<void> | null;
+};
+
+export type ProjectWatcherOptions = {
+  ignored?: string[] | ((path: string) => boolean);
+  awaitWriteFinish?: boolean | {
+    stabilityThreshold?: number;
+    pollInterval?: number;
+  };
+  metadata?: Parameters<typeof resolveProjectDir>[2];
+  _watcherFactory?: (dir: string, opts: Required<Pick<ProjectWatcherOptions, 'ignored' | 'awaitWriteFinish'>>) => ProjectWatcherEntry;
+};
 
 /**
  * Refcounted per-project file watcher registry.
@@ -17,33 +44,29 @@ import { projectDir, resolveProjectDir } from './projects.js';
 // against the path *relative to the watch root* so that ancestor directories
 // (e.g. the daemon's own `.od/` runtime dir, which contains every project) do
 // not accidentally match and silence every event in the tree.
-const WATCHER_ONLY_IGNORE_NAMES = new Set(['.ds_store']);
-export type ProjectWatchKind = 'add' | 'change' | 'unlink';
-export interface ProjectWatchEvent { type: 'file-changed'; path: string; kind: ProjectWatchKind }
-export type ProjectWatchCallback = (evt: ProjectWatchEvent) => void;
-export interface ProjectWatcherOptions {
-  ignored?: (absPath: string) => boolean;
-  awaitWriteFinish?: false | { stabilityThreshold: number; pollInterval: number };
-  metadata?: unknown;
-  _watcherFactory?: WatcherFactory;
-}
-interface WatcherEntry {
-  dir: string;
-  watcher: FSWatcher;
-  ready: Promise<void>;
-  subscribers: Set<ProjectWatchCallback>;
-  closing: Promise<void> | null;
-}
-type WatcherFactory = (dir: string, opts: Required<Pick<ProjectWatcherOptions, 'ignored' | 'awaitWriteFinish'>>) => WatcherEntry;
-
-export function makeIgnored(rootDir: string): (absPath: string) => boolean {
-  return (absPath: string): boolean => {
+const IGNORE_NAMES = new Set([
+  '.git',
+  'node_modules',
+  '.od',
+  'debug',
+  '.DS_Store',
+  // Python virtual environments and caches — can contain tens of thousands of
+  // files, exhausting the process fd table and breaking child-process spawning.
+  // These names are safe to match at any path depth: a directory named `.venv`
+  // or `__pycache__` is never legitimate authored source in a project tree.
+  '.venv',
+  'venv',
+  '__pycache__',
+  '.mypy_cache',
+  '.pytest_cache',
+  '.tox',
+  '.ruff_cache',
+]);
+export function makeIgnored(rootDir) {
+  return (absPath) => {
     const rel = path.relative(rootDir, absPath);
     if (!rel || rel === '' || rel.startsWith('..')) return false; // never ignore root itself
-    return rel.split(/[\\/]/).some((seg) => {
-      const normalized = seg.toLowerCase();
-      return WATCHER_ONLY_IGNORE_NAMES.has(normalized) || isIgnoredProjectDirName(normalized);
-    });
+    return rel.split(/[\\/]/).some((seg) => IGNORE_NAMES.has(seg));
   };
 }
 
@@ -52,20 +75,10 @@ export const DEFAULT_AWAIT_WRITE_FINISH = {
   pollInterval: 50,
 };
 
-const registry = new Map<string, WatcherEntry>();
-const PREFERS_POLLING_IN_TESTS = process.env.NODE_ENV === 'test';
+const registry = new Map<string, ProjectWatcherEntry>();
 
-function isPollingFallbackError(err: unknown): boolean {
-  const code = (err as NodeJS.ErrnoException | undefined)?.code;
-  return code === 'EMFILE' || code === 'ENOSPC';
-}
-
-function createWatcher(
-  dir: string,
-  opts: Required<Pick<ProjectWatcherOptions, 'ignored' | 'awaitWriteFinish'>>,
-  usePolling: boolean,
-): FSWatcher {
-  const watcherOptions = {
+function makeEntry(dir, opts) {
+  const watcher = chokidar.watch(dir, {
     ignored: opts.ignored,
     ignoreInitial: true,
     awaitWriteFinish: opts.awaitWriteFinish,
@@ -74,37 +87,35 @@ function createWatcher(
     // path ignore predicate keeps emitted events project-scoped, an unhandled
     // symlink would still cost descriptors and surface external FS activity.
     followSymlinks: false,
-    usePolling,
-    ...(usePolling ? { interval: 100, binaryInterval: 300 } : {}),
-  };
-  return chokidar.watch(dir, watcherOptions);
-}
+  });
 
-function makeEntry(dir: string, opts: Required<Pick<ProjectWatcherOptions, 'ignored' | 'awaitWriteFinish'>>): WatcherEntry {
-  let resolveReady: () => void;
-  const ready = new Promise<void>((resolve) => { resolveReady = resolve; });
-  let readyResolved = false;
-  const subscribers = new Set<ProjectWatchCallback>();
-  const entry: WatcherEntry = {
+  // chokidar's FSWatcher is an EventEmitter. Without an `error` listener,
+  // transient FS faults (ENOSPC, EPERM, EMFILE on saturated inotify watches)
+  // would surface as unhandled exceptions and could crash the daemon — taking
+  // every other route down with it. Log and keep the watcher alive; refcount
+  // cleanup is unaffected.
+  watcher.on('error', (err) => {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[project-watchers] chokidar error in', dir, err);
+    }
+  });
+
+  let resolveReady;
+  const ready = new Promise((r) => { resolveReady = r; });
+  watcher.once('ready', () => resolveReady());
+
+  const entry = {
     dir,
-    watcher: createWatcher(dir, opts, PREFERS_POLLING_IN_TESTS),
+    watcher,
     ready,
-    subscribers,
+    subscribers: new Set(),
     closing: null,
   };
-  let usingPollingFallback = PREFERS_POLLING_IN_TESTS;
-  let switchingToPolling = false;
 
-  const resolveReadyOnce = () => {
-    if (readyResolved) return;
-    readyResolved = true;
-    resolveReady();
-  };
-
-  const broadcast = (kind: ProjectWatchKind) => (absPath: string) => {
+  const broadcast = (kind) => (absPath) => {
     const rel = path.relative(dir, absPath);
     if (!rel || rel.startsWith('..')) return;
-    const evt: ProjectWatchEvent = { type: 'file-changed', path: rel.split(path.sep).join('/'), kind };
+    const evt = { type: 'file-changed', path: rel.split(path.sep).join('/'), kind };
     for (const cb of entry.subscribers) {
       try {
         cb(evt);
@@ -118,35 +129,9 @@ function makeEntry(dir: string, opts: Required<Pick<ProjectWatcherOptions, 'igno
     }
   };
 
-  const attachWatcher = (watcher: FSWatcher) => {
-    watcher.once('ready', () => resolveReadyOnce());
-    watcher.on('add', broadcast('add'));
-    watcher.on('change', broadcast('change'));
-    watcher.on('unlink', broadcast('unlink'));
-    // chokidar's FSWatcher is an EventEmitter. Without an `error` listener,
-    // transient FS faults (ENOSPC, EPERM, EMFILE on saturated inotify watches)
-    // would surface as unhandled exceptions and could crash the daemon.
-    watcher.on('error', (err) => {
-      if (isPollingFallbackError(err) && !usingPollingFallback && !switchingToPolling) {
-        switchingToPolling = true;
-        const next = createWatcher(dir, opts, true);
-        usingPollingFallback = true;
-        entry.watcher = next;
-        attachWatcher(next);
-        void watcher.close().catch(() => {});
-        switchingToPolling = false;
-        return;
-      }
-      if (process.env.NODE_ENV === 'development') {
-        console.warn('[project-watchers] chokidar error in', dir, err);
-      }
-      // A watcher that fails before it reaches ready would otherwise hang every
-      // caller awaiting `sub.ready`.
-      resolveReadyOnce();
-    });
-  };
-
-  attachWatcher(entry.watcher);
+  watcher.on('add', broadcast('add'));
+  watcher.on('change', broadcast('change'));
+  watcher.on('unlink', broadcast('unlink'));
 
   return entry;
 }
@@ -162,7 +147,12 @@ function makeEntry(dir: string, opts: Required<Pick<ProjectWatcherOptions, 'igno
  *   `unsubscribe` releases the subscriber and closes the watcher if it was the
  *   last; `ready` resolves once chokidar has finished its initial scan.
  */
-export function subscribe(projectsRoot: string, projectId: string, onEvent: ProjectWatchCallback, opts: ProjectWatcherOptions = {}) {
+export function subscribe(
+  projectsRoot: string,
+  projectId: string,
+  onEvent: ProjectWatchCallback,
+  opts: ProjectWatcherOptions = {},
+): { unsubscribe: () => Promise<void>; ready: Promise<void> } {
   // Resolve to the project's actual root: for folder-imported projects
   // (metadata.baseDir set) we watch the user's folder so the live-reload
   // SSE stream actually fires when their files change. The registry is
@@ -177,8 +167,8 @@ export function subscribe(projectsRoot: string, projectId: string, onEvent: Proj
   if (!entry) {
     const factory = opts._watcherFactory || makeEntry;
     entry = factory(dir, {
-      ignored: opts.ignored ?? makeIgnored(dir),
-      awaitWriteFinish: opts.awaitWriteFinish ?? DEFAULT_AWAIT_WRITE_FINISH,
+      ignored: opts.ignored || makeIgnored(dir),
+      awaitWriteFinish: opts.awaitWriteFinish || DEFAULT_AWAIT_WRITE_FINISH,
     });
     registry.set(key, entry);
   }
@@ -200,19 +190,19 @@ export function subscribe(projectsRoot: string, projectId: string, onEvent: Proj
 }
 
 /** Test-only: drop all watchers. */
-export async function _resetForTests(): Promise<void> {
+export async function _resetForTests() {
   const entries = Array.from(registry.values());
   registry.clear();
   await Promise.allSettled(entries.map((e) => e.watcher.close()));
 }
 
 /** Test-only: number of active watchers. */
-export function _activeWatcherCount(): number {
+export function _activeWatcherCount() {
   return registry.size;
 }
 
 /** Test-only: return the chokidar FSWatcher for a given project's directory. */
-export function _internalWatcherForTests(projectsRoot: string, projectId: string): FSWatcher | undefined {
+export function _internalWatcherForTests(projectsRoot, projectId) {
   const dir = projectDir(projectsRoot, projectId);
   return registry.get(dir)?.watcher;
 }

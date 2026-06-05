@@ -15,8 +15,8 @@ test('opencode json stream emits text and usage events', () => {
 
   handler.feed(
     '{"type":"step_start","sessionID":"ses-1","part":{"type":"step-start"}}\n' +
-    '{"type":"text","sessionID":"ses-1","part":{"type":"text","text":"hello"}}\n' +
-    '{"type":"step_finish","sessionID":"ses-1","part":{"type":"step-finish","tokens":{"input":11,"output":7,"reasoning":3,"cache":{"read":5,"write":2}},"cost":0}}\n',
+      '{"type":"text","sessionID":"ses-1","part":{"type":"text","text":"hello"}}\n' +
+      '{"type":"step_finish","sessionID":"ses-1","part":{"type":"step-finish","tokens":{"input":11,"output":7,"reasoning":3,"cache":{"read":5,"write":2}},"cost":0}}\n',
   );
 
   assert.deepEqual(events, [
@@ -177,13 +177,13 @@ test('gemini stream emits init text and usage events', () => {
 
   handler.feed(
     JSON.stringify({ type: 'init', session_id: 'gm-1', model: 'gemini-3-flash-preview' }) + '\n' +
-    JSON.stringify({ type: 'message', role: 'assistant', content: 'hello', delta: true }) + '\n' +
-    JSON.stringify({
-      type: 'result',
-      status: 'success',
-      stats: { input_tokens: 9, output_tokens: 4, cached: 2, duration_ms: 321 },
-    }) +
-    '\n',
+      JSON.stringify({ type: 'message', role: 'assistant', content: 'hello', delta: true }) + '\n' +
+      JSON.stringify({
+        type: 'result',
+        status: 'success',
+        stats: { input_tokens: 9, output_tokens: 4, cached: 2, duration_ms: 321 },
+      }) +
+      '\n',
   );
 
   assert.deepEqual(events, [
@@ -197,111 +197,34 @@ test('gemini stream emits init text and usage events', () => {
   ]);
 });
 
-test('gemini stream handles real stream-json user, tool, and error frames', () => {
-  const { events, handler } = collectEvents('gemini');
-
-  const fatalResult = {
-    type: 'result',
-    status: 'error',
-    error: { type: 'FatalAuthenticationError', message: 'Authentication failed' },
-    stats: { input_tokens: 11, output_tokens: 0, cached: 0, duration_ms: 42 },
-  };
-
-  handler.feed(
-    JSON.stringify({ type: 'message', role: 'user', content: 'make a video' }) + '\n' +
-    JSON.stringify({
-      type: 'tool_use',
-      tool_name: 'write_file',
-      tool_id: 'tool-1',
-      parameters: { path: 'timeline.json' },
-    }) +
-    '\n' +
-    JSON.stringify({
-      type: 'tool_result',
-      tool_id: 'tool-1',
-      status: 'success',
-      output: 'wrote timeline.json',
-    }) +
-    '\n' +
-    JSON.stringify({
-      type: 'error',
-      severity: 'warning',
-      message: 'Agent execution blocked: retrying without shell',
-    }) +
-    '\n' +
-    JSON.stringify(fatalResult) +
-    '\n',
-  );
-
-  assert.deepEqual(events, [
-    { type: 'tool_use', id: 'tool-1', name: 'write_file', input: { path: 'timeline.json' } },
-    { type: 'tool_result', toolUseId: 'tool-1', content: 'wrote timeline.json', isError: false },
-    { type: 'status', label: 'warning', detail: 'Agent execution blocked: retrying without shell' },
-    { type: 'error', message: 'Authentication failed', raw: JSON.stringify(fatalResult) },
-  ]);
-});
-
-test('gemini stream treats terminal error frames as fatal error events', () => {
-  const { events, handler } = collectEvents('gemini');
-
-  const terminalError = {
-    type: 'error',
-    severity: 'error',
-    message: 'Maximum session turns exceeded',
-  };
-  const unknownSeverityError = {
-    type: 'error',
-    severity: 'critical',
-    error: { message: 'Invalid stream: malformed tool call' },
-  };
-
-  handler.feed(
-    JSON.stringify(terminalError) + '\n' +
-    JSON.stringify(unknownSeverityError) + '\n',
-  );
-
-  assert.deepEqual(events, [
-    {
-      type: 'error',
-      message: 'Maximum session turns exceeded',
-      raw: JSON.stringify(terminalError),
-    },
-    {
-      type: 'error',
-      message: 'Invalid stream: malformed tool call',
-      raw: JSON.stringify(unknownSeverityError),
-    },
-  ]);
-});
-
 test('cursor stream emits partial text once and usage events', () => {
   const { events, handler } = collectEvents('cursor-agent');
 
   handler.feed(
     JSON.stringify({ type: 'system', subtype: 'init', model: 'GPT-5 Mini' }) + '\n' +
-    JSON.stringify({
-      type: 'assistant',
-      timestamp_ms: 1,
-      message: { role: 'assistant', content: [{ type: 'text', text: 'OD' }] },
-    }) +
-    '\n' +
-    JSON.stringify({
-      type: 'assistant',
-      timestamp_ms: 2,
-      message: { role: 'assistant', content: [{ type: 'text', text: '_OK' }] },
-    }) +
-    '\n' +
-    JSON.stringify({
-      type: 'assistant',
-      message: { role: 'assistant', content: [{ type: 'text', text: 'OD_OK' }] },
-    }) +
-    '\n' +
-    JSON.stringify({
-      type: 'result',
-      duration_ms: 120,
-      usage: { inputTokens: 5, outputTokens: 2, cacheReadTokens: 1, cacheWriteTokens: 0 },
-    }) +
-    '\n',
+      JSON.stringify({
+        type: 'assistant',
+        timestamp_ms: 1,
+        message: { role: 'assistant', content: [{ type: 'text', text: 'OD' }] },
+      }) +
+      '\n' +
+      JSON.stringify({
+        type: 'assistant',
+        timestamp_ms: 2,
+        message: { role: 'assistant', content: [{ type: 'text', text: '_OK' }] },
+      }) +
+      '\n' +
+      JSON.stringify({
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'OD_OK' }] },
+      }) +
+      '\n' +
+      JSON.stringify({
+        type: 'result',
+        duration_ms: 120,
+        usage: { inputTokens: 5, outputTokens: 2, cacheReadTokens: 1, cacheWriteTokens: 0 },
+      }) +
+      '\n',
   );
 
   assert.deepEqual(events, [
@@ -325,12 +248,12 @@ test('cursor stream emits suffix when final assistant extends partial text', () 
       timestamp_ms: 1,
       message: { role: 'assistant', content: [{ type: 'text', text: 'hello' }] },
     }) +
-    '\n' +
-    JSON.stringify({
-      type: 'assistant',
-      message: { role: 'assistant', content: [{ type: 'text', text: 'hello world' }] },
-    }) +
-    '\n',
+      '\n' +
+      JSON.stringify({
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'hello world' }] },
+      }) +
+      '\n',
   );
 
   assert.deepEqual(events, [
@@ -348,19 +271,19 @@ test('cursor stream de-duplicates cumulative timestamped assistant chunks', () =
       timestamp_ms: 1,
       message: { role: 'assistant', content: [{ type: 'text', text: 'hello' }] },
     }) +
-    '\n' +
-    JSON.stringify({
-      type: 'assistant',
-      timestamp_ms: 2,
-      message: { role: 'assistant', content: [{ type: 'text', text: 'hello world' }] },
-    }) +
-    '\n' +
-    JSON.stringify({
-      type: 'assistant',
-      timestamp_ms: 3,
-      message: { role: 'assistant', content: [{ type: 'text', text: 'hello world' }] },
-    }) +
-    '\n',
+      '\n' +
+      JSON.stringify({
+        type: 'assistant',
+        timestamp_ms: 2,
+        message: { role: 'assistant', content: [{ type: 'text', text: 'hello world' }] },
+      }) +
+      '\n' +
+      JSON.stringify({
+        type: 'assistant',
+        timestamp_ms: 3,
+        message: { role: 'assistant', content: [{ type: 'text', text: 'hello world' }] },
+      }) +
+      '\n',
   );
 
   assert.deepEqual(events, [
@@ -374,17 +297,17 @@ test('codex json stream emits status text and usage events', () => {
 
   handler.feed(
     JSON.stringify({ type: 'thread.started', thread_id: 'thr-1' }) + '\n' +
-    JSON.stringify({ type: 'turn.started' }) + '\n' +
-    JSON.stringify({
-      type: 'item.completed',
-      item: { id: 'item-1', type: 'agent_message', text: 'hello' },
-    }) +
-    '\n' +
-    JSON.stringify({
-      type: 'turn.completed',
-      usage: { input_tokens: 12, cached_input_tokens: 4, output_tokens: 3 },
-    }) +
-    '\n',
+      JSON.stringify({ type: 'turn.started' }) + '\n' +
+      JSON.stringify({
+        type: 'item.completed',
+        item: { id: 'item-1', type: 'agent_message', text: 'hello' },
+      }) +
+      '\n' +
+      JSON.stringify({
+        type: 'turn.completed',
+        usage: { input_tokens: 12, cached_input_tokens: 4, output_tokens: 3 },
+      }) +
+      '\n',
   );
 
   assert.deepEqual(events, [
@@ -393,65 +316,6 @@ test('codex json stream emits status text and usage events', () => {
     { type: 'text_delta', delta: 'hello' },
     { type: 'usage', usage: { input_tokens: 12, output_tokens: 3, cached_read_tokens: 4 } },
   ]);
-});
-
-test('codex json stream preserves line boundaries between assistant message items', () => {
-  const { events, handler } = collectEvents('codex');
-
-  handler.feed(
-    JSON.stringify({ type: 'turn.started' }) + '\n' +
-    JSON.stringify({
-      type: 'item.completed',
-      item: { id: 'item-1', type: 'agent_message', text: 'English: one' },
-    }) +
-    '\n' +
-    JSON.stringify({
-      type: 'item.completed',
-      item: { id: 'item-2', type: 'agent_message', text: 'Chinese: 一' },
-    }) +
-    '\n' +
-    JSON.stringify({
-      type: 'item.completed',
-      item: { id: 'item-3', type: 'agent_message', text: 'English: two' },
-    }) +
-    '\n',
-  );
-
-  const text = events
-    .filter((event) => event.type === 'text_delta')
-    .map((event) => event.delta)
-    .join('');
-
-  assert.equal(text, 'English: one\nChinese: 一\nEnglish: two');
-});
-
-test('codex json stream does not duplicate existing assistant message newlines', () => {
-  const { events, handler } = collectEvents('codex');
-
-  handler.feed(
-    JSON.stringify({
-      type: 'item.completed',
-      item: { id: 'item-1', type: 'agent_message', text: 'English: one\n' },
-    }) +
-    '\n' +
-    JSON.stringify({
-      type: 'item.completed',
-      item: { id: 'item-2', type: 'agent_message', text: 'Chinese: 一' },
-    }) +
-    '\n' +
-    JSON.stringify({
-      type: 'item.completed',
-      item: { id: 'item-3', type: 'agent_message', text: '\nEnglish: two' },
-    }) +
-    '\n',
-  );
-
-  const text = events
-    .filter((event) => event.type === 'text_delta')
-    .map((event) => event.delta)
-    .join('');
-
-  assert.equal(text, 'English: one\nChinese: 一\nEnglish: two');
 });
 
 test('codex json stream emits structured errors once', () => {
@@ -464,12 +328,12 @@ test('codex json stream emits structured errors once', () => {
         detail: "The 'gpt-5.5' model requires a newer version of Codex.",
       }),
     }) +
-    '\n' +
-    JSON.stringify({
-      type: 'turn.failed',
-      error: { message: 'plain failure' },
-    }) +
-    '\n',
+      '\n' +
+      JSON.stringify({
+        type: 'turn.failed',
+        error: { message: 'plain failure' },
+      }) +
+      '\n',
   );
 
   assert.deepEqual(events, [
@@ -495,19 +359,19 @@ test('codex json stream emits command execution tool events', () => {
         status: 'in_progress',
       },
     }) +
-    '\n' +
-    JSON.stringify({
-      type: 'item.completed',
-      item: {
-        id: 'item-1',
-        type: 'command_execution',
-        command: "/bin/zsh -lc 'echo hello-from-codex'",
-        aggregated_output: 'hello-from-codex\n',
-        exit_code: 0,
-        status: 'completed',
-      },
-    }) +
-    '\n',
+      '\n' +
+      JSON.stringify({
+        type: 'item.completed',
+        item: {
+          id: 'item-1',
+          type: 'command_execution',
+          command: "/bin/zsh -lc 'echo hello-from-codex'",
+          aggregated_output: 'hello-from-codex\n',
+          exit_code: 0,
+          status: 'completed',
+        },
+      }) +
+      '\n',
   );
 
   assert.deepEqual(events, [
@@ -526,285 +390,10 @@ test('codex json stream emits command execution tool events', () => {
   ]);
 });
 
-test('codex json stream surfaces disallowed connector tool selections as terminal errors', () => {
-  const { events, handler } = collectEvents('codex');
-  const connectorError = JSON.stringify({
-    ok: false,
-    status: 404,
-    error: {
-      code: 'CONNECTOR_TOOL_NOT_FOUND',
-      message: 'connector tool is not allowed',
-      details: {
-        connectorId: 'github',
-        toolName: 'github.github_list_notifications',
-      },
-    },
-  });
-
-  handler.feed(
-    JSON.stringify({
-      type: 'item.started',
-      item: {
-        id: 'item-connector',
-        type: 'command_execution',
-        command: 'od tools connectors execute --connector github --tool github.github_list_notifications --input .daily-digest-tmp/notifications.json',
-        aggregated_output: '',
-        exit_code: null,
-        status: 'in_progress',
-      },
-    }) +
-    '\n' +
-    JSON.stringify({
-      type: 'item.completed',
-      item: {
-        id: 'item-connector',
-        type: 'command_execution',
-        command: 'od tools connectors execute --connector github --tool github.github_list_notifications --input .daily-digest-tmp/notifications.json',
-        aggregated_output: `${connectorError}\n`,
-        exit_code: 1,
-        status: 'failed',
-      },
-    }) +
-    '\n',
-  );
-
-  assert.deepEqual(events, [
-    {
-      type: 'tool_use',
-      id: 'item-connector',
-      name: 'Bash',
-      input: {
-        command: 'od tools connectors execute --connector github --tool github.github_list_notifications --input .daily-digest-tmp/notifications.json',
-      },
-    },
-    {
-      type: 'tool_result',
-      toolUseId: 'item-connector',
-      content: `${connectorError}\n`,
-      isError: true,
-    },
-    {
-      type: 'error',
-      message: 'Connector tool github.github_list_notifications is not allowed for connector github. Re-list the connector catalog and choose one of the currently allowed read-only tools.',
-    },
-  ]);
-});
-
-test('codex json stream finds connector tool errors after earlier noise json output', () => {
-  const { events, handler } = collectEvents('codex');
-  const noiseLine = JSON.stringify({
-    event: 'running',
-    message: 'starting connector call',
-  });
-  const connectorError = JSON.stringify({
-    ok: false,
-    status: 404,
-    error: {
-      code: 'CONNECTOR_TOOL_NOT_FOUND',
-      message: 'connector tool is not allowed',
-      details: {
-        connectorId: 'github',
-        toolName: 'github.github_list_notifications',
-      },
-    },
-  });
-
-  handler.feed(
-    JSON.stringify({
-      type: 'item.started',
-      item: {
-        id: 'item-connector-noise',
-        type: 'command_execution',
-        command: 'od tools connectors execute --connector github --tool github.github_list_notifications --input .daily-digest-tmp/notifications.json',
-        aggregated_output: '',
-        exit_code: null,
-        status: 'in_progress',
-      },
-    }) +
-    '\n' +
-    JSON.stringify({
-      type: 'item.completed',
-      item: {
-        id: 'item-connector-noise',
-        type: 'command_execution',
-        command: 'od tools connectors execute --connector github --tool github.github_list_notifications --input .daily-digest-tmp/notifications.json',
-        aggregated_output: `${noiseLine}\n${connectorError}\n`,
-        exit_code: 1,
-        status: 'failed',
-      },
-    }) +
-    '\n',
-  );
-
-  assert.deepEqual(events, [
-    {
-      type: 'tool_use',
-      id: 'item-connector-noise',
-      name: 'Bash',
-      input: {
-        command: 'od tools connectors execute --connector github --tool github.github_list_notifications --input .daily-digest-tmp/notifications.json',
-      },
-    },
-    {
-      type: 'tool_result',
-      toolUseId: 'item-connector-noise',
-      content: `${noiseLine}\n${connectorError}\n`,
-      isError: true,
-    },
-    {
-      type: 'error',
-      message: 'Connector tool github.github_list_notifications is not allowed for connector github. Re-list the connector catalog and choose one of the currently allowed read-only tools.',
-    },
-  ]);
-});
-
-test('codex json stream surfaces wrapped connector tool errors as terminal errors', () => {
-  const { events, handler } = collectEvents('codex');
-  const connectorError = JSON.stringify({
-    error: {
-      data: {
-        error: {
-          code: 'CONNECTOR_TOOL_NOT_FOUND',
-          message: 'connector tool is not allowed',
-          details: {
-            connectorId: 'github',
-            toolName: 'github.github_list_notifications',
-          },
-        },
-      },
-    },
-  });
-
-  handler.feed(
-    JSON.stringify({
-      type: 'item.started',
-      item: {
-        id: 'item-connector-wrapped',
-        type: 'command_execution',
-        command: 'od tools connectors execute --connector github --tool github.github_list_notifications --input .daily-digest-tmp/notifications.json',
-        aggregated_output: '',
-        exit_code: null,
-        status: 'in_progress',
-      },
-    }) +
-    '\n' +
-    JSON.stringify({
-      type: 'item.completed',
-      item: {
-        id: 'item-connector-wrapped',
-        type: 'command_execution',
-        command: 'od tools connectors execute --connector github --tool github.github_list_notifications --input .daily-digest-tmp/notifications.json',
-        aggregated_output: `${connectorError}\n`,
-        exit_code: 1,
-        status: 'failed',
-      },
-    }) +
-    '\n',
-  );
-
-  assert.deepEqual(events, [
-    {
-      type: 'tool_use',
-      id: 'item-connector-wrapped',
-      name: 'Bash',
-      input: {
-        command: 'od tools connectors execute --connector github --tool github.github_list_notifications --input .daily-digest-tmp/notifications.json',
-      },
-    },
-    {
-      type: 'tool_result',
-      toolUseId: 'item-connector-wrapped',
-      content: `${connectorError}\n`,
-      isError: true,
-    },
-    {
-      type: 'error',
-      message: 'Connector tool github.github_list_notifications is not allowed for connector github. Re-list the connector catalog and choose one of the currently allowed read-only tools.',
-    },
-  ]);
-});
-
 test('unhandled structured events fall back to raw', () => {
   const { events, handler } = collectEvents('codex');
 
   handler.feed(JSON.stringify({ type: 'unhandled.event', foo: 'bar' }) + '\n');
 
   assert.deepEqual(events, [{ type: 'raw', line: '{"type":"unhandled.event","foo":"bar"}' }]);
-});
-test('codex json stream treats reconnect errors as status warnings not fatal (regression of #1471)', () => {
-  const { events, handler } = collectEvents('codex');
-
-  handler.feed(
-    JSON.stringify({ type: 'thread.started', thread_id: 'thr-1' }) + '\n' +
-    JSON.stringify({ type: 'turn.started' }) + '\n' +
-    JSON.stringify({ type: 'error', message: 'Reconnecting... 2/5 (timeout waiting for child process to exit)' }) + '\n' +
-    JSON.stringify({ type: 'item.completed', item: { id: 'item-0', type: 'agent_message', text: 'OK' } }) + '\n' +
-    JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 5, output_tokens: 2, cached_input_tokens: 0 } }) + '\n',
-  );
-
-  assert.deepEqual(events, [
-    { type: 'status', label: 'initializing' },
-    { type: 'status', label: 'running' },
-    { type: 'status', label: 'Reconnecting... 2/5 (timeout waiting for child process to exit)' },
-    { type: 'text_delta', delta: 'OK' },
-    { type: 'usage', usage: { input_tokens: 5, output_tokens: 2, cached_read_tokens: 0 } },
-  ]);
-});
-
-test('codex json stream treats stream disconnect reconnect errors as status warnings not fatal', () => {
-  const { events, handler } = collectEvents('codex');
-
-  handler.feed(
-    JSON.stringify({ type: 'thread.started', thread_id: 'thr-1' }) + '\n' +
-    JSON.stringify({ type: 'turn.started' }) + '\n' +
-    JSON.stringify({
-      type: 'error',
-      message: 'Reconnecting... 2/5 (stream disconnected before completion: Connection reset by peer (os error 54))',
-    }) + '\n' +
-    JSON.stringify({ type: 'item.completed', item: { id: 'item-0', type: 'agent_message', text: 'OK' } }) + '\n' +
-    JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 5, output_tokens: 2, cached_input_tokens: 0 } }) + '\n',
-  );
-
-  assert.deepEqual(events, [
-    { type: 'status', label: 'initializing' },
-    { type: 'status', label: 'running' },
-    {
-      type: 'status',
-      label: 'Reconnecting... 2/5 (stream disconnected before completion: Connection reset by peer (os error 54))',
-    },
-    { type: 'text_delta', delta: 'OK' },
-    { type: 'usage', usage: { input_tokens: 5, output_tokens: 2, cached_read_tokens: 0 } },
-  ]);
-});
-
-test('codex json stream still treats real errors as fatal after reconnect warnings', () => {
-  const { events, handler } = collectEvents('codex');
-
-  handler.feed(
-    JSON.stringify({ type: 'error', message: 'Reconnecting... 2/5 (timeout waiting for child process to exit)' }) + '\n' +
-    JSON.stringify({ type: 'error', message: 'Authentication failed: invalid API key' }) + '\n',
-  );
-
-  assert.deepEqual(events, [
-    { type: 'status', label: 'Reconnecting... 2/5 (timeout waiting for child process to exit)' },
-    { type: 'error', message: 'Authentication failed: invalid API key' },
-  ]);
-});
-
-test('codex json stream does not downgrade non-reconnect errors that mention reconnect text', () => {
-  const { events, handler } = collectEvents('codex');
-
-  handler.feed(
-    JSON.stringify({
-      type: 'error',
-      message: 'Authentication failed after Reconnecting... stream disconnected before completion',
-    }) + '\n',
-  );
-
-  assert.deepEqual(events, [
-    {
-      type: 'error',
-      message: 'Authentication failed after Reconnecting... stream disconnected before completion',
-    },
-  ]);
 });

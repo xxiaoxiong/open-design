@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { access, mkdir, open, type FileHandle } from "node:fs/promises";
+import { mkdir, open, type FileHandle } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { delimiter, dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -23,8 +23,6 @@ import {
 } from "@open-design/sidecar";
 import {
   createProcessStampArgs,
-  mergeProxyAwareEnv,
-  resolveSystemProxyEnv,
   stopProcesses,
   waitForProcessExit,
   wellKnownUserToolchainBins,
@@ -34,24 +32,7 @@ import type { PackagedWebOutputMode } from "./config.js";
 import type { PackagedNamespacePaths } from "./paths.js";
 
 const require = createRequire(import.meta.url);
-const PACKAGED_CHILD_ENV_ALLOWLIST = [
-  "HOME",
-  "HTTP_PROXY",
-  "HTTPS_PROXY",
-  "LANG",
-  "LC_ALL",
-  "LOGNAME",
-  "ALL_PROXY",
-  "NODE_USE_ENV_PROXY",
-  "NO_PROXY",
-  "TMPDIR",
-  "USER",
-  "VP_HOME",
-  "all_proxy",
-  "http_proxy",
-  "https_proxy",
-  "no_proxy",
-] as const;
+const PACKAGED_CHILD_ENV_ALLOWLIST = ["HOME", "LANG", "LC_ALL", "LOGNAME", "TMPDIR", "USER", "VP_HOME"] as const;
 
 function shouldForwardPackagedChildEnv(key: string, includeProviderSecrets = false): boolean {
   return (
@@ -78,17 +59,6 @@ type ManagedSidecarChild = {
 type PackagedDaemonManagedPathEnv = {
   OD_DATA_DIR: string;
   OD_RESOURCE_ROOT: string;
-  /**
-   * Channel-root path. Lives one level above the namespaces directory so
-   * the daemon can persist installationId (and any future fields that
-   * must outlive a namespace-scoped data-dir reset) outside the
-   * `<namespace>/data/` subtree.
-   *
-   * Required so PostHog person identity survives a reinstall of the same
-   * channel even when the baked namespace token changes or per-namespace
-   * data is cleared. See `apps/daemon/src/installation.ts`.
-   */
-  OD_INSTALLATION_DIR: string;
 };
 
 function resolveSidecarEntry(packageName: string, exportName: string): string {
@@ -97,43 +67,6 @@ function resolveSidecarEntry(packageName: string, exportName: string): string {
 
 function logPathFor(paths: PackagedNamespacePaths, app: AppKey): string {
   return join(paths.logsRoot, app, "latest.log");
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function resolvePackagedElectronNodeCommand(
-  execPath = process.execPath,
-  platform = process.platform,
-): Promise<string> {
-  if (platform !== "darwin") return execPath;
-
-  const executableName = execPath.split("/").pop();
-  if (executableName == null || executableName.length === 0) return execPath;
-
-  const marker = "/Contents/MacOS/";
-  const markerIndex = execPath.lastIndexOf(marker);
-  if (markerIndex === -1) return execPath;
-
-  const appPath = execPath.slice(0, markerIndex);
-  const helperName = `${executableName} Helper`;
-  const helperPath = join(
-    appPath,
-    "Contents",
-    "Frameworks",
-    `${helperName}.app`,
-    "Contents",
-    "MacOS",
-    helperName,
-  );
-
-  return (await pathExists(helperPath)) ? helperPath : execPath;
 }
 
 async function openLog(path: string): Promise<FileHandle> {
@@ -252,18 +185,14 @@ export function resolvePackagedPathEnv(basePath = process.env.PATH ?? ""): strin
 export function resolvePackagedChildBaseEnv(
   env: NodeJS.ProcessEnv = process.env,
   includeProviderSecrets = false,
-  systemProxyEnv: NodeJS.ProcessEnv = resolveSystemProxyEnv(),
-  includeSystemProxyEnv = true,
 ): NodeJS.ProcessEnv {
-  const forwardedEnv: NodeJS.ProcessEnv = {};
+  const baseEnv: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(env)) {
     if (value != null && value.length > 0 && shouldForwardPackagedChildEnv(key, includeProviderSecrets)) {
-      forwardedEnv[key] = value;
+      baseEnv[key] = value;
     }
   }
-  return includeSystemProxyEnv
-    ? mergeProxyAwareEnv(process.platform, systemProxyEnv, forwardedEnv)
-    : mergeProxyAwareEnv(process.platform, forwardedEnv);
+  return baseEnv;
 }
 
 function createPackagedDaemonManagedPathEnv(
@@ -272,83 +201,6 @@ function createPackagedDaemonManagedPathEnv(
   return {
     OD_DATA_DIR: paths.dataRoot,
     OD_RESOURCE_ROOT: paths.resourceRoot,
-    OD_INSTALLATION_DIR: paths.installationRoot,
-  };
-}
-
-export type PackagedDaemonSpawnEnvOptions = {
-  appVersion: string | null;
-  amrProfile?: string | null;
-  daemonCliEntry: string | null;
-  /**
-   * PR #974 round-5 (lefarcen P2): only pin the daemon's import-folder
-   * gate ON when the desktop runtime is actually being started in the
-   * same packaged process group. Headless packaged deployments
-   * (`tools-pack linux start --headless`) have no `shell.openPath`
-   * surface, so leaving the gate dormant avoids the impossible-auth
-   * state where the daemon waits forever for a registration that the
-   * headless runtime can never deliver.
-   */
-  requireDesktopAuth: boolean;
-  legacyDataDir?: string | null;
-  telemetryRelayUrl?: string | null;
-  posthogKey?: string | null;
-  posthogHost?: string | null;
-};
-
-/**
- * Pure helper: assemble the daemon spawn env for a packaged sidecar.
- * Extracted from `startPackagedSidecars` so vitest can pin both
- * branches of `requireDesktopAuth` without spinning up a real child
- * process.
- */
-export function buildPackagedDaemonSpawnEnv(
-  paths: PackagedNamespacePaths,
-  options: PackagedDaemonSpawnEnvOptions,
-): NodeJS.ProcessEnv {
-  return {
-    [SIDECAR_ENV.DAEMON_PORT]: "0",
-    ...(options.daemonCliEntry == null ? {} : { [SIDECAR_ENV.DAEMON_CLI_PATH]: options.daemonCliEntry }),
-    // PR #974 round-4 P1 + round-5 P2: pinned ON when a desktop is
-    // being started, OFF for headless. The daemon-side flag refuses
-    // tokenless imports even before the desktop main process has
-    // finished registering, closing the daemon-restart-mid-session
-    // bypass that a runtime-only handshake left open. Headless skips
-    // it because there is no privileged shell.openPath surface and
-    // no client to register a secret.
-    ...(options.requireDesktopAuth ? { OD_REQUIRE_DESKTOP_AUTH: "1" } : {}),
-    // Packaged daemon managed paths are deliberately delivered through
-    // the sidecar launch environment. The daemon may keep its own default
-    // fallback, but packaged runtime must not rely on path inference from
-    // Electron userData, bundle names, or ports.
-    ...createPackagedDaemonManagedPathEnv(paths),
-    ...(options.amrProfile == null || options.amrProfile.length === 0
-      ? {}
-      : { OPEN_DESIGN_AMR_PROFILE: options.amrProfile }),
-    ...(options.appVersion == null ? {} : { OD_APP_VERSION: options.appVersion }),
-    ...(options.telemetryRelayUrl == null || options.telemetryRelayUrl.length === 0
-      ? {}
-      : { OPEN_DESIGN_TELEMETRY_RELAY_URL: options.telemetryRelayUrl }),
-    // OD_LEGACY_DATA_DIR is the one-shot recovery handle for users
-    // upgrading from 0.3.x .od/ layouts. The daemon's startup
-    // migrator (legacy-data-migrator.ts) reads it; the env-allowlist
-    // for packaged children would otherwise drop it. Forward only
-    // when set so we do not invent an empty string and trigger the
-    // daemon's "env set but path invalid" error path.
-    ...(options.legacyDataDir == null || options.legacyDataDir.length === 0
-      ? {}
-      : { OD_LEGACY_DATA_DIR: options.legacyDataDir }),
-    // PostHog analytics ingest key, baked into the bundle at packaging time
-    // by tools/pack. Daemon reads this as POSTHOG_KEY at startup. Absent
-    // for fork builds without the CI secret — the daemon's analytics
-    // module no-ops cleanly in that case, and /api/analytics/config
-    // returns enabled=false regardless of user consent.
-    ...(options.posthogKey == null || options.posthogKey.length === 0
-      ? {}
-      : { POSTHOG_KEY: options.posthogKey }),
-    ...(options.posthogHost == null || options.posthogHost.length === 0
-      ? {}
-      : { POSTHOG_HOST: options.posthogHost }),
   };
 }
 
@@ -377,12 +229,7 @@ async function spawnSidecarChild(options: {
     base: options.paths.runtimeRoot,
     contract: OPEN_DESIGN_SIDECAR_CONTRACT,
     extraEnv: {
-      ...resolvePackagedChildBaseEnv(
-        process.env,
-        options.app === APP_KEYS.DAEMON,
-        resolveSystemProxyEnv(),
-        options.app !== APP_KEYS.DAEMON,
-      ),
+      ...resolvePackagedChildBaseEnv(process.env, options.app === APP_KEYS.DAEMON),
       ...options.env,
       NODE_ENV: "production",
       PATH: resolvePackagedPathEnv(),
@@ -390,7 +237,7 @@ async function spawnSidecarChild(options: {
     },
     stamp,
   });
-  const command = options.nodeCommand ?? (await resolvePackagedElectronNodeCommand());
+  const command = options.nodeCommand ?? process.execPath;
   const child = spawn(
     command,
     [options.entryPath, ...createProcessStampArgs(stamp, OPEN_DESIGN_SIDECAR_CONTRACT)],
@@ -429,23 +276,9 @@ export async function startPackagedSidecars(
   paths: PackagedNamespacePaths,
   options: {
     appVersion: string | null;
-    amrProfile: string | null;
     daemonCliEntry: string | null;
     daemonSidecarEntry: string | null;
     nodeCommand: string | null;
-    telemetryRelayUrl: string | null;
-    posthogKey: string | null;
-    posthogHost: string | null;
-    /**
-     * PR #974 round-5 (lefarcen P2): caller asserts whether a desktop
-     * runtime is being started in this packaged process group. The
-     * Electron entry passes `true`; `headless.ts` passes `false` so the
-     * daemon's import-folder gate stays dormant in headless mode where
-     * there is no `shell.openPath` surface and no client to register a
-     * secret. Required (no default) so a future packaged caller cannot
-     * silently regress the gate by omitting it.
-     */
-    requireDesktopAuth: boolean;
     webSidecarEntry: string | null;
     webStandaloneRoot: string | null;
     webOutputMode: PackagedWebOutputMode;
@@ -457,7 +290,6 @@ export async function startPackagedSidecars(
   await mkdir(paths.logsRoot, { recursive: true });
   await mkdir(paths.desktopLogsRoot, { recursive: true });
   await mkdir(paths.runtimeRoot, { recursive: true });
-  await mkdir(paths.updateRoot, { recursive: true });
   await mkdir(paths.electronUserDataRoot, { recursive: true });
   await mkdir(paths.electronSessionDataRoot, { recursive: true });
 
@@ -467,16 +299,25 @@ export async function startPackagedSidecars(
     const daemon = await spawnSidecarChild({
       app: APP_KEYS.DAEMON,
       entryPath: options.daemonSidecarEntry ?? resolveSidecarEntry("@open-design/daemon", "sidecar"),
-      env: buildPackagedDaemonSpawnEnv(paths, {
-        appVersion: options.appVersion,
-        amrProfile: options.amrProfile,
-        daemonCliEntry: options.daemonCliEntry,
-        legacyDataDir: process.env.OD_LEGACY_DATA_DIR ?? null,
-        requireDesktopAuth: options.requireDesktopAuth,
-        telemetryRelayUrl: options.telemetryRelayUrl,
-        posthogKey: options.posthogKey,
-        posthogHost: options.posthogHost,
-      }),
+      env: {
+        [SIDECAR_ENV.DAEMON_PORT]: "0",
+        ...(options.daemonCliEntry == null ? {} : { [SIDECAR_ENV.DAEMON_CLI_PATH]: options.daemonCliEntry }),
+        // Packaged daemon managed paths are deliberately delivered through
+        // the sidecar launch environment. The daemon may keep its own default
+        // fallback, but packaged runtime must not rely on path inference from
+        // Electron userData, bundle names, or ports.
+        ...createPackagedDaemonManagedPathEnv(paths),
+        ...(options.appVersion == null ? {} : { OD_APP_VERSION: options.appVersion }),
+        // OD_LEGACY_DATA_DIR is the one-shot recovery handle for users
+        // upgrading from 0.3.x .od/ layouts. The daemon's startup
+        // migrator (legacy-data-migrator.ts) reads it; the env-allowlist
+        // for packaged children would otherwise drop it. Forward only
+        // when set so we do not invent an empty string and trigger the
+        // daemon's "env set but path invalid" error path.
+        ...(process.env.OD_LEGACY_DATA_DIR == null || process.env.OD_LEGACY_DATA_DIR.length === 0
+          ? {}
+          : { OD_LEGACY_DATA_DIR: process.env.OD_LEGACY_DATA_DIR }),
+      },
       nodeCommand: options.nodeCommand,
       paths,
       runtime,

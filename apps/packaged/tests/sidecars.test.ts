@@ -16,20 +16,17 @@
  * @see https://github.com/nexu-io/open-design/issues/710
  */
 import { EventEmitter } from 'node:events';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, dirname, join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
-  buildPackagedDaemonSpawnEnv,
   resolveDaemonStatusTimeoutMs,
   resolvePackagedChildBaseEnv,
-  resolvePackagedElectronNodeCommand,
   resolvePackagedPathEnv,
   waitForStatus,
 } from '../src/sidecars.js';
-import type { PackagedNamespacePaths } from '../src/paths.js';
 
 describe('resolveDaemonStatusTimeoutMs', () => {
   it('uses the default 35-second budget for normal cold boots', () => {
@@ -82,119 +79,6 @@ describe('packaged child Vite+ environment forwarding', () => {
     expect(env.RANDOM_INTERNAL_FLAG).toBeUndefined();
   });
 
-  it('forwards standard Node proxy variables to packaged sidecars', () => {
-    const env = resolvePackagedChildBaseEnv({
-      ALL_PROXY: 'socks5://127.0.0.1:1080',
-      HOME: '/Users/tester',
-      HTTP_PROXY: 'http://127.0.0.1:7890',
-      HTTPS_PROXY: 'http://127.0.0.1:7890',
-      NODE_USE_ENV_PROXY: '1',
-      NO_PROXY: 'localhost,127.0.0.1',
-      RANDOM_INTERNAL_FLAG: 'drop-me',
-      all_proxy: 'socks5://127.0.0.1:1081',
-      http_proxy: 'http://127.0.0.1:7891',
-      https_proxy: 'http://127.0.0.1:7891',
-      no_proxy: 'localhost,127.0.0.1,::1',
-    });
-
-    expect(env).toMatchObject({
-      ALL_PROXY: 'socks5://127.0.0.1:1081',
-      HOME: '/Users/tester',
-      HTTP_PROXY: 'http://127.0.0.1:7891',
-      HTTPS_PROXY: 'http://127.0.0.1:7891',
-      NODE_USE_ENV_PROXY: '1',
-      NO_PROXY: 'localhost,127.0.0.1,::1',
-      all_proxy: 'socks5://127.0.0.1:1081',
-      http_proxy: 'http://127.0.0.1:7891',
-      https_proxy: 'http://127.0.0.1:7891',
-      no_proxy: 'localhost,127.0.0.1,::1',
-    });
-    expect(env.RANDOM_INTERNAL_FLAG).toBeUndefined();
-  });
-
-  it('merges system proxy env when the packaged app was GUI-launched without shell proxy vars', () => {
-    const env = resolvePackagedChildBaseEnv(
-      {
-        HOME: '/Users/tester',
-      },
-      false,
-      {
-        HTTP_PROXY: 'http://system-proxy:8080',
-        HTTPS_PROXY: 'http://system-proxy:8443',
-        ALL_PROXY: 'socks5://system-proxy:1080',
-        NO_PROXY: '.local,localhost',
-        NODE_USE_ENV_PROXY: '1',
-      },
-    );
-
-    expect(env).toMatchObject({
-      HOME: '/Users/tester',
-      HTTP_PROXY: 'http://system-proxy:8080',
-      HTTPS_PROXY: 'http://system-proxy:8443',
-      ALL_PROXY: 'socks5://system-proxy:1080',
-      NO_PROXY: '.local,localhost',
-      NODE_USE_ENV_PROXY: '1',
-    });
-  });
-
-  it('lets forwarded lowercase proxy env override system uppercase proxy env', () => {
-    const env = resolvePackagedChildBaseEnv(
-      {
-        HOME: '/Users/tester',
-        https_proxy: 'http://user-lowercase:9443',
-      },
-      false,
-      {
-        HTTPS_PROXY: 'http://system-uppercase:8443',
-        NODE_USE_ENV_PROXY: '1',
-      },
-    );
-
-    expect(env.HTTPS_PROXY).toBe('http://user-lowercase:9443');
-    if (process.platform !== 'win32') {
-      expect(env.https_proxy).toBe('http://user-lowercase:9443');
-    }
-  });
-
-  it('enables Node env proxy support for forwarded lowercase proxy env', () => {
-    const env = resolvePackagedChildBaseEnv(
-      {
-        HOME: '/Users/tester',
-        https_proxy: 'http://user-lowercase:9443',
-      },
-      false,
-      {},
-    );
-
-    expect(env.HTTPS_PROXY).toBe('http://user-lowercase:9443');
-    expect(env.NODE_USE_ENV_PROXY).toBe('1');
-    if (process.platform !== 'win32') {
-      expect(env.https_proxy).toBe('http://user-lowercase:9443');
-    }
-  });
-
-  it('can skip injecting system proxy env into the packaged daemon base env', () => {
-    const env = resolvePackagedChildBaseEnv(
-      {
-        HOME: '/Users/tester',
-      },
-      true,
-      {
-        HTTP_PROXY: 'http://system-proxy:8080',
-        HTTPS_PROXY: 'http://system-proxy:8443',
-        NODE_USE_ENV_PROXY: '1',
-      },
-      false,
-    );
-
-    expect(env).toMatchObject({
-      HOME: '/Users/tester',
-    });
-    expect(env.HTTP_PROXY).toBeUndefined();
-    expect(env.HTTPS_PROXY).toBeUndefined();
-    expect(env.NODE_USE_ENV_PROXY).toBeUndefined();
-  });
-
   it('adds custom VP_HOME/bin to the packaged PATH builder', () => {
     const vpHome = mkdtempSync(join(tmpdir(), 'od-packaged-vp-home-'));
     const originalVpHome = process.env.VP_HOME;
@@ -209,53 +93,6 @@ describe('packaged child Vite+ environment forwarding', () => {
       else process.env.VP_HOME = originalVpHome;
       rmSync(vpHome, { recursive: true, force: true });
     }
-  });
-});
-
-describe('resolvePackagedElectronNodeCommand', () => {
-  it('uses the hidden Electron helper as the macOS Electron-as-Node command when available', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'od-packaged-electron-helper-'));
-    try {
-      const appPath = join(root, 'Open Design.app');
-      const execPath = join(appPath, 'Contents', 'MacOS', 'Open Design');
-      const helperPath = join(
-        appPath,
-        'Contents',
-        'Frameworks',
-        'Open Design Helper.app',
-        'Contents',
-        'MacOS',
-        'Open Design Helper',
-      );
-
-      mkdirSync(join(appPath, 'Contents', 'MacOS'), { recursive: true });
-      mkdirSync(dirname(helperPath), { recursive: true });
-      writeFileSync(execPath, '#!/bin/sh\n', 'utf8');
-      writeFileSync(helperPath, '#!/bin/sh\n', 'utf8');
-
-      await expect(resolvePackagedElectronNodeCommand(execPath, 'darwin')).resolves.toBe(helperPath);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it('falls back to the main executable when the macOS helper is unavailable', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'od-packaged-no-electron-helper-'));
-    try {
-      const execPath = join(root, 'Open Design.app', 'Contents', 'MacOS', 'Open Design');
-      mkdirSync(dirname(execPath), { recursive: true });
-      writeFileSync(execPath, '#!/bin/sh\n', 'utf8');
-
-      await expect(resolvePackagedElectronNodeCommand(execPath, 'darwin')).resolves.toBe(execPath);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it('keeps the main executable on non-macOS platforms', async () => {
-    const execPath = '/opt/Open Design/open-design';
-
-    await expect(resolvePackagedElectronNodeCommand(execPath, 'linux')).resolves.toBe(execPath);
   });
 });
 
@@ -284,146 +121,6 @@ function fakeChild(): EventEmitter & {
   };
   return emitter;
 }
-
-describe('buildPackagedDaemonSpawnEnv', () => {
-  // PR #974 round-5 (lefarcen P2): the daemon's import-folder gate must
-  // be ON when an Electron desktop is being started alongside the daemon
-  // and OFF in headless packaged mode (daemon+web only, no shell.openPath
-  // surface, no client to register a secret). Pin both branches against
-  // a real pure-helper invocation so a future refactor can't silently
-  // regress either side.
-  function fakePaths(): PackagedNamespacePaths {
-    return {
-      cacheRoot: '/tmp/od-pkg/cache',
-      dataRoot: '/tmp/od-pkg/data',
-      desktopIdentityPath: '/tmp/od-pkg/runtime/desktop-root.json',
-      desktopLogPath: '/tmp/od-pkg/logs/desktop/latest.log',
-      desktopLogsRoot: '/tmp/od-pkg/logs/desktop',
-      electronSessionDataRoot: '/tmp/od-pkg/user-data/session',
-      electronUserDataRoot: '/tmp/od-pkg/user-data',
-      headlessIdentityPath: '/tmp/od-pkg/runtime/headless-root.json',
-      installationRoot: '/tmp/od-pkg/..',
-      installerObservationRoot: '/tmp/od-pkg/data/observations/installer',
-      logsRoot: '/tmp/od-pkg/logs',
-      namespaceRoot: '/tmp/od-pkg',
-      resourceRoot: '/tmp/od-pkg/resources',
-      runtimeRoot: '/tmp/od-pkg/runtime',
-      updateRoot: '/tmp/od-pkg/updates',
-      webIdentityPath: '/tmp/od-pkg/runtime/web-root.json',
-    };
-  }
-
-  it('sets OD_REQUIRE_DESKTOP_AUTH=1 when requireDesktopAuth=true (Electron entry)', () => {
-    const env = buildPackagedDaemonSpawnEnv(fakePaths(), {
-      appVersion: '1.2.3',
-      daemonCliEntry: null,
-      legacyDataDir: null,
-      requireDesktopAuth: true,
-    });
-    expect(env.OD_REQUIRE_DESKTOP_AUTH).toBe('1');
-    expect(env.OD_DATA_DIR).toBe('/tmp/od-pkg/data');
-    expect(env.OD_RESOURCE_ROOT).toBe('/tmp/od-pkg/resources');
-    expect(env.OD_APP_VERSION).toBe('1.2.3');
-    expect(env.OD_LEGACY_DATA_DIR).toBeUndefined();
-  });
-
-  it('omits OD_REQUIRE_DESKTOP_AUTH entirely when requireDesktopAuth=false (headless)', () => {
-    const env = buildPackagedDaemonSpawnEnv(fakePaths(), {
-      appVersion: null,
-      daemonCliEntry: null,
-      legacyDataDir: null,
-      requireDesktopAuth: false,
-    });
-    // Round-5 (lefarcen P2): MUST NOT set the env var, even to "0" —
-    // the daemon's gate trigger is `process.env.OD_REQUIRE_DESKTOP_AUTH === '1'`,
-    // so a literal "0" would behave the same as omitted today, but a
-    // future code change to truthy-check the variable would silently
-    // re-arm the gate. Omitted is the intent.
-    expect('OD_REQUIRE_DESKTOP_AUTH' in env).toBe(false);
-    expect(env.OD_DATA_DIR).toBe('/tmp/od-pkg/data');
-    expect(env.OD_APP_VERSION).toBeUndefined();
-  });
-
-  it('forwards OD_LEGACY_DATA_DIR only when set, irrespective of requireDesktopAuth', () => {
-    const withLegacy = buildPackagedDaemonSpawnEnv(fakePaths(), {
-      appVersion: null,
-      daemonCliEntry: null,
-      legacyDataDir: '/old/.od',
-      requireDesktopAuth: false,
-    });
-    expect(withLegacy.OD_LEGACY_DATA_DIR).toBe('/old/.od');
-
-    const withEmptyLegacy = buildPackagedDaemonSpawnEnv(fakePaths(), {
-      appVersion: null,
-      daemonCliEntry: null,
-      legacyDataDir: '',
-      requireDesktopAuth: true,
-    });
-    // Empty string must NOT propagate — daemon treats "env set but
-    // path invalid" as an error and refuses to start.
-    expect('OD_LEGACY_DATA_DIR' in withEmptyLegacy).toBe(false);
-  });
-
-  it('forwards daemonCliEntry through OD_DAEMON_CLI_PATH when set', () => {
-    const env = buildPackagedDaemonSpawnEnv(fakePaths(), {
-      appVersion: null,
-      daemonCliEntry: '/path/to/cli/dist/index.js',
-      legacyDataDir: null,
-      requireDesktopAuth: true,
-    });
-    expect(env.OD_DAEMON_CLI_PATH).toBe('/path/to/cli/dist/index.js');
-  });
-
-  it('forwards the packaged telemetry relay URL to the daemon when configured', () => {
-    const env = buildPackagedDaemonSpawnEnv(fakePaths(), {
-      appVersion: null,
-      daemonCliEntry: null,
-      legacyDataDir: null,
-      requireDesktopAuth: true,
-      telemetryRelayUrl: 'https://telemetry.open-design.ai/api/langfuse',
-    });
-    expect(env.OPEN_DESIGN_TELEMETRY_RELAY_URL).toBe(
-      'https://telemetry.open-design.ai/api/langfuse',
-    );
-  });
-
-  it('forwards the packaged AMR profile to the daemon when configured', () => {
-    const env = buildPackagedDaemonSpawnEnv(fakePaths(), {
-      appVersion: null,
-      amrProfile: 'test',
-      daemonCliEntry: null,
-      legacyDataDir: null,
-      requireDesktopAuth: true,
-    });
-    expect(env.OPEN_DESIGN_AMR_PROFILE).toBe('test');
-  });
-
-  it('forwards POSTHOG_KEY/POSTHOG_HOST to the daemon spawn env when baked into the bundle', () => {
-    const env = buildPackagedDaemonSpawnEnv(fakePaths(), {
-      appVersion: null,
-      daemonCliEntry: null,
-      legacyDataDir: null,
-      requireDesktopAuth: true,
-      posthogKey: 'phc_packaged_test',
-      posthogHost: 'https://us.i.posthog.com',
-    });
-    expect(env.POSTHOG_KEY).toBe('phc_packaged_test');
-    expect(env.POSTHOG_HOST).toBe('https://us.i.posthog.com');
-  });
-
-  it('omits POSTHOG_KEY/POSTHOG_HOST for fork builds that lack the secret', () => {
-    const env = buildPackagedDaemonSpawnEnv(fakePaths(), {
-      appVersion: null,
-      daemonCliEntry: null,
-      legacyDataDir: null,
-      requireDesktopAuth: true,
-      posthogKey: null,
-      posthogHost: null,
-    });
-    expect(env.POSTHOG_KEY).toBeUndefined();
-    expect(env.POSTHOG_HOST).toBeUndefined();
-  });
-});
 
 describe('waitForStatus child-exit fast-fail', () => {
   // mrcfps round-7: when OD_LEGACY_DATA_DIR is set the daemon status

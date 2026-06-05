@@ -66,39 +66,21 @@ RUN pnpm --filter @open-design/daemon build && \
       -name "binding.gyp" \
     \) -delete
 
-# Stage-2 assets — copied into the build stage so the runtime stage
-# can pull them via --from=build instead of reaching back into the
-# build context.  This lets the Dockerfile work when the build context
-# differs from the repo root (Railway, CI runners with a subdirectory
-# context, etc.).
-COPY skills ./skills
-COPY design-systems ./design-systems
-COPY craft ./craft
-COPY prompt-templates ./prompt-templates
-COPY assets ./assets
-COPY plugins/_official ./plugins/_official
-
 FROM ${RUNTIME_IMAGE}
 
-RUN apk add --no-cache tini poppler-utils && \
+RUN apk add --no-cache tini && \
     addgroup -S -g 1001 open-design && \
     adduser -S -D -H -u 1001 -G open-design open-design
 
 WORKDIR /app
 COPY --from=build --chown=open-design:open-design /app/deploy/daemon ./apps/daemon
 COPY --from=build --chown=open-design:open-design /app/apps/web/out ./apps/web/out
-COPY --from=build --chown=open-design:open-design /app/skills ./skills
-COPY --from=build --chown=open-design:open-design /app/design-systems ./design-systems
-COPY --from=build --chown=open-design:open-design /app/craft ./craft
-COPY --from=build --chown=open-design:open-design /app/prompt-templates ./prompt-templates
-COPY --from=build --chown=open-design:open-design /app/assets/frames ./assets/frames
-COPY --from=build --chown=open-design:open-design /app/assets/community-pets ./assets/community-pets
-# Plan §3.J4 / spec §23.3.5 — bundled atom plugins registered on
-# daemon boot. The directory contains `plugins/_official/atoms/<atom>/`
-# pairs (SKILL.md + open-design.json); registerBundledPlugins() walks
-# it on startup so the container ships with first-party atoms reachable
-# via the same registry path third-party plugins use.
-COPY --from=build --chown=open-design:open-design /app/plugins/_official ./plugins/_official
+COPY --chown=open-design:open-design skills ./skills
+COPY --chown=open-design:open-design design-systems ./design-systems
+COPY --chown=open-design:open-design craft ./craft
+COPY --chown=open-design:open-design prompt-templates ./prompt-templates
+COPY --chown=open-design:open-design assets/frames ./assets/frames
+COPY --chown=open-design:open-design assets/community-pets ./assets/community-pets
 
 RUN mkdir -p /app/.od && \
     chown -R open-design:open-design /app

@@ -1,45 +1,48 @@
 import type Database from 'better-sqlite3';
-import {
-  CRITIQUE_RUN_STATUSES,
-  type CritiquePersistedStatus,
-  type CritiqueRoundSummary,
-  type CritiqueRunStatus,
-} from '@open-design/contracts/critique';
+import type { ShipStatus } from '@open-design/contracts/critique';
 
 /**
- * Re-export the public contract types and enumeration so existing
- * daemon-side imports (`./persistence.js`) keep working unchanged. The
- * canonical definitions live in `@open-design/contracts/critique` so the
- * web layer can consume the same shapes and the same display order
- * through the rerun / history endpoints (AGENTS.md requirement that
- * shared API DTOs live in packages/contracts).
- *
- * `CritiquePersistedStatus` extends `CritiqueRunStatus` with the in-flight
- * `'running'` value so DB-row types can be precisely typed without inline
- * `as X | 'running'` widens at every call site (lefarcen P2 on PR #1016).
- * Public DTOs continue to use the terminal-only `CritiqueRunStatus` so a
- * future endpoint cannot leak a 'running' row through the wire.
+ * Final critique status persisted with each run. Mirrors the spec's CHECK
+ * constraint on critique_status. 'failed' covers orchestrator-level errors,
+ * 'legacy' marks rows produced before the feature shipped (reserved for the
+ * artifacts-on-disk backfill in Phase 15).
  */
-export { CRITIQUE_RUN_STATUSES };
-export type { CritiquePersistedStatus, CritiqueRoundSummary, CritiqueRunStatus };
+export type CritiqueRunStatus =
+  | ShipStatus
+  | 'degraded'
+  | 'failed'
+  | 'legacy';
 
-// All values accepted by the DB CHECK constraint, derived from the
-// CritiquePersistedStatus union so this set never drifts from the type.
-const ALL_VALID_STATUSES: ReadonlySet<string> = new Set<CritiquePersistedStatus>([
+export const CRITIQUE_RUN_STATUSES: readonly CritiqueRunStatus[] = [
+  'shipped',
+  'below_threshold',
+  'timed_out',
+  'interrupted',
+  'degraded',
+  'failed',
+  'legacy',
+];
+
+// All values accepted by the DB CHECK constraint, including the in-flight value
+// that the public type union deliberately omits.
+const ALL_VALID_STATUSES: ReadonlySet<string> = new Set([
   ...CRITIQUE_RUN_STATUSES,
   'running',
 ]);
+
+export interface CritiqueRoundSummary {
+  n: number;
+  composite: number;
+  mustFix: number;
+  decision: 'continue' | 'ship';
+}
 
 export interface CritiqueRunRow {
   id: string;
   projectId: string;
   conversationId: string | null;
   artifactPath: string | null;
-  /** Reflects the on-disk row exactly: a row may legitimately be in the
-   *  in-flight `'running'` state until the orchestrator (or
-   *  reconcileStaleRuns) drives it to a terminal status. Public DTOs that
-   *  surface critique runs to the web must narrow to `CritiqueRunStatus`. */
-  status: CritiquePersistedStatus;
+  status: CritiqueRunStatus;
   score: number | null;
   rounds: CritiqueRoundSummary[];
   transcriptPath: string | null;
@@ -53,10 +56,9 @@ export interface CritiqueRunInsert {
   projectId: string;
   conversationId?: string | null;
   artifactPath?: string | null;
-  /** Accepts every value the DB CHECK constraint allows, so the orchestrator
-   *  can insert an in-flight `'running'` row at run-start without an inline
-   *  type cast. */
-  status: CritiquePersistedStatus;
+  /** Accepts 'running' in addition to the terminal statuses so callers can
+   *  create in-flight rows without a type cast. */
+  status: CritiqueRunStatus | 'running';
   score?: number | null;
   rounds?: CritiqueRoundSummary[];
   transcriptPath?: string | null;
@@ -66,10 +68,6 @@ export interface CritiqueRunInsert {
 }
 
 export interface CritiqueRunPatch {
-  /** Patches only ever finalize a row into a terminal state; in-flight
-   *  rows are created via the insert path, not patched. Keeping this
-   *  terminal-only catches accidental writes that would re-park a row in
-   *  `'running'` after it transitioned out. */
   status?: CritiqueRunStatus;
   score?: number | null;
   rounds?: CritiqueRoundSummary[];
@@ -142,7 +140,7 @@ function normalizeRow(raw: RawCritiqueRunRow): CritiqueRunRow {
     projectId: raw.projectId,
     conversationId: raw.conversationId,
     artifactPath: raw.artifactPath,
-    status: raw.status as CritiquePersistedStatus,
+    status: raw.status as CritiqueRunStatus,
     score: raw.score,
     rounds,
     transcriptPath: raw.transcriptPath,

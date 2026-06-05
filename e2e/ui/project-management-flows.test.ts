@@ -1,35 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { ensureRailOpen } from '@/playwright/rail';
-import type { Locator, Page, Request } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 const STORAGE_KEY = 'open-design:config';
-const ACTIVE_ARTIFACT_PREVIEW_SELECTOR = '[data-testid="artifact-preview-frame"]:visible, [data-testid="artifact-preview-frame-url-load"]:visible, [data-testid="artifact-preview-frame-srcdoc"]:visible, [data-testid="live-artifact-preview-frame"]:visible';
-
-const AGENTS = [
-  {
-    id: 'codex',
-    name: 'Codex CLI',
-    bin: 'codex',
-    available: true,
-    version: '0.134.0',
-    models: [
-      { id: 'default', label: 'Default (CLI config)' },
-      { id: 'gpt-5.5', label: 'GPT 5.5' },
-    ],
-  },
-  {
-    id: 'claude',
-    name: 'Claude Code',
-    bin: 'claude',
-    available: true,
-    version: '2.1.131',
-    models: [
-      { id: 'default', label: 'Default (CLI config)' },
-      { id: 'sonnet', label: 'Sonnet (alias)' },
-      { id: 'opus', label: 'Opus (alias)' },
-    ],
-  },
-];
 
 const DESIGN_SYSTEMS = [
   {
@@ -63,18 +35,6 @@ const TAB_SKILLS = [
 ];
 
 test.beforeEach(async ({ page }) => {
-  let appConfig = {
-    onboardingCompleted: true,
-    privacyDecisionAt: 1,
-    telemetry: { metrics: false, content: false, artifactManifest: false },
-    mode: 'daemon',
-    agentId: 'codex',
-    skillId: null,
-    designSystemId: null,
-    agentModels: { codex: { model: 'default' } },
-    agentCliEnv: {},
-  };
-
   await page.addInitScript((key) => {
     window.localStorage.setItem(
       key,
@@ -82,31 +42,27 @@ test.beforeEach(async ({ page }) => {
         mode: 'daemon',
         apiKey: '',
         baseUrl: 'https://api.anthropic.com',
-        model: 'default',
-        agentId: 'codex',
+        model: 'claude-sonnet-4-5',
+        agentId: 'mock',
         skillId: null,
         designSystemId: null,
         onboardingCompleted: true,
-        privacyDecisionAt: 1,
-        telemetry: { metrics: false, content: false, artifactManifest: false },
-        agentModels: { codex: { model: 'default' } },
+        agentModels: {},
       }),
     );
   }, STORAGE_KEY);
 
   await page.route('**/api/app-config', async (route) => {
-    if (route.request().method() === 'PUT') {
-      const next = route.request().postDataJSON() as Record<string, unknown>;
-      appConfig = {
-        ...appConfig,
-        ...next,
-      };
-      await route.fulfill({ json: { config: appConfig } });
-      return;
-    }
     await route.fulfill({
       json: {
-        config: appConfig,
+        config: {
+          onboardingCompleted: true,
+          agentId: 'mock',
+          skillId: null,
+          designSystemId: null,
+          agentModels: {},
+          agentCliEnv: {},
+        },
       },
     });
   });
@@ -114,21 +70,22 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/agents', async (route) => {
     await route.fulfill({
       json: {
-        agents: AGENTS,
+        agents: [
+          {
+            id: 'mock',
+            name: 'Mock Agent',
+            bin: 'mock-agent',
+            available: true,
+            version: 'test',
+            models: [{ id: 'default', label: 'Default' }],
+          },
+        ],
       },
     });
   });
 });
 
-function artifactPreview(page: Page) {
-  return page.locator(ACTIVE_ARTIFACT_PREVIEW_SELECTOR).first();
-}
-
-function artifactPreviewFrame(page: Page) {
-  return page.frameLocator(ACTIVE_ARTIFACT_PREVIEW_SELECTOR);
-}
-
-test('[P1] new project tabs switch visible form sections and preserve drafts', async ({ page }) => {
+test('new project tabs switch visible form sections and preserve drafts', async ({ page }) => {
   await page.route('**/api/skills', async (route) => {
     await route.fulfill({ json: { skills: TAB_SKILLS } });
   });
@@ -140,7 +97,6 @@ test('[P1] new project tabs switch visible form sections and preserve drafts', a
   });
 
   await page.goto('/');
-  await openNewProjectPanel(page);
   await expect(page.getByTestId('new-project-tab-prototype')).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('.newproj-title')).toContainText('New prototype');
   await expect(page.getByTestId('design-system-trigger')).toBeVisible();
@@ -167,53 +123,21 @@ test('[P1] new project tabs switch visible form sections and preserve drafts', a
   await expect(page.locator('.newproj-title')).toContainText('New prototype');
   await expect(page.getByTestId('new-project-name')).toHaveValue('Prototype draft survives');
 
-  // Playwright auto-scrolls the tab into view; the consolidated media flow
-  // keeps image/video/audio as inner segmented surfaces.
-  await page.getByTestId('new-project-tab-media').click();
-  await expect(page.getByTestId('new-project-tab-media')).toHaveAttribute('aria-selected', 'true');
-  await page.getByTestId('new-project-media-surface-image').click();
-  await expect(page.getByTestId('new-project-media-surface-image')).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('button', { name: 'Scroll project types right' }).click();
+  await page.getByTestId('new-project-tab-image').click();
+  await expect(page.getByTestId('new-project-tab-image')).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('.newproj-title')).toContainText('New image');
   await expect(page.getByTestId('design-system-picker')).toHaveCount(0);
   await expect(page.getByText('Model', { exact: true })).toBeVisible();
   await expect(page.getByText('Aspect', { exact: true })).toBeVisible();
 });
 
-test('[P0] projects empty state create action opens the new project flow', async ({ page }) => {
-  await page.route('**/api/skills', async (route) => {
-    await route.fulfill({ json: { skills: TAB_SKILLS } });
-  });
-  await page.route('**/api/connectors', async (route) => {
-    await route.fulfill({ json: { connectors: [] } });
-  });
-  await page.route('**/api/connectors/status', async (route) => {
-    await route.fulfill({ json: { statuses: {} } });
-  });
-  await page.route('**/api/projects', async (route) => {
-    if (route.request().method() === 'GET') {
-      await route.fulfill({ json: { projects: [] } });
-      return;
-    }
-    await route.continue();
-  });
-
-  await page.goto('/projects');
-  await expect(page.locator('.designs-empty-state')).toBeVisible();
-  await page.locator('.designs-empty-cta').click();
-
-  await expect(page.getByTestId('new-project-modal')).toBeVisible();
-  await expect(page.getByTestId('new-project-panel')).toBeVisible();
-  await expect(page.getByTestId('new-project-tab-prototype')).toHaveAttribute('aria-selected', 'true');
-  await expect(page.locator('.newproj-title')).toContainText('New prototype');
-});
-
-test('[P1] design system multi-select stores primary and inspiration metadata', async ({ page }) => {
+test('design system multi-select stores primary and inspiration metadata', async ({ page }) => {
   await page.route('**/api/design-systems', async (route) => {
     await route.fulfill({ json: { designSystems: DESIGN_SYSTEMS } });
   });
 
   await page.goto('/');
-  await openNewProjectPanel(page);
   await page.getByTestId('new-project-tab-prototype').click();
   await page.getByTestId('new-project-name').fill('Design system multi select metadata');
   await expect(page.getByTestId('design-system-trigger')).toContainText('Nexu Soft Tech');
@@ -227,32 +151,24 @@ test('[P1] design system multi-select stores primary and inspiration metadata', 
 
   await expect(page.getByTestId('design-system-trigger')).toContainText('Nexu Soft Tech');
   await expect(page.getByTestId('design-system-trigger')).toContainText('+2');
-  await page.getByTestId('design-system-trigger').click();
-  await expect(page.locator('.ds-picker-popover')).toHaveCount(0);
-  const createProjectRequest = page.waitForRequest(isCreateProjectRequest);
-  await expect(page.getByTestId('create-project')).toBeEnabled();
-  await page.getByTestId('create-project').click({ force: true });
-  const request = await createProjectRequest;
-  const body = request.postDataJSON() as {
-    designSystemId?: string | null;
-    metadata?: {
-      inspirationDesignSystemIds?: string[];
-    };
-  };
-  expect(body.designSystemId).toBe('nexu-soft-tech');
-  expect(body.metadata?.inspirationDesignSystemIds).toEqual([
+  await page.keyboard.press('Escape');
+  await page.getByTestId('create-project').click();
+  await expectWorkspaceReady(page);
+
+  const project = await fetchCurrentProject(page);
+  expect(project.designSystemId).toBe('nexu-soft-tech');
+  expect(project.metadata?.inspirationDesignSystemIds).toEqual([
     'editorial-noir',
     'data-mist',
   ]);
 });
 
-test('[P1] design system picker searches and switches the single selected system', async ({ page }) => {
+test('design system picker searches and switches the single selected system', async ({ page }) => {
   await page.route('**/api/design-systems', async (route) => {
     await route.fulfill({ json: { designSystems: DESIGN_SYSTEMS } });
   });
 
   await page.goto('/');
-  await openNewProjectPanel(page);
   await page.getByTestId('new-project-tab-prototype').click();
   await page.getByTestId('new-project-name').fill('Design system single switch flow');
   await expect(page.getByTestId('design-system-trigger')).toBeVisible();
@@ -265,332 +181,15 @@ test('[P1] design system picker searches and switches the single selected system
 
   await expect(page.getByTestId('design-system-trigger')).toContainText('Data Mist');
   await expect(page.getByTestId('design-system-trigger')).toContainText('Analytics');
-  const createProjectRequest = page.waitForRequest(isCreateProjectRequest);
-  await expect(page.getByTestId('create-project')).toBeEnabled();
-  await page.getByTestId('create-project').click({ force: true });
-  const request = await createProjectRequest;
-  const body = request.postDataJSON() as {
-    designSystemId?: string | null;
-    metadata?: {
-      inspirationDesignSystemIds?: string[];
-    };
-  };
-  expect(body.designSystemId).toBe('data-mist');
-  expect(body.metadata?.inspirationDesignSystemIds).toBeUndefined();
-});
-
-test('[P2] project detail header keeps the title, design system picker, and execution controls aligned on one row', async ({ page }) => {
-  await page.goto('/');
-  await createProject(page, 'Header controls stay pinned');
-  await expectWorkspaceReady(page);
-  await page.setViewportSize({ width: 1365, height: 900 });
-
-  const title = page.getByTestId('project-title');
-  const dsTrigger = page.getByTestId('project-ds-picker-trigger');
-  const settingsButton = page.locator('.settings-icon-btn');
-  const handoffButton = page.getByRole('button', { name: /Choose hand-off target/i });
-
-  await expect(title).toBeVisible();
-  await expect(dsTrigger).toBeVisible();
-  await expect(settingsButton).toBeVisible();
-  await expect(handoffButton).toBeVisible();
-
-  const [titleBox, dsBox, settingsBox, handoffBox] = await Promise.all([
-    title.boundingBox(),
-    dsTrigger.boundingBox(),
-    settingsButton.boundingBox(),
-    handoffButton.boundingBox(),
-  ]);
-
-  expect(titleBox).toBeTruthy();
-  expect(dsBox).toBeTruthy();
-  expect(settingsBox).toBeTruthy();
-  expect(handoffBox).toBeTruthy();
-
-  const yValues = [titleBox!.y, dsBox!.y, settingsBox!.y, handoffBox!.y];
-  expect(Math.max(...yValues) - Math.min(...yValues)).toBeLessThan(24);
-});
-
-test('[P1] project detail header design system picker switches the active project design system', async ({ page }) => {
-  await page.route('**/api/design-systems', async (route) => {
-    await route.fulfill({ json: { designSystems: DESIGN_SYSTEMS } });
-  });
-
-  await page.goto('/');
-  await createProject(page, 'Header design system switch');
+  await page.getByTestId('create-project').click();
   await expectWorkspaceReady(page);
 
-  const trigger = page.getByTestId('project-ds-picker-trigger');
-  await expect(trigger).toContainText(/design system/i);
-
-  await trigger.click();
-  const popover = page.getByTestId('project-ds-picker-popover');
-  await expect(popover).toBeVisible();
-  await page.getByTestId('project-ds-picker-search').fill('editorial');
-  const editorialOption = page.getByRole('option', { name: /^Editorial Noir$/ });
-  await expect(editorialOption).toBeVisible();
-  const patchRequest = page.waitForRequest((request) => {
-    const url = new URL(request.url());
-    return url.pathname === `/api/projects/${getProjectContextFromUrl(page).projectId}` && request.method() === 'PATCH';
-  });
-  await editorialOption.click();
-
-  await expect(popover).toHaveCount(0);
-  await expect(trigger).toContainText(/Editorial Noir/i);
-
-  const request = await patchRequest;
-  const body = request.postDataJSON() as { designSystemId?: string | null };
-  expect(body.designSystemId).toBe('editorial-noir');
+  const project = await fetchCurrentProject(page);
+  expect(project.designSystemId).toBe('data-mist');
+  expect(project.metadata?.inspirationDesignSystemIds).toBeUndefined();
 });
 
-test('[P0] project detail header design system switch carries into the next run request', async ({ page }) => {
-  const runRequestBodies: Array<Record<string, unknown>> = [];
-  await page.route('**/api/runs', async (route) => {
-    const raw = route.request().postData();
-    if (raw) {
-      try {
-        runRequestBodies.push(JSON.parse(raw) as Record<string, unknown>);
-      } catch {
-        // ignore non-JSON bodies; assertion below will surface missing payloads
-      }
-    }
-    await route.fulfill({
-      status: 202,
-      contentType: 'application/json',
-      body: '{"runId":"mock-run"}',
-    });
-  });
-  await page.route('**/api/runs/*/events', async (route) => {
-    await route.fulfill({
-      status: 200,
-      headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' },
-      body: ['event: end', 'data: {"code":0,"status":"succeeded"}', '', ''].join('\n'),
-    });
-  });
-
-  await page.route('**/api/design-systems', async (route) => {
-    await route.fulfill({ json: { designSystems: DESIGN_SYSTEMS } });
-  });
-
-  await page.goto('/');
-  await createProject(page, 'Header design system run context');
-  await expectWorkspaceReady(page);
-
-  const trigger = page.getByTestId('project-ds-picker-trigger');
-  await trigger.click();
-  await page.getByTestId('project-ds-picker-search').fill('editorial');
-  const editorialOption = page.getByRole('option', { name: /^Editorial Noir$/ });
-  await expect(editorialOption).toBeVisible();
-  await editorialOption.click();
-  await expect(trigger).toContainText(/Editorial Noir/i);
-
-  const input = page.getByTestId('chat-composer-input');
-  await input.fill('Use the active design system in this layout.');
-  const sendButton = page.getByTestId('chat-send');
-  await expect(sendButton).toBeEnabled();
-  await Promise.all([
-    page.waitForRequest((request) => request.url().includes('/api/runs') && request.method() === 'POST'),
-    sendButton.click(),
-  ]);
-
-  expect(runRequestBodies.length).toBeGreaterThan(0);
-  expect(runRequestBodies[0]?.designSystemId).toBe('editorial-noir');
-});
-
-test('[P0] project instructions flow into the next API run as project-level system prompt context', async ({ page }) => {
-  let capturedSystemPrompt = '';
-  const apiConfig = {
-    onboardingCompleted: true,
-    privacyDecisionAt: 1,
-    telemetry: { metrics: false, content: false, artifactManifest: false },
-    mode: 'api',
-    apiProtocol: 'openai',
-    apiKey: 'sk-project-test',
-    baseUrl: 'https://api.openai.com/v1',
-    model: 'gpt-4.1-mini',
-    agentId: null,
-    skillId: null,
-    designSystemId: null,
-    agentCliEnv: {},
-  };
-  await page.addInitScript(
-    ([key, config]) => {
-      window.localStorage.setItem(key, JSON.stringify(config));
-    },
-    [STORAGE_KEY, apiConfig] as const,
-  );
-  await page.route('**/api/app-config', async (route) => {
-    if (route.request().method() !== 'GET') {
-      await route.continue();
-      return;
-    }
-    await route.fulfill({ json: { config: apiConfig } });
-  });
-  await page.route('**/api/proxy/openai/stream', async (route) => {
-    const body = route.request().postDataJSON() as { systemPrompt?: string };
-    capturedSystemPrompt = body.systemPrompt ?? '';
-    await route.fulfill({
-      status: 200,
-      contentType: 'text/event-stream',
-      body: [
-        'event: delta',
-        `data: ${JSON.stringify({ text: 'ok' })}`,
-        '',
-        'event: done',
-        'data: {}',
-        '',
-        '',
-      ].join('\n'),
-    });
-  });
-
-  await page.goto('/');
-  await createProject(page, 'Project instruction run context');
-  await expectWorkspaceReady(page);
-
-  const instructions = 'Use tabs for indentation and keep CTA copy terse.';
-  await page.getByTestId('project-instructions-add').click();
-  await page.getByTestId('project-instructions-textarea').fill(instructions);
-  await page.getByTestId('project-instructions-save').click();
-  await expect(page.getByTestId('project-instructions-preview')).toContainText(instructions);
-
-  const input = page.getByTestId('chat-composer-input');
-  await input.fill('Generate the onboarding screen.');
-  await page.getByTestId('chat-send').click();
-
-  await expect.poll(() => capturedSystemPrompt).toContain('## Custom instructions (project-level)');
-  expect(capturedSystemPrompt).toContain(instructions);
-});
-
-test('[P0] project detail avatar menu lets the user switch Local CLI agents and models', async ({ page }) => {
-  await page.goto('/');
-  await createProject(page, 'Header agent switch');
-  await expectWorkspaceReady(page);
-
-  const trigger = page.locator('.avatar-menu .avatar-agent-trigger');
-  await trigger.click();
-  const menu = page.locator('.avatar-popover[role="dialog"]');
-  await expect(menu).toBeVisible();
-  const claudeButton = menu.getByRole('button', { name: /Claude Code/i });
-  await expect(claudeButton).toBeVisible();
-  await claudeButton.click();
-
-  await expect(claudeButton).toHaveAttribute('aria-current', 'true');
-  const modelSelect = menu.locator('.avatar-model-section [role=\"combobox\"]').first();
-  await expect(modelSelect).toBeVisible();
-  await expect(modelSelect).toContainText(/default/i);
-  await modelSelect.click();
-  await page.getByRole('option', { name: /^Sonnet \(alias\)$/i }).click();
-  await expect(modelSelect).toContainText(/Sonnet/i);
-});
-
-test('[P0] project detail agent and model switches carry into the next daemon run request', async ({ page }) => {
-  const runRequestBodies: Array<Record<string, unknown>> = [];
-  await page.route('**/api/runs', async (route) => {
-    const raw = route.request().postData();
-    if (raw) runRequestBodies.push(JSON.parse(raw) as Record<string, unknown>);
-    await route.fulfill({
-      status: 202,
-      contentType: 'application/json',
-      body: '{"runId":"agent-model-run"}',
-    });
-  });
-  await page.route('**/api/runs/*/events', async (route) => {
-    await route.fulfill({
-      status: 200,
-      headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' },
-      body: ['event: end', 'data: {"code":0,"status":"succeeded"}', '', ''].join('\n'),
-    });
-  });
-
-  await page.goto('/');
-  await createProject(page, 'Header agent switch run context');
-  await expectWorkspaceReady(page);
-
-  const trigger = page.locator('.avatar-menu .avatar-agent-trigger');
-  await trigger.click();
-  const menu = page.locator('.avatar-popover[role="dialog"]');
-  await expect(menu).toBeVisible();
-  await menu.getByRole('button', { name: /Claude Code/i }).click();
-  const modelSelect = menu.locator('.avatar-model-section [role=\"combobox\"]').first();
-  await modelSelect.click();
-  await page.getByRole('option', { name: /^Sonnet \(alias\)$/i }).click();
-  await expect(modelSelect).toContainText(/Sonnet/i);
-
-  const input = page.getByTestId('chat-composer-input');
-  await input.fill('Use the selected local agent for this run.');
-  await Promise.all([
-    page.waitForRequest((request) => request.url().includes('/api/runs') && request.method() === 'POST'),
-    page.getByTestId('chat-send').click(),
-  ]);
-
-  expect(runRequestBodies.length).toBeGreaterThan(0);
-  expect(runRequestBodies[0]?.agentId).toBe('claude');
-  expect(runRequestBodies[0]?.model).toBe('sonnet');
-});
-
-test('[P0] clearing the project design system removes designSystemId from the next run request', async ({ page }) => {
-  const patchBodies: Array<Record<string, unknown>> = [];
-  const runRequestBodies: Array<Record<string, unknown>> = [];
-  await page.route('**/api/design-systems', async (route) => {
-    await route.fulfill({ json: { designSystems: DESIGN_SYSTEMS } });
-  });
-  await page.route('**/api/projects/*', async (route) => {
-    if (route.request().method() !== 'PATCH') {
-      await route.continue();
-      return;
-    }
-    const body = route.request().postDataJSON() as Record<string, unknown>;
-    patchBodies.push(body);
-    await route.continue();
-  });
-  await page.route('**/api/runs', async (route) => {
-    const raw = route.request().postData();
-    if (raw) runRequestBodies.push(JSON.parse(raw) as Record<string, unknown>);
-    await route.fulfill({
-      status: 202,
-      contentType: 'application/json',
-      body: '{"runId":"design-system-clear-run"}',
-    });
-  });
-  await page.route('**/api/runs/*/events', async (route) => {
-    await route.fulfill({
-      status: 200,
-      headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' },
-      body: ['event: end', 'data: {"code":0,"status":"succeeded"}', '', ''].join('\n'),
-    });
-  });
-
-  await page.goto('/');
-  await createProject(page, 'Header design system clear run context');
-  await expectWorkspaceReady(page);
-
-  const trigger = page.getByTestId('project-ds-picker-trigger');
-  await trigger.click();
-  await page.getByTestId('project-ds-picker-search').fill('editorial');
-  const editorialOption = page.getByRole('option', { name: /^Editorial Noir$/ });
-  await expect(editorialOption).toBeVisible();
-  await editorialOption.click();
-  await expect(trigger).toContainText(/Editorial Noir/i);
-
-  await trigger.click();
-  await page.locator('.project-ds-picker-option').first().click();
-  await expect(trigger).not.toContainText(/Editorial Noir/i);
-
-  expect(patchBodies.some((body) => Object.prototype.hasOwnProperty.call(body, 'designSystemId') && body.designSystemId === null)).toBe(true);
-
-  const input = page.getByTestId('chat-composer-input');
-  await input.fill('Generate this without an active design system.');
-  await Promise.all([
-    page.waitForRequest((request) => request.url().includes('/api/runs') && request.method() === 'POST'),
-    page.getByTestId('chat-send').click(),
-  ]);
-
-  expect(runRequestBodies.length).toBeGreaterThan(0);
-  expect(runRequestBodies[0]?.designSystemId).toBeNull();
-});
-
-test('[P1] project title rename persists after reload and ignores blank titles', async ({ page }) => {
+test('project title rename persists after reload and ignores blank titles', async ({ page }) => {
   await page.goto('/');
   await createProject(page, 'Original rename title');
   await expectWorkspaceReady(page);
@@ -612,41 +211,7 @@ test('[P1] project title rename persists after reload and ignores blank titles',
   expect(project.name).toBe('Renamed persistent title');
 });
 
-
-test('[P2] project header keeps the settings, handoff, and avatar controls pinned on compact desktop widths', async ({ page }) => {
-  await page.setViewportSize({ width: 1100, height: 900 });
-  await page.goto('/');
-  await createProject(page, 'Header controls stay pinned');
-  await expectWorkspaceReady(page);
-
-  const handoffTrigger = page.getByTestId('handoff-trigger');
-  const avatarTrigger = page.locator('.avatar-agent-trigger');
-  await expect(page.getByTestId('project-title')).toBeVisible();
-  await expect(handoffTrigger).toBeVisible();
-  await expect(avatarTrigger).toBeVisible();
-
-  const layout = await page.evaluate(() => {
-    const root = document.documentElement;
-    const handoff = document.querySelector('[data-testid="handoff-trigger"]') as HTMLElement | null;
-    const avatar = document.querySelector('.avatar-agent-trigger') as HTMLElement | null;
-    const title = document.querySelector('[data-testid="project-title"]') as HTMLElement | null;
-    const overflow = Math.max(0, root.scrollWidth - root.clientWidth);
-    return {
-      overflow,
-      handoffRight: handoff?.getBoundingClientRect().right ?? 0,
-      avatarRight: avatar?.getBoundingClientRect().right ?? 0,
-      titleRight: title?.getBoundingClientRect().right ?? 0,
-      viewportWidth: window.innerWidth,
-    };
-  });
-
-  expect(layout.overflow).toBeLessThanOrEqual(2);
-  expect(layout.handoffRight).toBeGreaterThan(layout.titleRight);
-  expect(layout.avatarRight).toBeGreaterThan(layout.handoffRight);
-  expect(layout.avatarRight).toBeLessThanOrEqual(layout.viewportWidth - 8);
-});
-
-test('[P1] canceling design file deletion keeps the file and open tab', async ({ page }) => {
+test('canceling design file deletion keeps the file and open tab', async ({ page }) => {
   await page.goto('/');
   await createProject(page, 'Design file delete cancel flow');
   await expectWorkspaceReady(page);
@@ -672,182 +237,7 @@ test('[P1] canceling design file deletion keeps the file and open tab', async ({
   expect(files.map((file) => file.name)).toContain(uploadedName);
 });
 
-test('[P1] project detail workspace keeps design file tabs and preview controls visible for uploaded html artifacts', async ({ page }) => {
-  await page.goto('/');
-  await createProject(page, 'Workspace preview structure');
-  await expectWorkspaceReady(page);
-
-  const uploadedName = await uploadTinyHtml(page, 'workspace-preview.html', '<!doctype html><html><body><main><h1>Workspace Preview Structure</h1><p>Preview and code tabs stay visible.</p></main></body></html>');
-
-  const fileTab = tabBySuffix(page, uploadedName);
-  await expect(fileTab).toBeVisible();
-  await expect(fileTab).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('tab', { name: 'Design Files' })).toBeVisible();
-
-  await openUploadedHtmlArtifactPreview(page, uploadedName);
-
-  const viewModeTabs = page.getByRole('tablist', { name: 'View mode' });
-  await expect(viewModeTabs.getByRole('tab', { name: 'Preview' })).toBeVisible();
-  await expect(viewModeTabs.getByRole('tab', { name: 'Code' })).toBeVisible();
-  await expect(artifactPreview(page)).toBeVisible();
-  await expect(
-    artifactPreviewFrame(page).getByRole('heading', { name: 'Workspace Preview Structure' }),
-  ).toBeVisible();
-  await expect(page.getByRole('button', { name: /Preview viewport/i })).toBeVisible();
-
-  await viewModeTabs.getByRole('tab', { name: 'Code' }).click();
-  const sourceViewer = page.locator('pre.viewer-source');
-  await expect(sourceViewer).toBeVisible();
-  await expect(sourceViewer).toContainText('Workspace Preview Structure');
-  await expect(sourceViewer).toContainText('<!doctype html>');
-
-  await viewModeTabs.getByRole('tab', { name: 'Preview' }).click();
-  await expect(artifactPreview(page)).toBeVisible();
-});
-
-test('[P0] project detail share menu copies the current share link for uploaded html artifacts', async ({ page }) => {
-  let uploadedName = '';
-  await page.addInitScript(() => {
-    const store: string[] = [];
-    Object.defineProperty(window, '__copiedTexts', {
-      value: store,
-      configurable: true,
-    });
-    Object.defineProperty(navigator, 'clipboard', {
-      value: {
-        writeText(text: string) {
-          store.push(text);
-          return Promise.resolve();
-        },
-      },
-      configurable: true,
-    });
-  });
-  await page.route('**/api/projects/*/deployments', async (route) => {
-    await route.fulfill({
-      json: {
-        deployments: uploadedName
-          ? [{
-              id: 'ready-share-link',
-              projectId: getProjectIdFromApiPath(route.request().url()),
-              fileName: uploadedName,
-              providerId: 'vercel-self',
-              url: 'https://share-preview.example',
-              deploymentCount: 1,
-              target: 'preview',
-              status: 'ready',
-              createdAt: 1,
-              updatedAt: 2,
-            }]
-          : [],
-      },
-    });
-  });
-
-  await page.goto('/');
-  await createProject(page, 'Share link copy flow');
-  await expectWorkspaceReady(page);
-
-  uploadedName = await uploadTinyHtml(page, 'share-link-copy.html', '<!doctype html><html><body><h1>Share link copy</h1></body></html>');
-  await openUploadedHtmlArtifactPreview(page, uploadedName);
-
-  await page.getByRole('button', { name: /^Share$/i }).click();
-  await page.getByRole('menuitem', { name: /^Copy share link$/i }).click();
-  await expect(page.getByRole('menuitem', { name: /^Copied!$/i })).toBeVisible();
-
-  const copied = await page.evaluate(() => (window as typeof window & { __copiedTexts?: string[] }).__copiedTexts ?? []);
-  expect(copied.at(-1)).toBe('https://share-preview.example');
-});
-
-test('[P0] project detail share menu opens the current share page for uploaded html artifacts', async ({ page }) => {
-  let uploadedName = '';
-  await page.addInitScript(() => {
-    const opened: string[] = [];
-    Object.defineProperty(window, '__openedUrls', {
-      value: opened,
-      configurable: true,
-    });
-    const originalOpen = window.open.bind(window);
-    window.open = ((...args: Parameters<typeof window.open>) => {
-      if (typeof args[0] === 'string') opened.push(args[0]);
-      return originalOpen(...args);
-    }) as typeof window.open;
-  });
-  await page.route('**/api/projects/*/deployments', async (route) => {
-    await route.fulfill({
-      json: {
-        deployments: uploadedName
-          ? [{
-              id: 'protected-share-link',
-              projectId: getProjectIdFromApiPath(route.request().url()),
-              fileName: uploadedName,
-              providerId: 'vercel-self',
-              url: 'https://protected-share.example',
-              deploymentCount: 1,
-              target: 'preview',
-              status: 'protected',
-              createdAt: 1,
-              updatedAt: 2,
-            }]
-          : [],
-      },
-    });
-  });
-
-  await page.goto('/');
-  await createProject(page, 'Open share page flow');
-  await expectWorkspaceReady(page);
-
-  uploadedName = await uploadTinyHtml(page, 'share-page-open.html', '<!doctype html><html><body><h1>Open share page</h1></body></html>');
-  await openUploadedHtmlArtifactPreview(page, uploadedName);
-
-  await page.getByRole('button', { name: /^Share$/i }).click();
-  await page.getByRole('menuitem', { name: /Open share page/i }).click();
-
-  await expect
-    .poll(() =>
-      page.evaluate(() => (window as typeof window & { __openedUrls?: string[] }).__openedUrls ?? []),
-    )
-    .toContain('https://protected-share.example');
-});
-
-test('[P0] project detail share menu publish action opens the deploy flow for the selected provider', async ({ page }) => {
-  let deployConfigUrl: string | null = null;
-  await page.route('**/api/projects/*/deployments', async (route) => {
-    await route.fulfill({ json: { deployments: [] } });
-  });
-  await page.route('**/api/deploy/config?providerId=*', async (route) => {
-    deployConfigUrl = route.request().url();
-    const url = new URL(route.request().url());
-    await route.fulfill({
-      json: {
-        configured: false,
-        providerId: url.searchParams.get('providerId'),
-        tokenMask: '',
-        teamId: '',
-        teamSlug: '',
-      },
-    });
-  });
-
-  await page.goto('/');
-  await createProject(page, 'Deploy action flow');
-  await expectWorkspaceReady(page);
-
-  const uploadedName = await uploadTinyHtml(page, 'deploy-action.html', '<!doctype html><html><body><h1>Deploy action</h1></body></html>');
-  await openUploadedHtmlArtifactPreview(page, uploadedName);
-
-  await page.getByRole('button', { name: /^Share$/i }).click();
-  await page.getByRole('menuitem', { name: /^Deploy to Vercel$/i }).click();
-
-  const dialog = page.getByRole('dialog');
-  await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole('heading', { name: /Deploy to Vercel/i })).toBeVisible();
-  await expect(dialog.locator('select').first()).toHaveValue('vercel-self');
-  expect(deployConfigUrl).toContain('providerId=vercel-self');
-});
-
-test('[P1] home design card deletion supports cancel and confirm flows', async ({ page }) => {
+test('home design card deletion supports cancel and confirm flows', async ({ page }) => {
   const projectName = `Home delete design flow ${Date.now()}`;
   await page.goto('/');
   await createProject(page, projectName);
@@ -855,45 +245,39 @@ test('[P1] home design card deletion supports cancel and confirm flows', async (
 
   const { projectId } = getProjectContextFromUrl(page);
   await page.getByRole('button', { name: /back to projects/i }).click();
-  await expectDesignsView(page);
+  await expect(page.getByTestId('new-project-panel')).toBeVisible();
 
   const designCard = homeDesignCard(page, projectName);
   await expect(designCard).toBeVisible();
 
-  // Cancel flow: open the overflow menu, choose Delete, then dismiss the confirm modal.
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain(projectName);
+    await dialog.dismiss();
+  });
   await designCard.hover();
-  await designCard.getByRole('button', { name: /more actions/i }).click();
-  await page.getByRole('menuitem', { name: /^delete$/i }).click();
-  const confirmDialog = page.locator('.modal-confirm');
-  await expect(confirmDialog).toBeVisible();
-  await expect(confirmDialog).toContainText(projectName);
-  await confirmDialog.getByRole('button', { name: /^cancel$/i }).click();
-  await expect(confirmDialog).toHaveCount(0);
+  await designCard.getByRole('button', { name: new RegExp(`delete project ${escapeRegExp(projectName)}`, 'i') }).click();
   await expect(designCard).toBeVisible();
 
-  // Confirm flow: same trigger, this time accept the confirm modal.
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain(projectName);
+    await dialog.accept();
+  });
   await designCard.hover();
-  await designCard.getByRole('button', { name: /more actions/i }).click();
-  await page.getByRole('menuitem', { name: /^delete$/i }).click();
-  const confirmDialog2 = page.locator('.modal-confirm');
-  await expect(confirmDialog2).toBeVisible();
-  await expect(confirmDialog2).toContainText(projectName);
-  await confirmDialog2.getByRole('button', { name: /^delete$/i }).click();
+  await designCard.getByRole('button', { name: new RegExp(`delete project ${escapeRegExp(projectName)}`, 'i') }).click();
   await expect(homeDesignCard(page, projectName)).toHaveCount(0);
 
   const response = await page.request.get(`/api/projects/${projectId}`);
   expect(response.status()).toBe(404);
 });
 
-test('[P2] home designs view toggle switches between grid and kanban and persists', async ({ page }) => {
+test('home designs view toggle switches between grid and kanban and persists', async ({ page }) => {
   const projectName = `Home view toggle flow ${Date.now()}`;
   await page.goto('/');
   await createProject(page, projectName);
   await expectWorkspaceReady(page);
-  const { projectId } = getProjectContextFromUrl(page);
 
   await page.getByRole('button', { name: /back to projects/i }).click();
-  await expectDesignsView(page);
+  await expect(page.getByTestId('new-project-panel')).toBeVisible();
   await expect(homeDesignCard(page, projectName)).toBeVisible();
   await expect(page.locator('.design-grid')).toBeVisible();
   await expect(page.locator('.design-kanban-board')).toHaveCount(0);
@@ -906,11 +290,9 @@ test('[P2] home designs view toggle switches between grid and kanban and persist
   await expect(page.locator('.design-kanban-card', { hasText: projectName })).toBeVisible();
 
   await page.reload();
-  await expectDesignsView(page);
+  await expect(page.getByTestId('new-project-panel')).toBeVisible();
   await expect(page.locator('.design-kanban-board')).toBeVisible();
   await expect(page.getByTestId('designs-view-kanban')).toHaveAttribute('aria-pressed', 'true');
-  const projectsAfterReload = await listProjectsFromApi(page);
-  expect(projectsAfterReload.some((project) => project.id === projectId && project.name === projectName)).toBe(true);
 
   await page.getByTestId('designs-view-grid').click();
   await expect(page.locator('.design-grid')).toBeVisible();
@@ -918,7 +300,7 @@ test('[P2] home designs view toggle switches between grid and kanban and persist
   await expect(page.getByTestId('designs-view-grid')).toHaveAttribute('aria-pressed', 'true');
 });
 
-test('[P1] home designs search filters projects and recovers from no results', async ({ page }) => {
+test('home designs search filters projects and recovers from no results', async ({ page }) => {
   const stamp = Date.now();
   const alphaName = `Home search alpha ${stamp}`;
   const betaName = `Home search beta ${stamp}`;
@@ -926,15 +308,13 @@ test('[P1] home designs search filters projects and recovers from no results', a
 
   await createProject(page, alphaName);
   await expectWorkspaceReady(page);
-  const alphaProjectId = getProjectContextFromUrl(page).projectId;
   await page.getByRole('button', { name: /back to projects/i }).click();
-  await expectDesignsView(page);
+  await expect(page.getByTestId('new-project-panel')).toBeVisible();
 
   await createProject(page, betaName);
   await expectWorkspaceReady(page);
-  const betaProjectId = getProjectContextFromUrl(page).projectId;
   await page.getByRole('button', { name: /back to projects/i }).click();
-  await expectDesignsView(page);
+  await expect(page.getByTestId('new-project-panel')).toBeVisible();
   await expect(homeDesignCard(page, alphaName)).toBeVisible();
   await expect(homeDesignCard(page, betaName)).toBeVisible();
 
@@ -951,457 +331,25 @@ test('[P1] home designs search filters projects and recovers from no results', a
   await search.fill('');
   await expect(homeDesignCard(page, alphaName)).toBeVisible();
   await expect(homeDesignCard(page, betaName)).toBeVisible();
-  const projects = await listProjectsFromApi(page);
-  expect(projects).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({ id: alphaProjectId, name: alphaName }),
-      expect.objectContaining({ id: betaProjectId, name: betaName }),
-    ]),
-  );
 });
 
-test('[P2] projects sub tabs switch between Recent and Your designs ordering', async ({ page }) => {
-  const now = Date.now();
-  const projects = [
-    makeProjectsTabProject({
-      id: 'proj-alpha',
-      name: 'Sort Alpha',
-      createdAt: now - 3 * 60_000,
-      updatedAt: now - 1 * 60_000,
-    }),
-    makeProjectsTabProject({
-      id: 'proj-beta',
-      name: 'Sort Beta',
-      createdAt: now - 1 * 60_000,
-      updatedAt: now - 3 * 60_000,
-    }),
-    makeProjectsTabProject({
-      id: 'proj-gamma',
-      name: 'Sort Gamma',
-      createdAt: now - 2 * 60_000,
-      updatedAt: now - 2 * 60_000,
-    }),
-  ];
-
-  await page.route('**/api/projects', async (route) => {
-    if (route.request().method() === 'GET') {
-      await route.fulfill({ json: { projects } });
-      return;
-    }
-    await route.continue();
-  });
-  await page.route('**/api/live-artifacts?projectId=*', async (route) => {
-    await route.fulfill({ json: { liveArtifacts: [] } });
-  });
-
-  await page.goto('/projects');
-  await expectDesignsView(page);
-
-  await expect(page.locator('.design-grid .design-card .design-card-name').nth(0)).toContainText(
-    'Sort Alpha',
-  );
-  await expect(page.locator('.design-grid .design-card .design-card-name').nth(1)).toContainText(
-    'Sort Gamma',
-  );
-  await expect(page.locator('.design-grid .design-card .design-card-name').nth(2)).toContainText(
-    'Sort Beta',
-  );
-
-  await page.getByRole('button', { name: 'Your designs' }).click();
-  await expect(page.locator('.design-grid .design-card .design-card-name').nth(0)).toContainText(
-    'Sort Beta',
-  );
-  await expect(page.locator('.design-grid .design-card .design-card-name').nth(1)).toContainText(
-    'Sort Gamma',
-  );
-  await expect(page.locator('.design-grid .design-card .design-card-name').nth(2)).toContainText(
-    'Sort Alpha',
-  );
-});
-
-test('[P1] projects grid card rename updates the card title and persists after reload', async ({ page }) => {
-  const originalName = `Projects rename flow ${Date.now()}`;
-  const renamedName = `${originalName} renamed`;
-  await page.goto('/');
-  await createProject(page, originalName);
-  await expectWorkspaceReady(page);
-  const { projectId } = getProjectContextFromUrl(page);
-
-  await page.getByRole('button', { name: /back to projects/i }).click();
-  await expectDesignsView(page);
-
-  const card = homeDesignCard(page, originalName);
-  await card.hover();
-  await card.getByRole('button', { name: /more actions/i }).click();
-  await page.getByRole('menuitem', { name: /^rename$/i }).click();
-
-  const renameModal = page.locator('.modal-rename');
-  await expect(renameModal).toBeVisible();
-  const renameInput = renameModal.getByRole('textbox');
-  await expect(renameInput).toHaveValue(originalName);
-  await renameInput.fill(renamedName);
-  await renameModal.locator('button.primary').click();
-
-  await expect(homeDesignCard(page, renamedName)).toBeVisible();
-  await expect(homeDesignCard(page, originalName)).toHaveCount(0);
-
-  await page.reload();
-  await expectDesignsView(page);
-  await expect(homeDesignCard(page, renamedName)).toBeVisible();
-  const project = await fetchProjectById(page, projectId);
-  expect(project.name).toBe(renamedName);
-});
-
-test('[P1] projects select mode supports multi-select delete with cancel and confirm', async ({ page }) => {
-  const firstName = `Batch delete A ${Date.now()}`;
-  const secondName = `Batch delete B ${Date.now()}`;
-  await page.goto('/');
-
-  await createProject(page, firstName);
-  await expectWorkspaceReady(page);
-  const firstProjectId = getProjectContextFromUrl(page).projectId;
-  await page.getByRole('button', { name: /back to projects/i }).click();
-  await expectDesignsView(page);
-
-  await createProject(page, secondName);
-  await expectWorkspaceReady(page);
-  const secondProjectId = getProjectContextFromUrl(page).projectId;
-  await page.getByRole('button', { name: /back to projects/i }).click();
-  await expectDesignsView(page);
-
-  await page.locator('.designs-select-toggle').click();
-  await homeDesignCard(page, firstName).click();
-  await homeDesignCard(page, secondName).click();
-  await expect(page.locator('.designs-select-bar')).toBeVisible();
-  await expect(page.locator('.design-card.is-selected')).toHaveCount(2);
-
-  await page.getByRole('button', { name: /Delete selected/i }).click();
-  const confirmDialog = page.locator('.modal-confirm');
-  await expect(confirmDialog).toBeVisible();
-  await confirmDialog.getByRole('button', { name: /^cancel$/i }).click();
-  await expect(confirmDialog).toHaveCount(0);
-  await expect(homeDesignCard(page, firstName)).toBeVisible();
-  await expect(homeDesignCard(page, secondName)).toBeVisible();
-
-  await page.getByRole('button', { name: /Delete selected/i }).click();
-  const confirmDialog2 = page.locator('.modal-confirm');
-  await expect(confirmDialog2).toBeVisible();
-  await confirmDialog2.getByRole('button', { name: /^delete/i }).click();
-  await expect(homeDesignCard(page, firstName)).toHaveCount(0);
-  await expect(homeDesignCard(page, secondName)).toHaveCount(0);
-  await expect(page.locator('.designs-select-bar')).toHaveCount(0);
-
-  const firstResponse = await page.request.get(`/api/projects/${firstProjectId}`);
-  const secondResponse = await page.request.get(`/api/projects/${secondProjectId}`);
-  expect(firstResponse.status()).toBe(404);
-  expect(secondResponse.status()).toBe(404);
-});
-
-test('[P1] projects kanban cards open projects and support delete cancel and confirm', async ({ page }) => {
-  const projectName = `Kanban flow ${Date.now()}`;
-  await page.goto('/');
-  await createProject(page, projectName);
-  await expectWorkspaceReady(page);
-
-  const { projectId } = getProjectContextFromUrl(page);
-  await page.getByRole('button', { name: /back to projects/i }).click();
-  await expectDesignsView(page);
-
-  await page.getByTestId('designs-view-kanban').click();
-  await expect(page.locator('.design-kanban-board')).toBeVisible();
-
-  const kanbanCard = page.locator('.design-kanban-card', { hasText: projectName });
-  await expect(kanbanCard).toBeVisible();
-
-  await kanbanCard.click();
-  await expect(page).toHaveURL(new RegExp(`/projects/${projectId}(/conversations/[^/]+)?$`));
-  await expect(page.getByTestId('project-title')).toContainText(projectName);
-  const openedProject = await fetchCurrentProject(page);
-  expect(openedProject.name).toBe(projectName);
-
-  await page.getByRole('button', { name: /back to projects/i }).click();
-  await expectDesignsView(page);
-  await expect(page.locator('.design-kanban-board')).toBeVisible();
-
-  const kanbanCardAgain = page.locator('.design-kanban-card', { hasText: projectName });
-  await kanbanCardAgain.locator('.design-card-close').click();
-  const confirmDialog = page.locator('.modal-confirm');
-  await expect(confirmDialog).toBeVisible();
-  await confirmDialog.getByRole('button', { name: /^cancel$/i }).click();
-  await expect(kanbanCardAgain).toBeVisible();
-
-  await kanbanCardAgain.locator('.design-card-close').click();
-  const confirmDialog2 = page.locator('.modal-confirm');
-  await expect(confirmDialog2).toBeVisible();
-  await confirmDialog2.getByRole('button', { name: /^delete/i }).click();
-  await expect(page.locator('.design-kanban-card', { hasText: projectName })).toHaveCount(0);
-
-  const response = await page.request.get(`/api/projects/${projectId}`);
-  expect(response.status()).toBe(404);
-});
-
-test('[P2] projects page shows the empty state when there are no projects', async ({ page }) => {
-  await page.route('**/api/projects', async (route) => {
-    if (route.request().method() === 'GET') {
-      await route.fulfill({ json: { projects: [] } });
-      return;
-    }
-    await route.continue();
-  });
-
-  await page.goto('/projects');
-  await expect(page).toHaveURL(/\/projects$/);
-  await expect(page.locator('.tab-empty')).toBeVisible();
-  await expect(page.locator('.tab-empty')).toContainText('No projects yet');
-  await expect(page.locator('.design-grid')).toHaveCount(0);
-  await expect(page.locator('.design-kanban-board')).toHaveCount(0);
-});
-
-test('[P2] projects page shows the no-results state and recovers when search is cleared', async ({ page }) => {
-  const projects = [
-    makeProjectsTabProject({
-      id: 'proj-search-1',
-      name: 'Searchable Prototype',
-      createdAt: Date.now() - 10_000,
-      updatedAt: Date.now() - 5_000,
-    }),
-  ];
-
-  await page.route('**/api/projects', async (route) => {
-    if (route.request().method() === 'GET') {
-      await route.fulfill({ json: { projects } });
-      return;
-    }
-    await route.continue();
-  });
-  await page.route('**/api/live-artifacts?projectId=*', async (route) => {
-    await route.fulfill({ json: { liveArtifacts: [] } });
-  });
-
-  await page.goto('/projects');
-  await expectDesignsView(page);
-  await expect(homeDesignCard(page, 'Searchable Prototype')).toBeVisible();
-
-  const search = page.locator('.tab-panel-toolbar .toolbar-search input');
-  await search.fill('does-not-exist');
-  await expect(page.locator('.tab-empty')).toBeVisible();
-  await expect(page.locator('.tab-empty')).toContainText('No projects match your search');
-  await expect(homeDesignCard(page, 'Searchable Prototype')).toHaveCount(0);
-
-  await search.fill('');
-  await expect(homeDesignCard(page, 'Searchable Prototype')).toBeVisible();
-});
-
-test('[P2] projects grid overflow menu closes on outside click and Escape', async ({ page }) => {
-  const projects = [
-    makeProjectsTabProject({
-      id: 'proj-menu-1',
-      name: 'Menu Close Project',
-      createdAt: Date.now() - 10_000,
-      updatedAt: Date.now() - 5_000,
-    }),
-  ];
-
-  await page.route('**/api/projects', async (route) => {
-    if (route.request().method() === 'GET') {
-      await route.fulfill({ json: { projects } });
-      return;
-    }
-    await route.continue();
-  });
-  await page.route('**/api/live-artifacts?projectId=*', async (route) => {
-    await route.fulfill({ json: { liveArtifacts: [] } });
-  });
-
-  await page.goto('/projects');
-  await expectDesignsView(page);
-
-  const card = homeDesignCard(page, 'Menu Close Project');
-  await card.hover();
-  await card.getByRole('button', { name: /more actions/i }).click();
-  const menu = page.locator('.design-card-menu');
-  await expect(menu).toBeVisible();
-
-  await page.mouse.click(20, 20);
-  await expect(menu).toHaveCount(0);
-
-  await card.hover();
-  await card.getByRole('button', { name: /more actions/i }).click();
-  await expect(menu).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(menu).toHaveCount(0);
-});
-
-test('[P2] projects kanban view groups cards into status columns', async ({ page }) => {
-  const now = Date.now();
-  const projects = [
-    makeProjectsTabProject({
-      id: 'proj-not-started',
-      name: 'Not Started Card',
-      createdAt: now - 50_000,
-      updatedAt: now - 45_000,
-      status: { value: 'not_started' },
-    }),
-    makeProjectsTabProject({
-      id: 'proj-running',
-      name: 'Running Card',
-      createdAt: now - 40_000,
-      updatedAt: now - 35_000,
-      status: { value: 'running' },
-    }),
-    makeProjectsTabProject({
-      id: 'proj-awaiting',
-      name: 'Awaiting Input Card',
-      createdAt: now - 30_000,
-      updatedAt: now - 25_000,
-      status: { value: 'awaiting_input' },
-    }),
-    makeProjectsTabProject({
-      id: 'proj-succeeded',
-      name: 'Succeeded Card',
-      createdAt: now - 20_000,
-      updatedAt: now - 15_000,
-      status: { value: 'succeeded' },
-    }),
-    makeProjectsTabProject({
-      id: 'proj-failed',
-      name: 'Failed Card',
-      createdAt: now - 10_000,
-      updatedAt: now - 5_000,
-      status: { value: 'failed' },
-    }),
-  ];
-
-  await page.route('**/api/projects', async (route) => {
-    if (route.request().method() === 'GET') {
-      await route.fulfill({ json: { projects } });
-      return;
-    }
-    await route.continue();
-  });
-  await page.route('**/api/live-artifacts?projectId=*', async (route) => {
-    await route.fulfill({ json: { liveArtifacts: [] } });
-  });
-
-  await page.goto('/projects');
-  await expectDesignsView(page);
-  await page.getByTestId('designs-view-kanban').click();
-  await expect(page.locator('.design-kanban-board')).toBeVisible();
-
-  await expect(page.locator('.design-kanban-card.status-not_started')).toHaveCount(1);
-  await expect(page.locator('.design-kanban-card.status-running')).toHaveCount(1);
-  await expect(page.locator('.design-kanban-card.status-awaiting_input')).toHaveCount(1);
-  await expect(page.locator('.design-kanban-card.status-succeeded')).toHaveCount(1);
-  await expect(page.locator('.design-kanban-card.status-failed')).toHaveCount(1);
-  await expect(page.locator('.design-kanban-empty')).toHaveCount(1);
-
-  await expect(page.locator('.design-kanban-card.status-running')).toContainText('Running Card');
-  await expect(page.locator('.design-kanban-card.status-awaiting_input')).toContainText(
-    'Awaiting Input Card',
-  );
-  await expect(page.locator('.design-kanban-card.status-succeeded')).toContainText(
-    'Succeeded Card',
-  );
-});
-
-test('[P1] projects page shows live artifact cards, supports search, and opens the live artifact project', async ({ page }) => {
-  const liveProject = makeProjectsTabProject({
-    id: 'proj-live',
-    name: 'Orbit Daily Digest',
-    createdAt: Date.now() - 60_000,
-    updatedAt: Date.now() - 30_000,
-    skillId: 'live-artifact',
-    metadata: { kind: 'orbit', intent: 'live-artifact' },
-    status: { value: 'succeeded' },
-  });
-  const regularProject = makeProjectsTabProject({
-    id: 'proj-regular',
-    name: 'Regular Prototype',
-    createdAt: Date.now() - 120_000,
-    updatedAt: Date.now() - 90_000,
-  });
-  const liveArtifact = {
-    id: 'artifact-1',
-    projectId: 'proj-live',
-    title: 'Orbit Daily Digest — 2026-05-15',
-    slug: 'orbit-daily-digest',
-    status: 'ready',
-    refreshStatus: 'succeeded',
-    pinned: false,
-    hasDocument: true,
-    updatedAt: new Date(Date.now() - 20_000).toISOString(),
-    createdAt: new Date(Date.now() - 50_000).toISOString(),
-    preview: {
-      kind: 'rendered',
-      url: '',
-    },
-  };
-
-  await page.route('**/api/projects', async (route) => {
-    if (route.request().method() === 'GET') {
-      await route.fulfill({ json: { projects: [liveProject, regularProject] } });
-      return;
-    }
-    await route.continue();
-  });
-  await page.route('**/api/projects/proj-live', async (route) => {
-    await route.fulfill({ json: { project: liveProject } });
-  });
-  await page.route('**/api/projects/proj-live/files', async (route) => {
-    await route.fulfill({ json: { files: [] } });
-  });
-  await page.route('**/api/live-artifacts?projectId=*', async (route) => {
-    const url = new URL(route.request().url());
-    const projectId = url.searchParams.get('projectId');
-    await route.fulfill({
-      json: {
-        liveArtifacts: projectId === 'proj-live' ? [liveArtifact] : [],
-      },
-    });
-  });
-  await page.route('**/api/live-artifacts/artifact-1', async (route) => {
-    await route.fulfill({ json: { liveArtifact } });
-  });
-  await page.route('**/api/live-artifacts/artifact-1/refreshes?projectId=*', async (route) => {
-    await route.fulfill({ json: { refreshes: [] } });
-  });
-  await page.route('**/api/live-artifacts/artifact-1/preview?projectId=*', async (route) => {
-    await route.fulfill({
-      status: 200,
-      headers: { 'content-type': 'text/html' },
-      body: '<!doctype html><html><body><h1>Orbit Daily Digest</h1></body></html>',
-    });
-  });
-
-  await page.goto('/projects');
-  await expectDesignsView(page);
-
-  const liveCard = page.locator('.live-artifact-card', {
-    has: page.locator('.design-card-name', { hasText: 'Orbit Daily Digest' }),
-  });
-  await expect(liveCard).toBeVisible();
-  await expect(liveCard).toContainText(/Live Artifact/i);
-  await expect(liveCard).toContainText(/LIVE|Refreshed/i);
-
-  const search = page.locator('.tab-panel-toolbar .toolbar-search input');
-  await search.fill('digest');
-  await expect(liveCard).toBeVisible();
-  await expect(homeDesignCard(page, 'Regular Prototype')).toHaveCount(0);
-
-  await liveCard.click();
-  await expect(page).toHaveURL(/\/projects\/proj-live\/files\/live%3Aartifact-1$/);
-  await expect(page.getByTestId('project-title')).toContainText('Orbit Daily Digest');
-});
-
-test('[P2] change pet opens pet settings and updates the custom companion draft', async ({ page }) => {
+test('change pet opens pet settings and updates the custom companion draft', async ({ page }) => {
   await seedAdoptedPet(page);
   await page.route('**/api/codex-pets', async (route) => {
     await route.fulfill({ json: { pets: [], rootDir: '' } });
   });
 
   await page.goto('/');
-  const dialog = await openEntrySettingsDialog(page, /^Pets\b/);
-  await expect(dialog.getByRole('heading', { level: 2, name: 'Pets' })).toBeVisible();
+  await expect(page.getByTestId('new-project-panel')).toBeVisible();
+
+  await page
+    .locator('.entry-side-foot')
+    .getByRole('button', { name: /change pet/i })
+    .click();
+
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('heading', { level: 3, name: 'Pets' })).toBeVisible();
 
   await dialog.getByRole('tab', { name: 'Custom' }).click();
   const customPanel = dialog.locator('.pet-custom');
@@ -1421,74 +369,17 @@ async function createProject(
   page: Page,
   projectName: string,
 ) {
-  const response = await page.request.post('/api/projects', {
-    data: {
-      id: `project-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      name: projectName,
-      skillId: null,
-      designSystemId: null,
-      metadata: {
-        kind: 'prototype',
-        nameSource: 'user',
-      },
-    },
-  });
-  expect(response.ok(), await response.text()).toBeTruthy();
-  const body = (await response.json()) as {
-    project: { id: string };
-    conversationId: string;
-  };
-  await page.goto(`/projects/${body.project.id}/conversations/${body.conversationId}`);
-}
-
-async function openNewProjectPanel(page: Page) {
-  if (await page.getByTestId('new-project-panel').isVisible()) return;
-  await ensureRailOpen(page);
-  await page.getByTestId('entry-nav-new-project').click();
-  await expect(page.getByTestId('new-project-modal')).toBeVisible();
   await expect(page.getByTestId('new-project-panel')).toBeVisible();
-}
-
-async function expectDesignsView(page: Page) {
-  if (!/\/projects$/.test(new URL(page.url()).pathname)) {
-    await ensureRailOpen(page);
-    await page.getByTestId('entry-nav-projects').click();
-  }
-  await expect(page).toHaveURL(/\/projects$/);
-  await expect(page.locator('.design-grid, .design-kanban-board')).toBeVisible();
-}
-
-async function openEntrySettingsDialog(page: Page, sectionName?: RegExp | string): Promise<Locator> {
-  const settingsButton = page.getByRole('button', { name: /open settings/i });
-  await settingsButton.click();
-  let settingsDialog = page.getByRole('dialog');
-  if (!(await settingsDialog.isVisible().catch(() => false))) {
-    const settingsMenu = page.locator('.avatar-popover[role="menu"]');
-    await expect(settingsMenu).toBeVisible();
-    await settingsMenu.getByRole('button', { name: /^Settings$/i }).click();
-    settingsDialog = page.getByRole('dialog');
-  }
-  await expect(settingsDialog).toBeVisible();
-  if (sectionName) {
-    await settingsDialog.getByRole('button', { name: sectionName }).click();
-  }
-  return settingsDialog;
+  await page.getByTestId('new-project-tab-prototype').click();
+  await page.getByTestId('new-project-name').fill(projectName);
+  await page.getByTestId('create-project').click();
 }
 
 async function expectWorkspaceReady(page: Page) {
   await expect(page).toHaveURL(/\/projects\//);
-  await dismissPrivacyDialog(page);
   await expect(page.getByTestId('chat-composer')).toBeVisible();
-  await expect(page.getByTestId('chat-composer-input')).toBeVisible();
   await expect(page.getByTestId('file-workspace')).toBeVisible();
-}
-
-async function dismissPrivacyDialog(page: Page) {
-  const privacyRegion = page.getByRole('region', { name: /Help us improve Open Design/i });
-  if (await privacyRegion.isVisible().catch(() => false)) {
-    await privacyRegion.getByRole('button', { name: /I get it|not now|got it/i }).click();
-    await expect(privacyRegion).toBeHidden();
-  }
+  await expect(page.getByText('Start a conversation')).toBeVisible();
 }
 
 async function renameProjectTitle(
@@ -1504,29 +395,6 @@ async function renameProjectTitle(
   }
   await page.keyboard.type(nextName);
   await page.keyboard.press('Enter');
-}
-
-async function uploadTinyHtml(
-  page: Page,
-  name: string,
-  content: string,
-): Promise<string> {
-  await page.getByTestId('design-files-upload-input').setInputFiles({
-    name,
-    mimeType: 'text/html',
-    buffer: Buffer.from(content),
-  });
-  const { projectId } = getProjectContextFromUrl(page);
-  let uploadedName = '';
-  await expect
-    .poll(async () => {
-      const files = await listProjectFiles(page, projectId);
-      uploadedName = files.find((file) => file.name.endsWith(name))?.name ?? '';
-      return uploadedName;
-    })
-    .not.toBe('');
-  await expect(tabBySuffix(page, uploadedName)).toBeVisible();
-  return uploadedName;
 }
 
 async function uploadTinyPng(
@@ -1550,18 +418,8 @@ async function uploadTinyPng(
   return uploaded!.name;
 }
 
-async function openUploadedHtmlArtifactPreview(page: Page, uploadedName: string) {
-  await page.getByTestId('design-files-tab').click();
-  const fileRow = rowByFileName(page, uploadedName);
-  await expect(fileRow).toBeVisible();
-  await fileRow.getByRole('button').first().click();
-  const previewCard = page.getByTestId('design-file-preview');
-  await expect(previewCard).toBeVisible();
-  await previewCard.getByRole('button', { name: 'Open' }).click();
-}
-
 function tabBySuffix(page: Page, name: string): Locator {
-  return page.getByRole('tab', { name: new RegExp(`${escapeRegExp(name)}(?:\\s+Close tab)?$`, 'i') });
+  return page.getByRole('tab', { name: new RegExp(`${escapeRegExp(name)}$`, 'i') });
 }
 
 function rowByFileName(page: Page, name: string): Locator {
@@ -1574,9 +432,7 @@ function menuByFileName(page: Page, name: string): Locator {
 
 function homeDesignCard(page: Page, name: string): Locator {
   return page.locator('.design-card', {
-    has: page.locator('.design-card-name', {
-      hasText: new RegExp(`^${escapeRegExp(name)}$`),
-    }),
+    has: page.locator('.design-card-name', { hasText: name }),
   });
 }
 
@@ -1588,12 +444,12 @@ async function seedAdoptedPet(page: Page) {
         mode: 'daemon',
         apiKey: '',
         baseUrl: 'https://api.anthropic.com',
-        model: 'default',
-        agentId: 'codex',
+        model: 'claude-sonnet-4-5',
+        agentId: 'mock',
         skillId: null,
         designSystemId: null,
         onboardingCompleted: true,
-        agentModels: { codex: { model: 'default' } },
+        agentModels: {},
         pet: {
           adopted: true,
           enabled: true,
@@ -1612,15 +468,10 @@ async function seedAdoptedPet(page: Page) {
 
 async function fetchCurrentProject(page: Page) {
   const { projectId } = getProjectContextFromUrl(page);
-  return fetchProjectById(page, projectId);
-}
-
-async function fetchProjectById(page: Page, projectId: string) {
   const response = await page.request.get(`/api/projects/${projectId}`);
   expect(response.ok()).toBeTruthy();
   const body = (await response.json()) as {
     project: {
-      id?: string;
       name: string;
       designSystemId: string | null;
       metadata?: {
@@ -1631,25 +482,11 @@ async function fetchProjectById(page: Page, projectId: string) {
   return body.project;
 }
 
-async function listProjectsFromApi(page: Page) {
-  const response = await page.request.get('/api/projects');
-  expect(response.ok()).toBeTruthy();
-  const body = (await response.json()) as {
-    projects: Array<{ id: string; name: string }>;
-  };
-  return body.projects;
-}
-
 async function listProjectFiles(page: Page, projectId: string) {
   const response = await page.request.get(`/api/projects/${projectId}/files`);
   expect(response.ok()).toBeTruthy();
   const body = (await response.json()) as { files: Array<{ name: string }> };
   return body.files;
-}
-
-function isCreateProjectRequest(request: Request): boolean {
-  const url = new URL(request.url());
-  return url.pathname === '/api/projects' && request.method() === 'POST';
 }
 
 function getProjectContextFromUrl(page: Page) {
@@ -1659,46 +496,8 @@ function getProjectContextFromUrl(page: Page) {
   return { projectId };
 }
 
-function getProjectIdFromApiPath(rawUrl: string) {
-  const url = new URL(rawUrl);
-  const [, projectId] = url.pathname.match(/\/api\/projects\/([^/]+)/) ?? [];
-  if (!projectId) throw new Error(`unexpected project api path: ${url.pathname}`);
-  return projectId;
-}
-
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function makeProjectsTabProject({
-  id,
-  name,
-  createdAt,
-  updatedAt,
-  skillId = null,
-  metadata = { kind: 'prototype' as const },
-  status = { value: 'succeeded' as const },
-}: {
-  id: string;
-  name: string;
-  createdAt: number;
-  updatedAt: number;
-  skillId?: string | null;
-  metadata?: Record<string, unknown>;
-  status?: { value: string };
-}) {
-  return {
-    id,
-    name,
-    createdAt,
-    updatedAt,
-    skillId,
-    designSystemId: null,
-    pendingPrompt: '',
-    customInstructions: null,
-    metadata,
-    status,
-  };
 }
 
 function skillSummary(

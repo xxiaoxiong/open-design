@@ -1,7 +1,6 @@
 import { join } from "node:path";
 
 import type { ToolPackConfig } from "../config.js";
-import { WIN_PREBUNDLED_APP_DIR_NAME } from "../win-prebundle.js";
 import {
   ELECTRON_BUILDER_ASAR,
   ELECTRON_BUILDER_BUILD_DEPENDENCIES_FROM_SOURCE,
@@ -22,38 +21,17 @@ function isBetterSqlite3SourceResidue(path: string): boolean {
   );
 }
 
-export function resolveWinTargets(to: ToolPackConfig["to"]): Array<"dir" | "nsis" | "zip"> {
+export function resolveWinTargets(to: ToolPackConfig["to"]): Array<"dir" | "nsis"> {
   switch (to) {
     case "dir":
       return ["dir"];
     case "all":
-      return ["dir", "nsis", "zip"];
+      return ["dir", "nsis"];
     case "nsis":
       return ["nsis"];
-    case "zip":
-      return ["zip"];
     default:
       throw new Error(`unsupported win target: ${to}`);
   }
-}
-
-// electron-builder only knows how to produce the unpacked `dir` and the NSIS
-// installer; the portable zip is assembled afterwards from the same unpacked
-// content using bundled 7z, so we filter the zip target out before handing the
-// list to electron-builder. When the user asks for `zip` alone we still need
-// the unpacked dir, so the helper substitutes `dir` in its place.
-export function resolveElectronBuilderWinTargets(to: ToolPackConfig["to"]): Array<"dir" | "nsis"> {
-  const filtered = resolveWinTargets(to).filter((target): target is "dir" | "nsis" => target !== "zip");
-  if (filtered.length === 0) return ["dir"];
-  return filtered;
-}
-
-export function shouldBuildWinNsisInstaller(to: ToolPackConfig["to"]): boolean {
-  return resolveWinTargets(to).includes("nsis");
-}
-
-export function shouldBuildWinPortableZip(to: ToolPackConfig["to"]): boolean {
-  return resolveWinTargets(to).includes("zip");
 }
 
 export async function collectWinSizeReport(
@@ -89,7 +67,6 @@ export async function collectWinSizeReport(
     generatedAt: new Date().toISOString(),
     installerBytes: await sizeExistingFileBytes(paths.setupPath),
     outputRootBytes: namespaceSizeIndex.sizePathBytes(config.roots.output.namespaceRoot),
-    portableZipBytes: await sizeExistingFileBytes(paths.setupZipPath),
     resourceRootBytes: sizeIndex.sizePathBytes(join(appResourcesRoot, "open-design")),
     runtimeNamespaceRoot: config.roots.runtime.namespaceRoot,
     topLevel: {
@@ -130,7 +107,6 @@ export async function collectWinSizeReport(
       markdownBytes: sizeIndex.sizePathBytes(unpackedRoot, { includeFile: (path) => path.endsWith(".md") }),
       nextBytes: sizeIndex.sizePathBytes(join(appNodeModulesRoot, "next")),
       nextSwcBytes: sizeIndex.sumChildDirectorySizes(join(appNodeModulesRoot, "@next"), (name) => name.startsWith("swc-win32-")),
-      prebundledRuntimeBytes: sizeIndex.sizePathBytes(join(appResourcesRoot, "app", WIN_PREBUNDLED_APP_DIR_NAME)),
       sharpLibvipsBytes: sizeIndex.sizePathBytes(join(appNodeModulesRoot, "@img", "sharp-libvips-win32-x64")),
       sourcemapBytes: sizeIndex.sizePathBytes(unpackedRoot, { includeFile: (path) => path.endsWith(".map") }),
       tsbuildInfoBytes: sizeIndex.sizePathBytes(unpackedRoot, { includeFile: (path) => path.endsWith(".tsbuildinfo") }),

@@ -5,38 +5,21 @@ module.exports = async function notarize(context) {
     return;
   }
 
-  const keychainProfile = process.env.APPLE_NOTARY_KEYCHAIN_PROFILE;
-  const keychain = process.env.APPLE_NOTARY_KEYCHAIN;
   const appleId = process.env.APPLE_ID;
   const appleIdPassword = process.env.APPLE_APP_SPECIFIC_PASSWORD;
   const teamId = process.env.APPLE_TEAM_ID;
+  const missing = [
+    ["APPLE_ID", appleId],
+    ["APPLE_APP_SPECIFIC_PASSWORD", appleIdPassword],
+    ["APPLE_TEAM_ID", teamId],
+  ]
+    .filter(([, value]) => !value)
+    .map(([name]) => name);
 
-  let credentials;
-  if (keychainProfile) {
-    credentials = {
-      keychainProfile,
-      ...(keychain ? { keychain } : {}),
-    };
-  } else {
-    const missing = [
-      ["APPLE_ID", appleId],
-      ["APPLE_APP_SPECIFIC_PASSWORD", appleIdPassword],
-      ["APPLE_TEAM_ID", teamId],
-    ]
-      .filter(([, value]) => !value)
-      .map(([name]) => name);
-
-    if (missing.length > 0) {
-      throw new Error(
-        `[tools-pack notarize] missing required Apple notarization env: ${missing.join(", ")}`,
-      );
-    }
-
-    credentials = {
-      appleId,
-      appleIdPassword,
-      teamId,
-    };
+  if (missing.length > 0) {
+    throw new Error(
+      `[tools-pack notarize] missing required Apple notarization env: ${missing.join(", ")}`,
+    );
   }
 
   const productFilename = context.packager.appInfo.productFilename;
@@ -45,6 +28,8 @@ module.exports = async function notarize(context) {
 
   await notarize({
     appPath,
-    ...credentials,
+    appleId,
+    appleIdPassword,
+    teamId,
   });
 };

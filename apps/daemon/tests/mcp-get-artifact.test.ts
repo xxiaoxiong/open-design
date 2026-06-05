@@ -1,45 +1,12 @@
+// @ts-nocheck
 import http from 'node:http';
-import type { AddressInfo } from 'node:net';
 import express from 'express';
-import type { Express } from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { getArtifact, fetchProjectFile } from '../src/mcp.js';
 
 // A minimal mock of the daemon's project file endpoints. Tests control
 // the file list and per-file response via the opts object.
-interface DaemonAppOpts {
-  files?: Array<{ name: string }>;
-  fileContent?: string;
-  contentType?: string;
-  contentLength?: number | null;
-}
-
-interface Harness {
-  server: http.Server;
-  baseUrl: string;
-}
-
-interface TextContent {
-  type: string;
-  text: string;
-}
-
-interface ArtifactBody {
-  truncated: boolean;
-  files: unknown[];
-}
-
-function firstText(content: TextContent[]): string {
-  const item = content[0];
-  if (item == null) throw new Error('expected MCP text content');
-  return item.text;
-}
-
-function parseArtifactBody(text: string): ArtifactBody {
-  return JSON.parse(text) as ArtifactBody;
-}
-
-function makeDaemonApp(opts: DaemonAppOpts = {}): Express {
+function makeDaemonApp(opts = {}) {
   const { files = [], fileContent = 'body {}', contentType = 'text/css', contentLength = null } = opts;
   const app = express();
 
@@ -51,8 +18,8 @@ function makeDaemonApp(opts: DaemonAppOpts = {}): Express {
 
   app.get('/api/projects/:id/files', (_req, res) => res.json({ files }));
 
-  app.get('/api/projects/:id/raw/*splat', (_req, res) => {
-    const headers: Record<string, string> = { 'content-type': contentType };
+  app.get('/api/projects/:id/raw/*', (_req, res) => {
+    const headers = { 'content-type': contentType };
     if (contentLength != null) headers['content-length'] = String(contentLength);
     res.set(headers).send(fileContent);
   });
@@ -60,11 +27,11 @@ function makeDaemonApp(opts: DaemonAppOpts = {}): Express {
   return app;
 }
 
-function startServer(app: Express): Promise<Harness> {
+function startServer(app) {
   return new Promise((resolve) => {
     const tmp = http.createServer();
     tmp.listen(0, '127.0.0.1', () => {
-      const { port } = tmp.address() as AddressInfo;
+      const { port } = tmp.address();
       tmp.close(() => {
         const server = app.listen(port, '127.0.0.1', () =>
           resolve({ server, baseUrl: `http://127.0.0.1:${port}` }),
@@ -77,8 +44,8 @@ function startServer(app: Express): Promise<Harness> {
 const PROJECT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 
 describe('getArtifact file-count cap (MAX_FILES = 200)', () => {
-  let server: http.Server;
-  let baseUrl: string;
+  let server;
+  let baseUrl;
 
   const fileList = Array.from({ length: 250 }, (_, i) => ({ name: `file${i}.css` }));
 
@@ -92,15 +59,15 @@ describe('getArtifact file-count cap (MAX_FILES = 200)', () => {
 
   it('caps at 200 files and sets truncated: true when the project has 250 files', async () => {
     const result = await getArtifact(baseUrl, PROJECT_ID, 'index.html', 'all', 10_000_000);
-    const body = parseArtifactBody(firstText(result.content));
+    const body = JSON.parse(result.content[0].text);
     expect(body.truncated).toBe(true);
     expect(body.files.length).toBe(200);
   });
 });
 
 describe('getArtifact maxBytes cap', () => {
-  let server: http.Server;
-  let baseUrl: string;
+  let server;
+  let baseUrl;
 
   // 10 files, each 200 bytes. With maxBytes=400 the third loop iteration
   // finds totalTextBytes >= maxBytes and sets truncated: true.
@@ -117,15 +84,15 @@ describe('getArtifact maxBytes cap', () => {
 
   it('stops fetching and sets truncated: true when byte cap is reached', async () => {
     const result = await getArtifact(baseUrl, PROJECT_ID, 'index.html', 'all', 400);
-    const body = parseArtifactBody(firstText(result.content));
+    const body = JSON.parse(result.content[0].text);
     expect(body.truncated).toBe(true);
     expect(body.files.length).toBeLessThan(10);
   });
 });
 
 describe('fetchProjectFile per-file size pre-check', () => {
-  let server: http.Server;
-  let baseUrl: string;
+  let server;
+  let baseUrl;
 
   beforeAll(async () => {
     const r = await startServer(
@@ -146,13 +113,13 @@ describe('fetchProjectFile per-file size pre-check', () => {
   it('succeeds and returns content when remainingBytes is sufficient', async () => {
     const file = await fetchProjectFile(baseUrl, PROJECT_ID, 'styles.css', 20_000);
     expect(file.binary).toBe(false);
-    expect(file.content?.length).toBe(10_000);
+    expect(file.content.length).toBe(10_000);
   });
 });
 
 describe('getArtifact truncated: true when per-file content-length pre-check fires (include=all)', () => {
-  let server: http.Server;
-  let baseUrl: string;
+  let server;
+  let baseUrl;
 
   // 5 files, each 250 bytes with explicit content-length.
   // maxBytes=400: file0 (remaining=400, size=250) fetches fine.
@@ -173,7 +140,7 @@ describe('getArtifact truncated: true when per-file content-length pre-check fir
 
   it('sets truncated: true even when totalTextBytes never reaches maxBytes', async () => {
     const result = await getArtifact(baseUrl, PROJECT_ID, 'index.html', 'all', 400);
-    const body = parseArtifactBody(firstText(result.content));
+    const body = JSON.parse(result.content[0].text);
     expect(body.truncated).toBe(true);
     expect(body.files.length).toBe(1);
   });

@@ -1,5 +1,5 @@
 import type http from 'node:http';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -549,23 +549,17 @@ describe('deploy provider routes', () => {
             headers: { 'content-type': 'application/json' },
           });
         }
-        if (url.endsWith(`/pages/projects/${expectedPagesProject}/domains/demo.example.com`) && method === 'GET') {
+        if (url.includes(`/pages/projects/${expectedPagesProject}/domains?`) && method === 'GET') {
           domainListCount += 1;
-          if (domainListCount === 1) {
-            return new Response(JSON.stringify({
-              success: false,
-              errors: [{ message: 'Custom domain not found' }],
-            }), {
-              status: 404,
-              headers: { 'content-type': 'application/json' },
-            });
-          }
-          const result = {
-            name: 'demo.example.com',
-            status: domainListCount === 2 ? 'pending' : 'active',
-            validation_data: { txt_name: '_cf-custom-hostname.demo.example.com' },
-            verification_data: { cname: `${expectedPagesProject}.pages.dev` },
-          };
+          const result =
+            domainListCount === 1
+              ? []
+              : [{
+                  name: 'demo.example.com',
+                  status: domainListCount === 2 ? 'pending' : 'active',
+                  validation_data: { txt_name: '_cf-custom-hostname.demo.example.com' },
+                  verification_data: { cname: `${expectedPagesProject}.pages.dev` },
+                }];
           return new Response(JSON.stringify({ success: true, result }), {
             status: 200,
             headers: { 'content-type': 'application/json' },
@@ -677,9 +671,6 @@ describe('deploy provider routes', () => {
     const projectId = `vercel-payload-${Date.now()}`;
     const dir = await ensureProject(path.join(dataDir, 'projects'), projectId);
     await writeFile(path.join(dir, 'index.html'), '<!doctype html><h1>Hello</h1>');
-    await writeFile(path.join(dir, 'index-v1.html'), '<!doctype html><h1>V1</h1>');
-    await mkdir(path.join(dir, 'screens'), { recursive: true });
-    await writeFile(path.join(dir, 'screens', 'k1-waiting.html'), '<!doctype html><h1>K1</h1>');
     try {
       const createProjectResp = await fetch(`${baseUrl}/api/projects`, {
         method: 'POST',
@@ -717,11 +708,6 @@ describe('deploy provider routes', () => {
           const body = JSON.parse(String(init?.body ?? '{}'));
           expect(body).not.toHaveProperty('cloudflarePages');
           expect(JSON.stringify(body)).not.toContain('example.com');
-          expect(body.files.map((item: { file: string }) => item.file).sort()).toEqual([
-            'index-v1.html',
-            'index.html',
-            'screens/k1-waiting.html',
-          ]);
           return new Response(JSON.stringify({
             id: 'vercel-dep-1',
             readyState: 'READY',

@@ -235,51 +235,6 @@ describe('deploy file set', () => {
     expect(files.map((f) => f.file)).toEqual(['index.html']);
   });
 
-  it('can include all visible project files while keeping the selected entry at index.html', async () => {
-    const { projectsRoot, projectId, dir } = await setupProject();
-    await mkdir(path.join(dir, 'screens'), { recursive: true });
-    await writeFile(path.join(dir, 'index.html'), '<!doctype html><h1>Launcher</h1>');
-    await writeFile(path.join(dir, 'index-v1.html'), '<!doctype html><h1>V1</h1>');
-    await writeFile(path.join(dir, 'screens', 'k1-waiting.html'), '<!doctype html><h1>K1</h1>');
-    await writeFile(path.join(dir, 'index-v1.html.artifact.json'), '{}');
-
-    const files = await buildDeployFileSet(projectsRoot, projectId, 'index-v1.html', {
-      includeProjectFiles: true,
-    });
-    const index = files.find((item) => item.file === 'index.html');
-
-    expect(files.map((f) => f.file).sort()).toEqual([
-      'index-v1.html',
-      'index.html',
-      'screens/k1-waiting.html',
-    ]);
-    expect(index?.sourcePath).toBe('index-v1.html');
-    expect(index?.data.toString('utf8')).toContain('V1');
-  });
-
-  it('does not publish unreferenced files from linked-folder projects', async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), 'od-deploy-linked-test-'));
-    const projectsRoot = path.join(root, 'projects');
-    const linkedDir = path.join(root, 'linked');
-    const projectId = 'linked-p1';
-    const metadata = { baseDir: linkedDir };
-    await mkdir(path.join(linkedDir, 'src'), { recursive: true });
-    await writeFile(path.join(linkedDir, 'index.html'), '<!doctype html><link rel="stylesheet" href="style.css"><h1>Linked</h1>');
-    await writeFile(path.join(linkedDir, 'style.css'), 'body { color: black; }');
-    await writeFile(path.join(linkedDir, 'README.md'), '# Private notes');
-    await writeFile(path.join(linkedDir, 'src', 'app.ts'), 'export const secret = true;');
-
-    const files = await buildDeployFileSet(projectsRoot, projectId, 'index.html', {
-      metadata,
-      includeProjectFiles: true,
-    });
-
-    expect(files.map((f) => f.file).sort()).toEqual([
-      'index.html',
-      'style.css',
-    ]);
-  });
-
   it('injects a closeable deploy hook script from cdn when configured', async () => {
     const { projectsRoot, projectId, dir } = await setupProject();
     await writeFile(path.join(dir, 'page.html'), '<!doctype html><body><h1>Hello</h1></body>');
@@ -915,6 +870,7 @@ describe('cloudflare pages deploys', () => {
     dnsCreateAlreadyExists?: boolean;
     dnsCreateRejectsComment?: boolean;
     pagesDomains?: Array<Record<string, unknown>>;
+    pagesDomainPages?: Array<Array<Record<string, unknown>>>;
     customHeadStatus?: number;
   } = {}) {
     const indexHash = cloudflarePagesAssetHash({
@@ -1018,21 +974,19 @@ describe('cloudflare pages deploys', () => {
           headers: { 'content-type': 'application/json' },
         });
       }
-      if (url.endsWith('/pages/projects/demo-pages/domains/demo.example.com') && method === 'GET') {
-        const result = (options.pagesDomains ?? [])
-          .find((domain) => domain.name === 'demo.example.com');
-        if (!result) {
-          return new Response(JSON.stringify({
-            success: false,
-            errors: [{ message: 'Custom domain not found' }],
-          }), {
-            status: 404,
-            headers: { 'content-type': 'application/json' },
-          });
-        }
+      if (url.includes('/pages/projects/demo-pages/domains?') && method === 'GET') {
+        const requestUrl = new URL(url);
+        const page = Number(requestUrl.searchParams.get('page') || '1');
+        const domainPages = options.pagesDomainPages;
+        const result = domainPages ? domainPages[page - 1] ?? [] : options.pagesDomains ?? [];
         return new Response(JSON.stringify({
           success: true,
           result,
+          result_info: {
+            page,
+            per_page: 100,
+            total_pages: domainPages?.length || 1,
+          },
         }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
@@ -1683,12 +1637,9 @@ describe('cloudflare pages deploys', () => {
           headers: { 'content-type': 'application/json' },
         });
       }
-      if (url.endsWith('/pages/projects/demo-pages/domains/demo.example.com') && method === 'GET') {
-        return new Response(JSON.stringify({
-          success: false,
-          errors: [{ message: 'Custom domain not found' }],
-        }), {
-          status: 404,
+      if (url.includes('/pages/projects/demo-pages/domains?') && method === 'GET') {
+        return new Response(JSON.stringify({ success: true, result: [] }), {
+          status: 200,
           headers: { 'content-type': 'application/json' },
         });
       }
@@ -1825,9 +1776,12 @@ describe('cloudflare pages deploys', () => {
     expect(calls.filter((call) => call.url.endsWith('/zones/zone-1/dns_records') && call.method === 'POST')).toHaveLength(1);
   });
 
-  it('reads an existing Cloudflare Pages custom domain without unsupported list pagination', async () => {
+  it('finds existing Cloudflare Pages custom domains beyond the first page', async () => {
     const { calls, fetchMock } = createCustomDomainDeployMock({
-      pagesDomains: [{ name: 'demo.example.com', status: 'active' }],
+      pagesDomainPages: [
+        [{ name: 'other.example.com', status: 'active' }],
+        [{ name: 'demo.example.com', status: 'active' }],
+      ],
     });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -1844,12 +1798,9 @@ describe('cloudflare pages deploys', () => {
       },
     });
     const domainLookupUrls = calls
-      .filter((call) => call.url.includes('/pages/projects/demo-pages/domains/') && call.method === 'GET')
-      .map((call) => call.url);
-    expect(domainLookupUrls).toEqual([
-      'https://api.cloudflare.com/client/v4/accounts/account_123/pages/projects/demo-pages/domains/demo.example.com',
-    ]);
-    expect(domainLookupUrls.every((url) => !url.includes('?'))).toBe(true);
+      .filter((call) => call.url.includes('/pages/projects/demo-pages/domains?') && call.method === 'GET')
+      .map((call) => new URL(call.url).searchParams.get('page'));
+    expect(domainLookupUrls).toEqual(['1', '2']);
     expect(calls.some((call) => call.url.endsWith('/pages/projects/demo-pages/domains') && call.method === 'POST')).toBe(false);
   });
 
@@ -2161,12 +2112,9 @@ describe('cloudflare pages deploys', () => {
           headers: { 'content-type': 'application/json' },
         });
       }
-      if (url.endsWith('/pages/projects/demo-pages/domains/demo.example.com') && method === 'GET') {
-        return new Response(JSON.stringify({
-          success: false,
-          errors: [{ message: 'Custom domain not found' }],
-        }), {
-          status: 404,
+      if (url.includes('/pages/projects/demo-pages/domains?') && method === 'GET') {
+        return new Response(JSON.stringify({ success: true, result: [] }), {
+          status: 200,
           headers: { 'content-type': 'application/json' },
         });
       }

@@ -5,10 +5,18 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { ToolPackConfig } from "../src/config.js";
-import { INTERNAL_PACKAGES } from "../src/win/constants.js";
 import { createWorkspaceTarballsCacheKey } from "../src/win/app.js";
 
-const PACKAGE_DIRS = INTERNAL_PACKAGES.map((packageInfo) => packageInfo.directory);
+const PACKAGE_DIRS = [
+  "packages/contracts",
+  "packages/sidecar-proto",
+  "packages/sidecar",
+  "packages/platform",
+  "apps/daemon",
+  "apps/web",
+  "apps/desktop",
+  "apps/packaged",
+] as const;
 
 async function writeWorkspace(root: string): Promise<void> {
   await writeFile(join(root, "package.json"), `${JSON.stringify({ packageManager: "pnpm@10.33.2" }, null, 2)}\n`, "utf8");
@@ -34,7 +42,6 @@ function createConfig(root: string, webOutputMode: ToolPackConfig["webOutputMode
     removeLogs: false,
     removeProductUserData: false,
     removeSidecars: false,
-    requireVelaCli: false,
     roots: {
       cacheRoot: join(root, ".cache"),
       output: {

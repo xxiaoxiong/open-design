@@ -10,17 +10,13 @@ import {
   createSidecarLaunchEnv,
   resolveAppIpcPath,
 } from "@open-design/sidecar";
-import { applyOsLocaleSwitch, createSplashWindow } from "@open-design/desktop/main";
 import { readProcessStamp } from "@open-design/platform";
-import { join } from "node:path";
-import { app, dialog } from "electron";
+import { app } from "electron";
 
 import { readPackagedConfig } from "./config.js";
 import { writePackagedDesktopIdentity } from "./identity.js";
-import { PackagedPathAccessError } from "./errors.js";
 import {
   applyPackagedElectronPathOverrides,
-  claimPackagedSingleInstanceLock,
   ensurePackagedNamespacePaths,
 } from "./launch.js";
 import {
@@ -33,8 +29,6 @@ import { packagedEntryUrl, registerOdProtocol } from "./protocol.js";
 import { startPackagedSidecars } from "./sidecars.js";
 
 let packagedLogger: PackagedDesktopLogger | null = null;
-let pendingSecondInstanceFocus = false;
-let showExistingDesktop: (() => void) | null = null;
 
 function createPackagedDesktopStamp(namespace: string): SidecarStamp {
   return {
@@ -63,43 +57,18 @@ function applyLaunchEnv(base: string, stamp: SidecarStamp): void {
 }
 
 async function main(): Promise<void> {
-  // Must run BEFORE `app.whenReady()` below, because Chromium consumes
-  // `--lang` at session bootstrap. Doing it here lets the packaged
-  // renderer's `navigator.language` follow the OS instead of Chromium's
-  // en-US default. runDesktopMain (called later) calls the same helper
-  // again to recover the resolved locale string for the BrowserWindow.
-  applyOsLocaleSwitch(app);
-
   const config = await readPackagedConfig();
   const argvStamp = readProcessStamp(process.argv.slice(1), OPEN_DESIGN_SIDECAR_CONTRACT);
   const namespace = argvStamp?.namespace ?? config.namespace;
-  const paths = resolvePackagedNamespacePaths(config, namespace, process.env);
+  const paths = resolvePackagedNamespacePaths(config, namespace);
   const stamp = argvStamp ?? createPackagedDesktopStamp(namespace);
 
   await ensurePackagedNamespacePaths(paths);
   packagedLogger = createPackagedDesktopLogger(paths);
   attachPackagedDesktopProcessLogging({ logger: packagedLogger, paths, stamp });
   applyPackagedElectronPathOverrides(paths);
-  if (!claimPackagedSingleInstanceLock(app, () => {
-    if (showExistingDesktop == null) {
-      pendingSecondInstanceFocus = true;
-      return;
-    }
-    showExistingDesktop();
-  })) {
-    return;
-  }
   const identity = await writePackagedDesktopIdentity({ paths, stamp });
   await app.whenReady();
-
-  // Show the brand splash IMMEDIATELY, before we await the daemon/web sidecars
-  // below. Cold boot otherwise leaves the user staring at no window at all for
-  // the few seconds the sidecars take to come up; putting the animation on
-  // screen in parallel masks that gap, and the runtime keeps it up until the
-  // real app has mounted (see createDesktopRuntime). The handle carries the
-  // creation timestamp so the runtime's minimum-hold timer counts from here —
-  // BEFORE the sidecar boot below — rather than re-adding the delay afterwards.
-  const splash = createSplashWindow();
 
   applyLaunchEnv(paths.runtimeRoot, stamp);
 
@@ -111,18 +80,9 @@ async function main(): Promise<void> {
 
   const sidecars = await startPackagedSidecars(runtime, paths, {
     appVersion: config.appVersion,
-    amrProfile: config.amrProfile,
     daemonCliEntry: config.daemonCliEntry,
     daemonSidecarEntry: config.daemonSidecarEntry,
     nodeCommand: config.nodeCommand,
-    telemetryRelayUrl: config.telemetryRelayUrl,
-    posthogKey: config.posthogKey,
-    posthogHost: config.posthogHost,
-    // PR #974 round-5 (lefarcen P2): the Electron entry runs desktop
-    // main alongside the daemon, so the import-folder gate must be
-    // pinned ON from request 0. See `apps/packaged/src/headless.ts` for
-    // the daemon+web-only counterpart that passes `false`.
-    requireDesktopAuth: true,
     webSidecarEntry: config.webSidecarEntry,
     webStandaloneRoot: config.webStandaloneRoot,
     webOutputMode: config.webOutputMode,
@@ -131,8 +91,6 @@ async function main(): Promise<void> {
 
   const { runDesktopMain } = await import("@open-design/desktop/main");
   await runDesktopMain(runtime, {
-    splashWindow: splash.window,
-    splashStartedAt: splash.startedAt,
     async beforeShutdown() {
       try {
         await sidecars.close();
@@ -143,36 +101,10 @@ async function main(): Promise<void> {
     async discoverWebUrl() {
       return packagedEntryUrl();
     },
-    // Round-7 (lefarcen P2 @ runtime.ts:336): packaged main-process
-    // fetch targets the daemon sidecar's real http URL — never the
-    // od://app/ renderer URL, which Node/undici cannot resolve through
-    // Electron's protocol handler.
-    async discoverDaemonUrl() {
-      return sidecars.daemon.url;
-    },
-    onDesktopReady(controls) {
-      showExistingDesktop = controls.show;
-      if (!pendingSecondInstanceFocus) return;
-      pendingSecondInstanceFocus = false;
-      controls.show();
-    },
-    preloadPath: join(app.getAppPath(), "preload.cjs"),
-    update: {
-      currentVersion: config.appVersion,
-      downloadRoot: paths.updateRoot,
-      installerObservationRoot: paths.installerObservationRoot,
-    },
   });
 }
 
 void main().catch((error: unknown) => {
-  if (error instanceof PackagedPathAccessError) {
-    try {
-      dialog.showErrorBox(error.title, error.message);
-    } catch {
-      // Fall through to console logging + process exit.
-    }
-  }
   packagedLogger?.error("packaged runtime failed", { error });
   console.error("packaged runtime failed", error);
   process.exit(1);

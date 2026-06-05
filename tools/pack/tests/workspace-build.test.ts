@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -9,17 +9,10 @@ import type { ToolPackConfig } from "../src/config.js";
 import { ensureWorkspaceBuildArtifacts } from "../src/workspace-build.js";
 
 const PACKAGE_DIRS = [
-  "packages/components",
   "packages/contracts",
-  "packages/registry-protocol",
   "packages/sidecar-proto",
   "packages/sidecar",
   "packages/platform",
-  "packages/download",
-  "packages/host",
-  "packages/agui-adapter",
-  "packages/plugin-runtime",
-  "packages/diagnostics",
   "apps/daemon",
   "apps/web",
   "apps/desktop",
@@ -27,28 +20,14 @@ const PACKAGE_DIRS = [
 ] as const;
 
 const OUTPUT_FILES = [
-  "packages/components/dist/index.mjs",
-  "packages/components/dist/index.d.ts",
   "packages/contracts/dist/index.mjs",
   "packages/contracts/dist/index.d.ts",
-  "packages/registry-protocol/dist/index.mjs",
-  "packages/registry-protocol/dist/index.d.ts",
   "packages/sidecar-proto/dist/index.mjs",
   "packages/sidecar-proto/dist/index.d.ts",
   "packages/sidecar/dist/index.mjs",
   "packages/sidecar/dist/index.d.ts",
   "packages/platform/dist/index.mjs",
   "packages/platform/dist/index.d.ts",
-  "packages/download/dist/index.mjs",
-  "packages/download/dist/index.d.ts",
-  "packages/host/dist/index.mjs",
-  "packages/host/dist/index.d.ts",
-  "packages/agui-adapter/dist/index.mjs",
-  "packages/agui-adapter/dist/index.d.ts",
-  "packages/plugin-runtime/dist/index.mjs",
-  "packages/plugin-runtime/dist/index.d.ts",
-  "packages/diagnostics/dist/index.mjs",
-  "packages/diagnostics/dist/index.d.ts",
   "apps/daemon/dist/cli.js",
   "apps/daemon/dist/cli.d.ts",
   "apps/daemon/dist/sidecar/index.js",
@@ -93,7 +72,6 @@ function createConfig(root: string, cacheRoot: string): ToolPackConfig {
     removeLogs: false,
     removeProductUserData: false,
     removeSidecars: false,
-    requireVelaCli: false,
     roots: {
       cacheRoot,
       output: {
@@ -146,43 +124,6 @@ describe("ensureWorkspaceBuildArtifacts", () => {
     }
   });
 
-  it("writes a Windows version-family alias after a successful build", async () => {
-    const root = await mkdtemp(join(tmpdir(), "open-design-workspace-build-alias-"));
-    const cache = new ToolPackCache(join(root, ".cache"));
-    const config: ToolPackConfig = { ...createConfig(root, cache.root), appVersion: "0.9.1-beta.1" };
-
-    try {
-      await writeWorkspace(root);
-      await ensureWorkspaceBuildArtifacts(config, cache, async () => {
-        await writeOutputs(root, "build");
-      });
-
-      const aliasesRoot = join(cache.root, "aliases", "win.workspace-build");
-      const aliasBuckets = await readdir(aliasesRoot);
-      expect(aliasBuckets).toHaveLength(1);
-      expect(await readFile(join(aliasesRoot, aliasBuckets[0]!, "alias.json"), "utf8")).toContain("win.workspace-build");
-    } finally {
-      await rm(root, { force: true, recursive: true });
-    }
-  });
-
-  it("does not write a version-family alias for mac workspace builds", async () => {
-    const root = await mkdtemp(join(tmpdir(), "open-design-workspace-build-mac-alias-"));
-    const cache = new ToolPackCache(join(root, ".cache"));
-    const config: ToolPackConfig = { ...createConfig(root, cache.root), appVersion: "0.9.1-beta.1", platform: "mac" };
-
-    try {
-      await writeWorkspace(root);
-      await ensureWorkspaceBuildArtifacts(config, cache, async () => {
-        await writeOutputs(root, "build");
-      });
-
-      await expect(readdir(join(cache.root, "aliases", "mac.workspace-build"))).rejects.toThrow();
-    } finally {
-      await rm(root, { force: true, recursive: true });
-    }
-  });
-
   it("materializes cached outputs when an expected workspace output is missing", async () => {
     const root = await mkdtemp(join(tmpdir(), "open-design-workspace-build-stale-"));
     const cache = new ToolPackCache(join(root, ".cache"));
@@ -204,32 +145,6 @@ describe("ensureWorkspaceBuildArtifacts", () => {
       expect(builds).toBe(1);
       expect(cache.report().entries.map((entry) => entry.status)).toEqual(["miss", "hit"]);
       expect(await readFile(join(root, "apps/web/dist/sidecar/index.js"), "utf8")).toBe("build-1\n");
-    } finally {
-      await rm(root, { force: true, recursive: true });
-    }
-  });
-
-  it("materializes cached internal package outputs for pack tarballs", async () => {
-    const root = await mkdtemp(join(tmpdir(), "open-design-workspace-build-package-cache-"));
-    const cache = new ToolPackCache(join(root, ".cache"));
-    const config = createConfig(root, cache.root);
-    let builds = 0;
-
-    try {
-      await writeWorkspace(root);
-      await ensureWorkspaceBuildArtifacts(config, cache, async () => {
-        builds += 1;
-        await writeOutputs(root, `build-${builds}`);
-      });
-      await rm(join(root, "packages/host/dist/index.mjs"), { force: true });
-      await ensureWorkspaceBuildArtifacts(config, cache, async () => {
-        builds += 1;
-        await writeOutputs(root, `build-${builds}`);
-      });
-
-      expect(builds).toBe(1);
-      expect(cache.report().entries.map((entry) => entry.status)).toEqual(["miss", "hit"]);
-      expect(await readFile(join(root, "packages/host/dist/index.mjs"), "utf8")).toBe("build-1\n");
     } finally {
       await rm(root, { force: true, recursive: true });
     }

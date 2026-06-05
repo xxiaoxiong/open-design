@@ -74,13 +74,6 @@ function cleanString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
-function inferReleaseChannelFromVersion(version: string): string | null {
-  if (/(?:^|[-.])beta(?:[-.]|$)/i.test(version)) return 'beta';
-  if (/(?:^|[-.])preview(?:[-.]|$)/i.test(version)) return 'preview';
-  if (/(?:^|[-.])nightly(?:[-.]|$)/i.test(version)) return 'nightly';
-  return version.match(/^\d+\.\d+\.\d+-([0-9A-Za-z-]+)/)?.[1]?.split('.')[0] ?? null;
-}
-
 export function isPackagedRuntime({
   resourcesPath = processWithResources.resourcesPath,
   execPath = process.execPath,
@@ -116,10 +109,10 @@ export function resolveAppVersionInfo({
   const version = cleanString(env.OD_APP_VERSION)
     ?? cleanString(packageMetadata?.version)
     ?? APP_VERSION_FALLBACK;
-  const inferredChannel = inferReleaseChannelFromVersion(version);
+  const prereleaseChannel = version.match(/^\d+\.\d+\.\d+-([0-9A-Za-z-]+)/)?.[1]?.split('.')[0] ?? null;
   const channel = cleanString(env.OD_RELEASE_CHANNEL)
     ?? cleanString(env.OD_APP_CHANNEL)
-    ?? inferredChannel
+    ?? prereleaseChannel
     ?? (packaged ? 'stable' : 'development');
 
   return { version, channel, packaged, platform, arch };

@@ -96,7 +96,7 @@ export function PromptTemplatePreviewModal({ summary, onClose }: Props) {
           </div>
           <button
             type="button"
-            className="ghost prompt-template-modal-close"
+            className="ghost"
             onClick={onClose}
             aria-label={t('common.close')}
           >
