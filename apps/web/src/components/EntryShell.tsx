@@ -190,7 +190,7 @@ function defaultPluginInputsForCreate(
       deckType: 'pitch deck',
       topic: projectName || 'the user brief',
       audience: 'decision makers',
-      slideCount: '10-15 pages',
+      slideCount: input.metadata.slideCount ?? '10-15 pages',
       speakerNotes: input.metadata.speakerNotes
         ? 'include speaker notes'
         : 'no speaker notes',
