@@ -370,7 +370,10 @@ function mergeAuthHeader(
 
 /**
  * Convert user-configured external MCP servers into the ACP `mcpServers`
- * shape that Hermes/Kimi accept (already in use by buildLiveArtifactsMcpServersForAgent).
+ * shape. `env` is emitted as a plain object (Record<string, string>) to
+ * match the ACP spec, which Reasonix requires; Kimi and Hermes accept both
+ * shapes, so the daemon normalizes the input here and the ACP session
+ * builder keeps compatibility for any legacy array payloads.
  * SSE/HTTP servers are dropped — ACP currently models stdio only — but we
  * surface a warning so the UI can hint at it.
  */
@@ -379,18 +382,18 @@ export interface AcpMcpServer {
   name: string;
   command: string;
   args: string[];
-  env: Array<{ name: string; value: string }>;
+  env: Record<string, string>;
 }
 
 export function buildAcpMcpServers(servers: McpServerConfig[]): AcpMcpServer[] {
   const enabled = servers.filter((s) => s.enabled && s.transport === 'stdio');
   const out: AcpMcpServer[] = [];
   for (const s of enabled) {
-    const envEntries: Array<{ name: string; value: string }> = [];
+    const env: Record<string, string> = {};
     if (s.env) {
       for (const [name, value] of Object.entries(s.env)) {
         if (typeof value !== 'string') continue;
-        envEntries.push({ name, value });
+        env[name] = value;
       }
     }
     out.push({
@@ -398,7 +401,7 @@ export function buildAcpMcpServers(servers: McpServerConfig[]): AcpMcpServer[] {
       name: s.id,
       command: s.command ?? '',
       args: Array.isArray(s.args) ? [...s.args] : [],
-      env: envEntries,
+      env,
     });
   }
   return out;

@@ -97,13 +97,29 @@ export function buildAcpSessionNewParams(cwd: string, { mcpServers }: AcpSession
     // auto-install or mutate user/global MCP config; callers must pass an
     // explicit per-session MCP descriptor when a compatible agent supports it.
     // Normalize to the ACP stdio server shape expected by Kimi/Hermes.
-    mcpServers: servers.map((s) => ({
-      type: typeof s?.type === 'string' ? s.type : 'stdio',
-      name: typeof s?.name === 'string' ? s.name : '',
-      command: typeof s?.command === 'string' ? s.command : '',
-      args: Array.isArray(s?.args) ? s.args : [],
-      env: Array.isArray(s?.env) ? s.env : [],
-    })),
+    mcpServers: servers.map((s) => {
+      const env =
+        Array.isArray(s?.env)
+          ? Object.fromEntries(
+              s.env
+                .map((e: any) => {
+                  const name = typeof e?.name === 'string' ? e.name : typeof e?.key === 'string' ? e.key : undefined;
+                  const value = typeof e?.value === 'string' ? e.value : undefined;
+                  return name ? [name, value ?? ''] : null;
+                })
+                .filter((entry: [string, string] | null): entry is [string, string] => entry !== null),
+            )
+          : s?.env && typeof s.env === 'object'
+            ? s.env
+            : {};
+      return {
+        type: typeof s?.type === 'string' ? s.type : 'stdio',
+        name: typeof s?.name === 'string' ? s.name : '',
+        command: typeof s?.command === 'string' ? s.command : '',
+        args: Array.isArray(s?.args) ? s.args : [],
+        env,
+      };
+    }),
   };
 }
 

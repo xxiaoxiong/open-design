@@ -370,7 +370,7 @@ describe('buildAcpMcpServers', () => {
     expect(out.map((s) => s.name)).toEqual(['a']);
   });
 
-  it('flattens env to ACP {name,value} array shape', () => {
+  it('flattens env to ACP Record<string,string> shape', () => {
     const out = buildAcpMcpServers([
       {
         id: 'gh',
@@ -386,7 +386,7 @@ describe('buildAcpMcpServers', () => {
       name: 'gh',
       command: 'npx',
       args: ['-y', '@modelcontextprotocol/server-github'],
-      env: [{ name: 'TOKEN', value: 'x' }],
+      env: { TOKEN: 'x' },
     });
   });
 });

@@ -41,7 +41,7 @@ test('ACP session params normalize explicit MCP servers to ACP stdio shape', () 
   });
 });
 
-test('ACP session params preserve caller-provided type and env fields', () => {
+test('ACP session params normalize legacy array env with key/value to object', () => {
   const mcpServers = [
     { type: 'http', name: 'http-server', url: 'http://localhost:3000', headers: {}, env: [{ key: 'TOKEN', value: 'secret' }] },
   ];
@@ -51,7 +51,18 @@ test('ACP session params preserve caller-provided type and env fields', () => {
   assert.ok(server);
   assert.equal(server.type, 'http');
   assert.equal(server.name, 'http-server');
-  assert.deepEqual(server.env, [{ key: 'TOKEN', value: 'secret' }]);
+  assert.deepEqual(server.env, { TOKEN: 'secret' });
+});
+
+test('ACP session params preserve object env and skip malformed entries', () => {
+  const mcpServers = [
+    { type: 'stdio', name: 'server', command: 'echo', env: { TOKEN: 'x', BAD: 123 } },
+  ];
+
+  const result = buildAcpSessionNewParams('/tmp/od-project', { mcpServers });
+  const server = result.mcpServers[0];
+  assert.ok(server);
+  assert.deepEqual(server.env, { TOKEN: 'x' });
 });
 
 test('ACP model normalization prefers session configOptions models', () => {
