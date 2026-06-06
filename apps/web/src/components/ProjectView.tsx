@@ -3710,7 +3710,6 @@ export function ProjectView({
     armSlideNavForQueuedSend,
     currentConversationBusy,
     queuedAutoStartTick,
-    queuedChatSends,
     handleSend,
     removeQueuedChatSend,
   ]);
