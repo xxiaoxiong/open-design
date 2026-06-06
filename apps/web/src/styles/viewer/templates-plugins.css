@@ -2267,6 +2267,26 @@
   font-size: 12.5px;
 }
 
+.settings-skills .skills-edit-builtin-warning {
+  padding: 10px 14px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 0;
+}
+.settings-skills .skills-edit-builtin-warning p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+.settings-skills .skills-edit-builtin-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 @media (max-width: 640px) {
   .plugin-details-modal-backdrop {
     padding: 0;
