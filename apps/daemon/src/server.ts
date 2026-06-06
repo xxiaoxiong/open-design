@@ -13230,6 +13230,26 @@ export async function startServer({
         ));
         return finishWithRetryDecision('failed', code, signal);
       }
+      // Antigravity 1.0.4 "no_text" guard: the CLI can exit cleanly
+      // with a `no_text` signal that means the upstream handoff
+      // dropped the result. Surface a retryable failure instead of
+      // letting it pass through as success.
+      if (
+        code === 0 &&
+        !run.cancelRequested &&
+        def.id === 'antigravity' &&
+        /\bno_text\b/i.test(`${agentStderrTail}\n${agentStdoutTail}`)
+      ) {
+        send(
+          'error',
+          createSseErrorPayload(
+            'AGENT_EXECUTION_FAILED',
+            'Antigravity returned an empty response (no_text) — this usually means the 1.0.4 handoff dropped the upstream result. Try updating agy, switching models, or re-running.',
+            { retryable: true },
+          ),
+        );
+        return finishWithRetryDecision('failed', 0, signal);
+      }
       // Plain-stream auth-failure guard: plain adapters (today
       // antigravity, deepseek's TUI variants) may exit cleanly with
       // visible stdout that's actually an auth prompt — agy prints
