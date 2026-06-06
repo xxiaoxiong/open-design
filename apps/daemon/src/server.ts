@@ -2284,7 +2284,10 @@ export function __forTestScanRunEventsForFinishedProps(events, reqBodyModel) {
   return scanRunEventsForFinishedProps(events, reqBodyModel);
 }
 
-function scanRunEventsForRetrySideEffects(events) {
+function scanRunEventsForRetrySideEffects(
+  events,
+  projectRoot?,
+) {
   const sideEffects = {
     userVisibleOutputSeen: false,
     toolCallSeen: false,
@@ -2311,17 +2314,17 @@ function scanRunEventsForRetrySideEffects(events) {
     }
   }
   if (
-    countNewHtmlArtifacts(events) > 0 ||
-    didRunCreateDesignSystemFile(events) ||
-    countDesignSystemPreviewModules(events) > 0
+    countNewHtmlArtifacts(events, { projectRoot }) > 0 ||
+    didRunCreateDesignSystemFile(events, { projectRoot }) ||
+    countDesignSystemPreviewModules(events, { projectRoot }) > 0
   ) {
     sideEffects.artifactWriteSeen = true;
   }
   return sideEffects;
 }
 
-export function __forTestScanRunEventsForRetrySideEffects(events) {
-  return scanRunEventsForRetrySideEffects(events);
+export function __forTestScanRunEventsForRetrySideEffects(events, projectRoot) {
+  return scanRunEventsForRetrySideEffects(events, projectRoot);
 }
 
 function retryFinalResultForRunStatus(status, retryAttemptCount) {
@@ -11700,7 +11703,9 @@ export async function startServer({
         failure,
         attemptCount: run.retryAttemptCount ?? 0,
         sideEffects: {
-          ...scanRunEventsForRetrySideEffects(run.events),
+          ...scanRunEventsForRetrySideEffects(run.events, run.projectId
+            ? resolveProjectDir(PROJECTS_DIR, run.projectId, run.project)
+            : undefined),
           cancelRequested: !!run.cancelRequested,
         },
       });
@@ -14248,7 +14253,11 @@ export async function startServer({
             // artifact?" funnel on PostHog. See `run-artifacts.ts`
             // for the dedup semantics; tested in
             // `tests/run-artifacts.test.ts`.
-            artifact_count: countNewHtmlArtifacts(run.events),
+            artifact_count: countNewHtmlArtifacts(run.events, {
+              projectRoot: run.projectId
+                ? resolveProjectDir(PROJECTS_DIR, run.projectId, run.project)
+                : undefined,
+            }),
             // True when the run raised an AskUserQuestion clarification
             // card. Clarification turns inherently produce no artifact, so
             // the dashboard excludes them from the "run finished -> has
@@ -14265,8 +14274,16 @@ export async function startServer({
               // succeeded; the run-artifacts inspector reuses the
               // same Write/Edit pairing it already does for HTML
               // artifact counts, just keyed on `DESIGN.md`.
-              design_system_created: didRunCreateDesignSystemFile(run.events),
-              preview_module_count: countDesignSystemPreviewModules(run.events),
+              design_system_created: didRunCreateDesignSystemFile(run.events, {
+                projectRoot: run.projectId
+                  ? resolveProjectDir(PROJECTS_DIR, run.projectId, run.project)
+                  : undefined,
+              }),
+              preview_module_count: countDesignSystemPreviewModules(run.events, {
+                projectRoot: run.projectId
+                  ? resolveProjectDir(PROJECTS_DIR, run.projectId, run.project)
+                  : undefined,
+              }),
               // `missing_font_count` defaults to 0 — the agent flow
               // doesn't emit a structured "missing fonts" signal yet.
               // Kept on the wire so the dashboard has the column from

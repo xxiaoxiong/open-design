@@ -60,7 +60,27 @@ function mergeStatus(a: FileOpStatus, b: FileOpStatus): FileOpStatus {
   return 'done';
 }
 
-export function deriveFileOps(events: AgentEvent[] | undefined): FileOpEntry[] {
+// Rebase mock/anonymized project paths (e.g. `.../data/projects/proj-001/...`)
+// onto the currently active project root so mock replay tool cards and the
+// daemon artifact counters stay aligned with the real project the user is
+// inspecting. Mirrors `rebaseMockPath` in `apps/daemon/src/run-artifacts.ts`.
+function rebaseMockPath(path: string, currentProjectRoot?: string | null): string {
+  if (!currentProjectRoot || path.startsWith(currentProjectRoot)) return path;
+  const normalizedPath = path.replace(/[\\/]+/g, '/').replace(/\/$/, '');
+  const normalizedRoot =
+    typeof currentProjectRoot === 'string' ? currentProjectRoot.replace(/[\\/]+/g, '/').replace(/\/$/, '') : '';
+  if (!normalizedRoot) return path;
+  const match = normalizedPath.match(/^(.*\/projects\/)([^/]+)(\/.*)$/);
+  if (!match) return path;
+  const projectDir = normalizedRoot.split('/').pop();
+  if (!projectDir || !/^proj-\d+$/i.test(match[2])) return path;
+  return `${match[1]}${projectDir}${match[3]}`;
+}
+
+export function deriveFileOps(
+  events: AgentEvent[] | undefined,
+  opts?: { currentProjectRoot?: string | null },
+): FileOpEntry[] {
   if (!events || events.length === 0) return [];
   const resultByToolId = new Map<
     string,
@@ -75,8 +95,9 @@ export function deriveFileOps(events: AgentEvent[] | undefined): FileOpEntry[] {
     if (ev.kind !== 'tool_use') continue;
     const kind = classify(ev.name);
     if (!kind) continue;
-    const fullPath = extractPath(ev.input);
-    if (!fullPath || fullPath === '(unnamed)') continue;
+    const rawPath = extractPath(ev.input);
+    if (!rawPath || rawPath === '(unnamed)') continue;
+    const fullPath = rebaseMockPath(rawPath, opts?.currentProjectRoot);
     const result = resultByToolId.get(ev.id);
     const status: FileOpStatus =
       result == null ? 'running' : result.isError ? 'error' : 'done';

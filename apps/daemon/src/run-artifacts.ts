@@ -54,6 +54,24 @@ function extractToolFilePath(input: unknown): string | null {
   return null;
 }
 
+// Rebase mock/anonymized project paths (e.g. `.../data/projects/proj-001/...`)
+// onto the currently active project root so they count as active-project writes.
+// This keeps artifact counts, side-effect flags, and web tool cards aligned with
+// the actual project the user is watching rather than a stale anonymized identity.
+// See issue https://github.com/nexu-io/open-design/issues/3604.
+function rebaseMockPath(path: string, projectRoot?: string | null): string {
+  if (!projectRoot || path.startsWith(projectRoot)) return path;
+  const normalizedPath = path.replace(/[\\/]+/g, '/').replace(/\/$/, '');
+  const normalizedRoot =
+    typeof projectRoot === 'string' ? projectRoot.replace(/[\\/]+/g, '/').replace(/\/$/, '') : '';
+  if (!normalizedRoot) return path;
+  const match = normalizedPath.match(/^(.*\/projects\/)([^/]+)(\/.*)$/);
+  if (!match) return path;
+  const projectDir = normalizedRoot.split('/').pop();
+  if (!projectDir || !match[2] || !/^proj-\d+$/i.test(match[2]!)) return path;
+  return `${match[1]}${projectDir}${match[3]}`;
+}
+
 function isHtmlPath(path: string): boolean {
   return path.toLowerCase().endsWith('.html');
 }
@@ -107,6 +125,7 @@ function readToolResultIsError(data: unknown): boolean {
 function collectWrittenPathsMatching(
   events: readonly RunEventLike[],
   predicate: (path: string) => boolean,
+  opts?: { projectRoot?: string | null },
 ): Set<string> {
   if (!events || events.length === 0) return new Set();
   const resultByToolUseId = new Map<string, { isError: boolean }>();
@@ -128,7 +147,9 @@ function collectWrittenPathsMatching(
     if (data?.type !== 'tool_use') continue;
     if (typeof data.name !== 'string') continue;
     if (!WRITE_OR_EDIT_TOOL_NAMES.has(data.name)) continue;
-    const path = extractToolFilePath(data.input);
+    const rawPath = extractToolFilePath(data.input);
+    if (!rawPath) continue;
+    const path = rebaseMockPath(rawPath, opts?.projectRoot);
     if (!path) continue;
     if (!predicate(path)) continue;
     const toolUseId = readToolUseId(rec.data);
@@ -145,8 +166,9 @@ function collectWrittenPathsMatching(
 // Fed into `run_finished.design_system_created` for the DS variant.
 export function didRunCreateDesignSystemFile(
   events: readonly RunEventLike[],
+  opts?: { projectRoot?: string | null },
 ): boolean {
-  return collectWrittenPathsMatching(events, isDesignSystemFile).size > 0;
+  return collectWrittenPathsMatching(events, isDesignSystemFile, opts).size > 0;
 }
 
 // Count of distinct preview modules the run wrote under `preview/`.
@@ -155,11 +177,15 @@ export function didRunCreateDesignSystemFile(
 // path-distinct semantics match countNewHtmlArtifacts).
 export function countDesignSystemPreviewModules(
   events: readonly RunEventLike[],
+  opts?: { projectRoot?: string | null },
 ): number {
-  return collectWrittenPathsMatching(events, isPreviewModulePath).size;
+  return collectWrittenPathsMatching(events, isPreviewModulePath, opts).size;
 }
 
-export function countNewHtmlArtifacts(events: readonly RunEventLike[]): number {
+export function countNewHtmlArtifacts(
+  events: readonly RunEventLike[],
+  opts?: { projectRoot?: string | null },
+): number {
   if (!events || events.length === 0) return 0;
 
   // First pass: collect tool_result records keyed by toolUseId so the
@@ -190,8 +216,9 @@ export function countNewHtmlArtifacts(events: readonly RunEventLike[]): number {
     if (data?.type !== 'tool_use') continue;
     if (typeof data.name !== 'string') continue;
     if (!WRITE_OR_EDIT_TOOL_NAMES.has(data.name)) continue;
-    const path = extractToolFilePath(data.input);
-    if (!path) continue;
+    const rawPath = extractToolFilePath(data.input);
+    if (!rawPath) continue;
+    const path = rebaseMockPath(rawPath, opts?.projectRoot);
     if (!isHtmlPath(path)) continue;
     const toolUseId = readToolUseId(rec.data);
     // No id: legacy / synthetic stream shapes that don't pair. Be

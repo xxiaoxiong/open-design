@@ -435,7 +435,8 @@ function AssistantMessageImpl({
   hasDesignSystemContext = false,
   onArtifactShare,
   onArtifactChip,
-}: Props) {
+  currentProjectRoot,
+}: Props & { currentProjectRoot?: string | null }) {
   const t = useT();
   const events = message.events ?? [];
   // Claude sometimes hedges by emitting a markdown duplicate of the same
@@ -496,7 +497,7 @@ function AssistantMessageImpl({
       ),
     );
   }, [events, liveAuq, liveCodeBlocks]);
-  const fileOps = useMemo(() => deriveFileOps(events), [events]);
+  const fileOps = useMemo(() => deriveFileOps(events, { currentProjectRoot }), [events, currentProjectRoot]);
   const produced = message.producedFiles ?? [];
   const displayedProduced = useMemo(
     () =>

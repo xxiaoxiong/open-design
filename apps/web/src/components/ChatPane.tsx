@@ -728,6 +728,7 @@ export function ChatPane({
   backLabel,
   projectHeader,
   designSystemPicker,
+  resolvedDir,
 }: Props) {
   const t = useT();
   const analytics = useAnalytics();
@@ -2319,6 +2320,7 @@ function ChatRows({
         projectId={projectId}
         projectKind={projectKindForTracking}
         conversationId={activeConversationId}
+        currentProjectRoot={resolvedDir}
         projectFiles={projectFiles}
         projectFileNames={projectFileNames}
         onRequestOpenFile={onRequestOpenFile}

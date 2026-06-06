@@ -2423,7 +2423,7 @@ function DesignSystemProjectPanel({
   // "Review <name> design system" does not read redundantly when a system is
   // already named e.g. "Acme Design System".
   const systemDisplayName = system.title.replace(/\s*design system$/i, '').trim() || system.title;
-  const activityFileOps = useMemo(() => deriveFileOps(activityEvents), [activityEvents]);
+  const activityFileOps = useMemo(() => deriveFileOps(activityEvents, { currentProjectRoot: resolvedDir }), [activityEvents, resolvedDir]);
   const activityTodos = useMemo(() => latestTodosFromEvents(activityEvents), [activityEvents]);
   const sectionReviews: DesignSystemProjectSectionReview[] = sections.map((section) => {
     const previewFile = designSystemSectionPreviewFile(section.files, fileByName);
