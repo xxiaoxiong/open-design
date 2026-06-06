@@ -1275,6 +1275,9 @@
 }
 .agent-card-title {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .agent-card-name--amr {
   align-items: center;
