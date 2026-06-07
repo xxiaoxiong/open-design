@@ -50,6 +50,30 @@
   font-size: 12px;
   border-radius: 6px;
 }
+.settings-skills .skills-edit-builtin-warning {
+  margin: 0 4px;
+  padding: 10px 12px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settings-skills .skills-edit-builtin-warning p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.settings-skills .skills-edit-builtin-actions {
+  display: inline-flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+.settings-skills .skills-edit-builtin-actions .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+}
 
 .settings-skills .skills-row-detail {
   display: flex;
