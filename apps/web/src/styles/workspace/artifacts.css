@@ -1264,6 +1264,7 @@
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 .agent-card-name > span:first-child,
 .agent-card-tagline {
@@ -1312,6 +1313,7 @@
 }
 .agent-card-tagline {
   flex: 1 1 auto;
+  white-space: nowrap;
 }
 .agent-card-description {
   margin-top: 1px;
