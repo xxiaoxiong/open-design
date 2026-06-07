@@ -1828,7 +1828,7 @@ function FooterSelectOption({
             groupedOptions.map((group, index) => (
               <div
                 className="home-hero__footer-select-group"
-                key={`${group.label ?? 'ungrouped'}:${group.options[0]?.value ?? index}`}
+                key={`${group.label ?? 'ungrouped'}:${index}`}
               >
                 {group.label ? (
                   <div className="home-hero__footer-select-group-label">{group.label}</div>
