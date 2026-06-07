@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type WheelEvent as ReactWheelEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Button, Input, Select } from '@open-design/components';
 import { APP_CHROME_FILE_ACTIONS_ID, APP_CHROME_FILE_ACTIONS_SELECTOR } from './AppChromeHeader';
@@ -1091,6 +1091,10 @@ export function LiveArtifactViewer({
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
   const [zoom, setZoom] = useState(100);
+  const handlePreviewWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setZoom((current) => Math.min(200, Math.max(50, Math.round(current / 10) * 10 + (event.deltaY < 0 ? -10 : 10))));
+  }, []);
   const liveArtifactViewportKey = `${projectId}:live-artifact:${liveArtifact.artifactId}`;
   const [previewViewport, setPreviewViewportState] = useState<PreviewViewportId>(
     () => htmlPreviewViewportState.get(liveArtifactViewportKey) ?? 'desktop',
@@ -1538,7 +1542,7 @@ export function LiveArtifactViewer({
           aria-hidden={mode === 'preview' ? undefined : true}
           style={previewViewportStyle(previewViewport, previewScale, previewBodySize)}
         >
-          <div className="preview-frame-clip">
+          <div className="preview-frame-clip" onWheel={handlePreviewWheel}>
             <div style={previewScaleShellStyle(previewViewport, previewScale)}>
               <PreviewDrawOverlay>
                 <iframe
@@ -4582,6 +4586,10 @@ function HtmlViewer({
   const [source, setSource] = useState<string | null>(liveHtml ?? null);
   const [inlinedSource, setInlinedSource] = useState<string | null>(null);
   const [zoom, setZoom] = useState(100);
+  const handlePreviewWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setZoom((current) => Math.min(200, Math.max(50, Math.round(current / 10) * 10 + (event.deltaY < 0 ? -10 : 10))));
+  }, []);
   const fileViewportKey = previewViewportStateKey(projectId, file);
   const [previewViewport, setPreviewViewportState] = useState<PreviewViewportId>(
     () => htmlPreviewViewportState.get(fileViewportKey) ?? 'desktop',
@@ -8445,6 +8453,7 @@ function HtmlViewer({
             data-testid={manualEditMode ? undefined : 'comment-preview-layout'}
             style={previewViewportStyle(previewViewport, previewScale, boardPreviewCanvasSize, boardPreviewScaleOptions)}
             onMouseLeave={manualEditMode ? clearManualEditHover : undefined}
+            onWheel={handlePreviewWheel}
           >
             {manualEditPanel}
             {manualEditHoverAffordance}
