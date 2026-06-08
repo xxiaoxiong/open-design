@@ -727,7 +727,7 @@ export function exportAsImage(dataUrl: string, title: string): void {
   }
 }
 
-export type ProjectPdfExportResult = 'desktop' | 'fallback';
+export type ProjectPdfExportResult = 'desktop' | 'fallback' | 'cancelled';
 
 export async function exportProjectAsPdf(opts: {
   deck: boolean;
