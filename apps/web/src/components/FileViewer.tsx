@@ -62,10 +62,10 @@ import {
 import type { ProjectFilePreview } from '../providers/registry';
 import {
   downloadImageDataUrl,
-  exportAsHtml,
   exportAsJsx,
   exportAsMd,
   exportAsPdf,
+  exportProjectAsHtml,
   exportProjectAsPdf,
   exportProjectAsZip,
   copyImageDataUrlToClipboard,
@@ -4507,7 +4507,14 @@ function HtmlViewer({
       const out = fn();
       if (out && typeof (out as Promise<unknown>).then === 'function') {
         (out as Promise<unknown>).then(
-          () => { finish('success'); if (toastFormats.has(format)) setExportToast({ message: t('fileViewer.exportStarted'), tone: 'default' }); },
+          (value) => {
+            if ((value as string) === 'cancelled') {
+              finish('cancelled');
+            } else {
+              finish('success');
+              if (toastFormats.has(format)) setExportToast({ message: t('fileViewer.exportStarted'), tone: 'default' });
+            }
+          },
           (err) => finish('failed', err instanceof Error ? err.name : 'UNKNOWN'),
         );
       } else {
@@ -8385,7 +8392,12 @@ function HtmlViewer({
                     role="menuitem"
                     onClick={() => {
                       setDownloadMenuOpen(false);
-                      fireShareExport('html', () => exportAsHtml(source ?? '', exportTitle));
+                      fireShareExport('html', () => exportProjectAsHtml({
+                        projectId,
+                        filePath: file.name,
+                        fallbackHtml: source ?? '',
+                        fallbackTitle: exportTitle,
+                      }));
                     }}
                   >
                     <span className="share-menu-icon"><RemixIcon name="file-code-line" size={15} /></span>
@@ -8801,8 +8813,8 @@ function HtmlViewer({
         </div>,
         document.body,
       ) : null}
-      {imageExportModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
+      {imageExportModalOpen && typeof document !== 'undefined' ? createPortal(
+        <div className="modal-backdrop viewer-modal-backdrop image-export-backdrop" role="presentation">
           <div
             className="modal deploy-modal image-export-modal"
             role="dialog"
@@ -8867,10 +8879,11 @@ function HtmlViewer({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
-      {templateModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
+      {templateModalOpen && typeof document !== 'undefined' ? createPortal(
+        <div className="modal-backdrop viewer-modal-backdrop" role="presentation">
           <div className="modal deploy-modal" role="dialog" aria-modal="true">
             <div className="modal-head">
               <div className="kicker">TEMPLATE</div>
@@ -8925,11 +8938,12 @@ function HtmlViewer({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
-      {deployModalOpen ? (
+      {deployModalOpen && typeof document !== 'undefined' ? createPortal(
         <div
-          className="modal-backdrop deploy-flow-backdrop"
+          className="modal-backdrop viewer-modal-backdrop deploy-flow-backdrop"
           role="presentation"
           onClick={(event) => {
             if (event.target === event.currentTarget) closeDeployModal();
@@ -9252,7 +9266,8 @@ function HtmlViewer({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
       {deploySavedToast ? (
         <Toast
