@@ -1927,10 +1927,12 @@ function injectDeckBridge(doc: string, initialSlideIndex = 0): string {
     var total = document.getElementById('deck-total');
     var prev = document.getElementById('deck-prev');
     var next = document.getElementById('deck-next');
+    var counter = document.getElementById('deck-counter') || document.querySelector('.deck-counter');
     if (cur) cur.textContent = pad2(i + 1);
     if (total) total.textContent = pad2(count);
     if (prev) prev.toggleAttribute('disabled', i <= 0);
     if (next) next.toggleAttribute('disabled', i >= count - 1);
+    if (counter) counter.textContent = (i + 1) + ' / ' + count;
   }
   function setActive(i){
     var list = slides();
@@ -1977,6 +1979,7 @@ function injectDeckBridge(doc: string, initialSlideIndex = 0): string {
         try { targets[t].scrollLeft = left; } catch (__) {}
       }
     }
+    updateDeckChrome(next, list.length);
     setTimeout(report, 380);
   }
   function targetFor(action, list){
