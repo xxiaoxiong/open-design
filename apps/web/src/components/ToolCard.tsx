@@ -8,7 +8,7 @@
  *      Edit / Read / Bash / Glob / Grep / WebFetch / WebSearch)
  *   3. generic command/output fallback
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useT } from '../i18n';
 import { isTodoWriteToolName, parseTodoWriteInput } from '../runtime/todos';
 import { getToolRenderer, toRenderProps } from '../runtime/tool-renderers';
@@ -252,6 +252,9 @@ function AskUserQuestionCard({
   // cannot rely on `result` alone because `claude-code -p` ships an auto
   // error tool_result that does not represent a real answer.
   const [submitted, setSubmitted] = useState(false);
+  // Guard against duplicate submits while the live tool-result round-trip
+  // (or its fallback) is in flight.
+  const submittingRef = useRef(false);
   if (questions.length === 0) {
     return <GenericCard name="AskUserQuestion" input={input} result={result} runStreaming={runStreaming} runSucceeded={runSucceeded} />;
   }
@@ -314,7 +317,7 @@ function AskUserQuestionCard({
     });
   }
   async function handleSubmit() {
-    if (locked || !ready) return;
+    if (locked || !ready || submittingRef.current) return;
     const lines = questions.map((q) => {
       const v = selections[q.question];
       const answer = Array.isArray(v) ? v.map((s) => `- ${s}`).join('\n') : (v ?? '');
@@ -326,23 +329,27 @@ function AskUserQuestionCard({
     // without an auto error. Fall back to onSubmitForm only if no run is
     // wired up (e.g. older messages where the run already terminated).
     if (onAnswerToolUse) {
+      submittingRef.current = true;
       try {
         const ok = await onAnswerToolUse(toolUseId, formatted);
         if (ok === true) {
           setSubmitted(true);
         } else {
-          // Live route failed (run gone, stdin closed). Keep the card
-          // unlocked and fall back to the legacy onSubmitForm path so
-          // older messages without a live run can still submit.
-          setSubmitted(false);
+          // Live route failed (run gone, stdin closed). Fall back to the
+          // legacy onSubmitForm path so older messages without a live
+          // run can still submit, then lock the card to prevent duplicate
+          // answers while the fallback message propagates.
           onSubmitForm?.(formatted);
+          setSubmitted(true);
         }
       } catch {
-        // Live route errored — keep the card unlocked and surface the
-        // failure instead of silently locking and falling back.
-        setSubmitted(false);
+        // Live route errored — fall back to the legacy onSubmitForm path
+        // and lock the card to prevent duplicate answers while the
+        // fallback message propagates.
         onSubmitForm?.(formatted);
+        setSubmitted(true);
       }
+      submittingRef.current = false;
       return;
     }
     if (onSubmitForm) {

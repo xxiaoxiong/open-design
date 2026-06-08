@@ -66,7 +66,7 @@ describe('AskUserQuestion submit gating', () => {
     expect(onSubmitForm).not.toHaveBeenCalled();
   });
 
-  it('keeps the card unlocked when onAnswerToolUse returns false', async () => {
+  it('locks the card after falling back to onSubmitForm when onAnswerToolUse returns false', async () => {
     const onAnswerToolUse = vi.fn().mockResolvedValue(false);
     const onSubmitForm = vi.fn();
 
@@ -83,15 +83,16 @@ describe('AskUserQuestion submit gating', () => {
     const submitBtn = container.querySelector('.op-ask-question-submit') as HTMLButtonElement;
     fireEvent.click(submitBtn);
 
-    // After the async failure, the card must stay unlocked.
+    // After the async failure, the card must fall back to onSubmitForm
+    // and lock so the user cannot enqueue duplicate answers.
     await waitFor(() => {
-      expect(container.querySelector('.op-ask-question-locked')).toBeNull();
+      expect(container.querySelector('.op-ask-question-locked')).not.toBeNull();
     });
     expect(onAnswerToolUse).toHaveBeenCalledTimes(1);
     expect(onSubmitForm).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the card unlocked when onAnswerToolUse throws', async () => {
+  it('locks the card after falling back to onSubmitForm when onAnswerToolUse throws', async () => {
     const onAnswerToolUse = vi.fn().mockRejectedValue(new Error('network'));
     const onSubmitForm = vi.fn();
 
@@ -109,9 +110,43 @@ describe('AskUserQuestion submit gating', () => {
     fireEvent.click(submitBtn);
 
     await waitFor(() => {
-      expect(container.querySelector('.op-ask-question-locked')).toBeNull();
+      expect(container.querySelector('.op-ask-question-locked')).not.toBeNull();
     });
     expect(onAnswerToolUse).toHaveBeenCalledTimes(1);
     expect(onSubmitForm).toHaveBeenCalledTimes(1);
+  });
+
+  it('prevents duplicate submits while onAnswerToolUse is in flight', async () => {
+    let resolveToolUse: (ok: boolean) => void;
+    const onAnswerToolUse = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveToolUse = resolve;
+        }),
+    );
+    const onSubmitForm = vi.fn();
+
+    const { container } = renderToolCard({
+      use: toolUse(),
+      isLast: true,
+      onAnswerToolUse,
+      onSubmitForm,
+    });
+
+    const firstOption = container.querySelector('.op-ask-question-option') as HTMLButtonElement;
+    fireEvent.click(firstOption);
+
+    const submitBtn = container.querySelector('.op-ask-question-submit') as HTMLButtonElement;
+    fireEvent.click(submitBtn);
+    fireEvent.click(submitBtn);
+    fireEvent.click(submitBtn);
+
+    expect(onAnswerToolUse).toHaveBeenCalledTimes(1);
+
+    resolveToolUse!(true);
+    await waitFor(() => {
+      expect(container.querySelector('.op-ask-question-locked')).not.toBeNull();
+    });
+    expect(onSubmitForm).not.toHaveBeenCalled();
   });
 });
