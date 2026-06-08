@@ -1898,6 +1898,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
     }, [mention, mentionQuery, skills, stagedSkills]);
     const hasComposerPayload =
       draft.trim().length > 0 || staged.length > 0 || currentCommentAttachments().length > 0;
+    const stagedSkillIds = useMemo(() => new Set(stagedSkills.map((s) => s.id)), [stagedSkills]);
     const showStopButton = streaming && !hasComposerPayload;
     const showSendButton = !streaming || hasComposerPayload;
 
@@ -2061,7 +2062,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
                 setMentionIndex(0);
               }}
               activeIndex={mentionIndex}
-              currentSkillId={currentSkillId}
+              stagedSkillIds={stagedSkillIds}
               onPickFile={insertMention}
               onPickWorkspaceContext={insertWorkspaceMention}
               onPickPlugin={(record) => void insertPluginMention(record)}
@@ -4151,7 +4152,7 @@ function MentionPopover({
   tab,
   onTabChange,
   activeIndex,
-  currentSkillId,
+  stagedSkillIds,
   onPickFile,
   onPickWorkspaceContext,
   onPickPlugin,
@@ -4169,7 +4170,7 @@ function MentionPopover({
   tab: MentionTab;
   onTabChange: (tab: MentionTab) => void;
   activeIndex: number;
-  currentSkillId: string | null;
+  stagedSkillIds: Set<string>;
   onPickFile: (path: string) => void;
   onPickWorkspaceContext: (item: WorkspaceContextItem) => void;
   onPickPlugin: (record: InstalledPluginRecord) => void;
@@ -4339,7 +4340,7 @@ function MentionPopover({
               const flat = optionIndex;
               optionIndex += 1;
               const rowActive = flat === activeIndex;
-              const isCurrent = skill.id === currentSkillId;
+              const isCurrent = stagedSkillIds.has(skill.id);
               return (
                 <button
                   key={`skill-${skill.id}`}
