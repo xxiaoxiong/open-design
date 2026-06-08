@@ -79,6 +79,7 @@ export function PluginMediaDetail({
 }: Props) {
   const t = useT();
   const [copied, setCopied] = useState(false);
+  const [posterLoadFailed, setPosterLoadFailed] = useState(false);
 
   const manifest: PluginManifest = record.manifest ?? ({} as PluginManifest);
   const od = manifest.od ?? {};
@@ -88,9 +89,11 @@ export function PluginMediaDetail({
   const hasAsset = Boolean(media.poster || media.videoUrl || media.audioUrl);
 
   // Reset transient state when the active record swaps so the next
-  // open never inherits the previous plugin's copied flag.
+  // open never inherits the previous plugin's copied flag or broken
+  // image state.
   useEffect(() => {
     setCopied(false);
+    setPosterLoadFailed(false);
   }, [record.id]);
 
   function handleCopy() {
@@ -126,13 +129,14 @@ export function PluginMediaDetail({
         />
       ) : media.isAudio && media.audioUrl ? (
         <div className="plugin-media-stage__audio">
-          {media.poster ? (
+          {media.poster && !posterLoadFailed ? (
             <img
               className="plugin-media-stage__audio-poster"
               src={media.poster}
               alt={record.title}
               referrerPolicy="no-referrer"
               loading="lazy"
+              onError={() => setPosterLoadFailed(true)}
             />
           ) : (
             <div
@@ -149,15 +153,18 @@ export function PluginMediaDetail({
             preload="none"
           />
         </div>
-      ) : media.poster ? (
+      ) : media.poster && !posterLoadFailed ? (
         <img
           className="plugin-media-stage__image"
           src={media.poster}
           alt={record.title}
           loading="lazy"
           referrerPolicy="no-referrer"
+          onError={() => setPosterLoadFailed(true)}
         />
-      ) : null}
+      ) : (
+        <div className="plugin-media-stage__empty">{t('fileViewer.previewUnavailable')}</div>
+      )}
     </div>
   );
 
