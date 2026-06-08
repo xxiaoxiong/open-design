@@ -150,15 +150,8 @@ export async function buildProxyMessages(
     return out;
   }
 
-  if (usesOpenAIMessagesPayload(endpoint)) {
-    const out: ProxyMessage[] = [];
-    for (const message of history) {
-      out.push({
-        role: message.role,
-        content: await buildOpenAIMessageContent(message, context.projectId),
-      });
-    }
-    return out;
+  if (!usesAnthropicMessagesPayload(endpoint)) {
+    return history.map((m) => ({ role: m.role, content: m.content }));
   }
 
   return history.map((m) => ({ role: m.role, content: m.content }));
