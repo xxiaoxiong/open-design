@@ -2588,6 +2588,7 @@ export const id: Dict = {
   'settings.skillsCreate': 'Buat',
   'settings.skillsSave': 'Simpan',
   'settings.skillsSaving': 'Menyimpan…',
+  'settings.skillsUploadFile': 'Unggah berkas',
   'settings.skillsFiles': 'Berkas',
   'settings.skillsNoFiles': 'Tidak ada berkas dalam folder keterampilan ini.',
   'settings.skillsNameRequired': 'Nama keterampilan wajib diisi.',

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { Button } from '@open-design/components';
 import { useI18n, useT } from '../i18n';
@@ -16,6 +16,7 @@ import {
   fetchSkills,
   importSkill,
   updateSkill,
+  uploadSkillFiles,
   type SkillFileEntry,
 } from '../providers/registry';
 
@@ -124,6 +125,11 @@ export function SkillsSection({ cfg, setCfg, onSkillsRefresh, onSkillsChanged }:
   const [confirmBuiltInEditId, setConfirmBuiltInEditId] = useState<
     string | null
   >(null);
+
+  const [uploadingFileId, setUploadingFileId] = useState<string | null>(null);
+  const [uploadErrorById, setUploadErrorById] = useState<
+    Record<string, string>
+  >({});
 
   const refresh = useCallback(async () => {
     const list = await fetchSkills();
@@ -270,6 +276,38 @@ export function SkillsSection({ cfg, setCfg, onSkillsRefresh, onSkillsChanged }:
     setCreating(false);
   }, []);
 
+  const uploadFiles = useCallback(
+    async (id: string) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.multiple = true;
+      const files = await new Promise<FileList | null>((resolve) => {
+        input.onchange = () => resolve(input.files);
+        input.click();
+      });
+      if (!files || files.length === 0) return;
+      setUploadingFileId(id);
+      setUploadErrorById((cur) => {
+        const next = { ...cur };
+        delete next[id];
+        return next;
+      });
+      const result = await uploadSkillFiles(id, files);
+      if ('error' in result) {
+        setUploadErrorById((cur) => ({ ...cur, [id]: result.error.message }));
+      } else {
+        setFilesById((cur) => {
+          const next = { ...cur };
+          delete next[id];
+          return next;
+        });
+        void ensureFiles(id);
+      }
+      setUploadingFileId((cur) => (cur === id ? null : cur));
+    },
+    [ensureFiles],
+  );
+
   const submitDraft = useCallback(async () => {
     if (draftSaving) return;
     const name = draft.name.trim();
@@ -316,6 +354,10 @@ export function SkillsSection({ cfg, setCfg, onSkillsRefresh, onSkillsChanged }:
     setEditingId(null);
     setCreating(false);
     setDraft(EMPTY_DRAFT);
+    // Pre-fetch the file tree so a newly created/saved custom skill
+    // does not flash the empty "no files" state before the row is
+    // manually toggled.
+    void ensureFiles(updated.id);
     onSkillsChanged?.(updated.id);
   }, [draft, draftSaving, editingId, onSkillsChanged, onSkillsRefresh, refresh]);
 
@@ -513,6 +555,9 @@ export function SkillsSection({ cfg, setCfg, onSkillsRefresh, onSkillsChanged }:
                 onCommitDelete={() => void commitDelete(skill.id)}
                 onCancelEdit={cancelDraft}
                 onSubmitEdit={() => void submitDraft()}
+                onUploadFiles={skill.source === 'user' ? () => void uploadFiles(skill.id) : undefined}
+                uploadError={uploadErrorById[skill.id] ?? null}
+                uploadingFiles={uploadingFileId === skill.id}
               />
             );
           })}
@@ -547,6 +592,9 @@ interface SkillRowProps {
   onCommitDelete: () => void;
   onCancelEdit: () => void;
   onSubmitEdit: () => void;
+  onUploadFiles?: () => void;
+  uploadError?: string | null;
+  uploadingFiles?: boolean;
 }
 
 function SkillRow({
@@ -574,7 +622,11 @@ function SkillRow({
   onCommitDelete,
   onCancelEdit,
   onSubmitEdit,
+  onUploadFiles,
+  uploadError,
+  uploadingFiles,
 }: SkillRowProps) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const t = useT();
   const { locale } = useI18n();
   const summaryName = localizeSkillName(locale, skill) || skill.id;
@@ -754,6 +806,34 @@ function SkillRow({
               </ul>
             )}
           </div>
+          {skill.source === 'user' && onUploadFiles ? (
+            <div className="skills-row-section">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                style={{ display: 'none' }}
+                onChange={(event) => {
+                  if (event.target.files && event.target.files.length > 0) {
+                    onUploadFiles();
+                  }
+                  event.target.value = '';
+                }}
+              />
+              <Button
+                variant="ghost"
+                disabled={uploadingFiles}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {uploadingFiles ? t('settings.libraryLoading') : t('settings.skillsUploadFile')}
+              </Button>
+              {uploadError ? (
+                <p className="library-empty" style={{ color: 'var(--error)' }}>
+                  {uploadError}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
 

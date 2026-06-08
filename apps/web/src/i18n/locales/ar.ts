@@ -2588,6 +2588,7 @@ export const ar: Dict = {
   'settings.skillsCreate': 'إنشاء',
   'settings.skillsSave': 'حفظ',
   'settings.skillsSaving': 'جاري الحفظ…',
+  'settings.skillsUploadFile': 'تحميل ملف',
   'settings.skillsFiles': 'الملفات',
   'settings.skillsNoFiles': 'لا توجد ملفات في مجلد هذه المهارة.',
   'settings.skillsNameRequired': 'اسم المهارة مطلوب.',

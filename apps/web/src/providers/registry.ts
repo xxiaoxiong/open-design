@@ -413,6 +413,46 @@ export async function fetchSkillFiles(id: string): Promise<SkillFileEntry[]> {
   }
 }
 
+export interface SkillFileUploadError {
+  code?: string;
+  message: string;
+}
+
+export async function uploadSkillFiles(
+  id: string,
+  files: FileList | File[],
+): Promise<{ ok: true } | { error: SkillFileUploadError }> {
+  try {
+    const form = new FormData();
+    const list = Array.isArray(files) ? files : Array.from(files);
+    for (const file of list) {
+      form.append('files', file);
+    }
+    const resp = await fetch(
+      `/api/skills/${encodeURIComponent(id)}/files`,
+      { method: 'POST', body: form },
+    );
+    if (!resp.ok) {
+      const payload = (await resp.json().catch(() => null)) as
+        | { error?: { code?: string; message?: string } }
+        | null;
+      return {
+        error: {
+          code: payload?.error?.code,
+          message: payload?.error?.message ?? `Upload failed (${resp.status}).`,
+        },
+      };
+    }
+    return { ok: true };
+  } catch (err) {
+    return {
+      error: {
+        message: err instanceof Error ? err.message : 'Upload request failed.',
+      },
+    };
+  }
+}
+
 export async function deleteSkill(
   id: string,
 ): Promise<{ ok: true } | { error: SkillImportError }> {

@@ -2590,6 +2590,7 @@ export const zhTW: Dict = {
   'settings.skillsSaving': '儲存中…',
   'settings.skillsFiles': '檔案',
   'settings.skillsNoFiles': '此技能資料夾沒有檔案。',
+  'settings.skillsUploadFile': '上傳檔案',
   'settings.skillsNameRequired': '技能名稱為必填項。',
   'settings.skillsBodyRequired': '技能內容為必填項。',
   'settings.designSystems': '設計系統',

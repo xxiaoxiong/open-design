@@ -1,6 +1,7 @@
 import type { Express } from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
+import multer from 'multer';
 import type { DesignSystemTokenContractRebuildJobResponse } from '@open-design/contracts';
 import { detectAgents, detectAgentsStream } from '../agents.js';
 import {
@@ -34,6 +35,28 @@ export interface RegisterStaticResourceRoutesDeps extends RouteDeps<'http' | 'pa
       designSystemId: string,
     ) => Promise<DesignSystemTokenContractRebuildJobResponse | undefined>;
   };
+}
+
+const SKILL_FILE_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+const skillFileUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: SKILL_FILE_UPLOAD_MAX_BYTES,
+    files: 200,
+    fieldSize: 1 * 1024 * 1024,
+  },
+});
+
+function safeUploadRelativePath(input: string): string {
+  const value = String(input || '').replace(/\\/g, '/');
+  if (!value || value.includes('\0') || value.startsWith('/') || /^[A-Za-z]:\//.test(value)) {
+    throw new Error('invalid upload path');
+  }
+  const parts = value.split('/').filter(Boolean);
+  if (parts.length === 0 || parts.some((part) => part === '.' || part === '..')) {
+    throw new Error(`unsafe upload path: ${value}`);
+  }
+  return parts.join(path.sep);
 }
 
 export function registerStaticResourceRoutes(app: Express, ctx: RegisterStaticResourceRoutesDeps) {
@@ -274,6 +297,43 @@ export function registerStaticResourceRoutes(app: Express, ctx: RegisterStaticRe
       }
       const files = await listSkillFiles(skill.dir);
       res.json({ files });
+    } catch (err: any) {
+      sendApiError(res, 500, 'INTERNAL_ERROR', String(err));
+    }
+  });
+
+  // POST /api/skills/:id/files — accept multipart file uploads for a
+  // user-managed skill. Used by the Settings → Skills panel to let the
+  // user attach side files (scripts, references, assets, ...) after
+  // creating or importing a custom skill.
+  app.post('/api/skills/:id/files', skillFileUpload.array('files', 200), async (req, res) => {
+    try {
+      const skills = await listAllSkills();
+      const skill = findSkillById(skills, req.params.id);
+      if (!skill) {
+        return sendApiError(res, 404, 'NOT_FOUND', 'skill not found');
+      }
+      const files = Array.isArray(req.files) ? req.files : [];
+      if (files.length === 0) {
+        return sendApiError(res, 400, 'BAD_REQUEST', 'files are required');
+      }
+      let totalBytes = 0;
+      const safePaths = new Set<string>();
+      for (const file of files) {
+        const rel = safeUploadRelativePath(file.originalname || `file-${Date.now()}`);
+        const dest = path.join(skill.dir, rel);
+        if (!safePaths.has(rel)) {
+          await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+        }
+        await fs.promises.writeFile(dest, file.buffer);
+        safePaths.add(rel);
+        totalBytes += file.buffer.length;
+      }
+      if (totalBytes > SKILL_FILE_UPLOAD_MAX_BYTES) {
+        return sendApiError(res, 400, 'BAD_REQUEST', 'uploaded files exceed the size limit');
+      }
+      const updated = await listSkillFiles(skill.dir);
+      res.json({ files: updated });
     } catch (err: any) {
       sendApiError(res, 500, 'INTERNAL_ERROR', String(err));
     }

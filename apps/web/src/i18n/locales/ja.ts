@@ -2588,6 +2588,7 @@ export const ja: Dict = {
   'settings.skillsCreate': '作成',
   'settings.skillsSave': '保存',
   'settings.skillsSaving': '保存中…',
+  'settings.skillsUploadFile': 'ファイルをアップロード',
   'settings.skillsFiles': 'ファイル',
   'settings.skillsNoFiles': 'このスキルフォルダーにファイルはありません。',
   'settings.skillsNameRequired': 'スキル名は必須です。',

@@ -2588,6 +2588,7 @@ export const tr: Dict = {
   'settings.skillsCreate': 'Oluştur',
   'settings.skillsSave': 'Kaydet',
   'settings.skillsSaving': 'Kaydediliyor…',
+  'settings.skillsUploadFile': 'Dosya yükle',
   'settings.skillsFiles': 'Dosyalar',
   'settings.skillsNoFiles': 'Bu yetenek klasöründe dosya yok.',
   'settings.skillsNameRequired': 'Beceri adı gereklidir.',

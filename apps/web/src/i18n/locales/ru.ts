@@ -2588,6 +2588,7 @@ export const ru: Dict = {
   'settings.skillsCreate': 'Создать',
   'settings.skillsSave': 'Сохранить',
   'settings.skillsSaving': 'Сохранение…',
+  'settings.skillsUploadFile': 'Загрузить файл',
   'settings.skillsFiles': 'Файлы',
   'settings.skillsNoFiles': 'В папке этого навыка нет файлов.',
   'settings.skillsNameRequired': 'Имя навыка обязательно.',

@@ -2588,6 +2588,7 @@ export const ko: Dict = {
   'settings.skillsCreate': '만들기',
   'settings.skillsSave': '저장',
   'settings.skillsSaving': '저장 중…',
+  'settings.skillsUploadFile': '파일 업로드',
   'settings.skillsFiles': '파일',
   'settings.skillsNoFiles': '이 스킬 폴더에 파일이 없습니다.',
   'settings.skillsNameRequired': '스킬 이름은 필수입니다.',

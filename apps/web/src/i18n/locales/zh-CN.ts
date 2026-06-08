@@ -2590,6 +2590,7 @@ export const zhCN: Dict = {
   'settings.skillsSaving': '保存中…',
   'settings.skillsFiles': '文件',
   'settings.skillsNoFiles': '该技能目录下暂无文件。',
+  'settings.skillsUploadFile': '上传文件',
   'settings.skillsNameRequired': '技能名称为必填项。',
   'settings.skillsBodyRequired': '技能内容为必填项。',
   'settings.designSystems': '设计系统',

@@ -2588,6 +2588,7 @@ export const fa: Dict = {
   'settings.skillsCreate': 'ایجاد',
   'settings.skillsSave': 'ذخیره',
   'settings.skillsSaving': 'در حال ذخیره…',
+  'settings.skillsUploadFile': 'آپلود فایل',
   'settings.skillsFiles': 'فایل‌ها',
   'settings.skillsNoFiles': 'هیچ فایلی در این پوشه مهارت نیست.',
   'settings.skillsNameRequired': 'نام مهارت الزامی است.',
