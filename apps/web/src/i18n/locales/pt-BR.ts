@@ -2588,6 +2588,7 @@ export const ptBR: Dict = {
   'settings.skillsCreate': 'Criar',
   'settings.skillsSave': 'Salvar',
   'settings.skillsSaving': 'Salvando…',
+  'settings.skillsUploadFile': 'Enviar arquivo',
   'settings.skillsFiles': 'Arquivos',
   'settings.skillsNoFiles': 'Nenhum arquivo nesta pasta de habilidade.',
   'settings.skillsNameRequired': 'O nome da habilidade é obrigatório.',

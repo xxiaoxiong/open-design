@@ -2588,6 +2588,7 @@ export const uk: Dict = {
   'settings.skillsCreate': 'Створити',
   'settings.skillsSave': 'Зберегти',
   'settings.skillsSaving': 'Збереження…',
+  'settings.skillsUploadFile': 'Завантажити файл',
   'settings.skillsFiles': 'Файли',
   'settings.skillsNoFiles': 'У теці цієї навички немає файлів.',
   'settings.skillsNameRequired': 'Ім\'я навички обов\'язкове.',

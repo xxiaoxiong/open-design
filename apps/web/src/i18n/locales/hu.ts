@@ -2588,6 +2588,7 @@ export const hu: Dict = {
   'settings.skillsCreate': 'Létrehozás',
   'settings.skillsSave': 'Mentés',
   'settings.skillsSaving': 'Mentés…',
+  'settings.skillsUploadFile': 'Fájl feltöltése',
   'settings.skillsFiles': 'Fájlok',
   'settings.skillsNoFiles': 'Nincs fájl ebben a készségmappában.',
   'settings.skillsNameRequired': 'A készség neve kötelező.',

@@ -2588,6 +2588,7 @@ export const pl: Dict = {
   'settings.skillsCreate': 'Utwórz',
   'settings.skillsSave': 'Zapisz',
   'settings.skillsSaving': 'Zapisywanie…',
+  'settings.skillsUploadFile': 'Prześlij plik',
   'settings.skillsFiles': 'Pliki',
   'settings.skillsNoFiles': 'Brak plików w tym folderze umiejętności.',
   'settings.skillsNameRequired': 'Nazwa umiejętności jest wymagana.',

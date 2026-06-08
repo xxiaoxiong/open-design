@@ -2588,6 +2588,7 @@ export const fr: Dict = {
   'settings.skillsCreate': 'Créer',
   'settings.skillsSave': 'Enregistrer',
   'settings.skillsSaving': 'Enregistrement…',
+  'settings.skillsUploadFile': 'Télécharger un fichier',
   'settings.skillsFiles': 'Fichiers',
   'settings.skillsNoFiles': 'Aucun fichier dans ce dossier de compétence.',
   'settings.skillsNameRequired': 'Le nom de la compétence est requis.',

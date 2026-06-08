@@ -2588,6 +2588,7 @@ export const it: Dict = {
   'settings.skillsCreate': 'Crea',
   'settings.skillsSave': 'Salva',
   'settings.skillsSaving': 'Salvataggio…',
+  'settings.skillsUploadFile': 'Carica file',
   'settings.skillsFiles': 'File',
   'settings.skillsNoFiles': 'Nessun file in questa cartella di competenza.',
   'settings.skillsNameRequired': 'Il nome dello skill è obbligatorio.',

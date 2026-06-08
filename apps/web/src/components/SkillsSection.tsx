@@ -821,7 +821,6 @@ function SkillRow({
                 }}
               />
               <Button
-                size="sm"
                 variant="ghost"
                 disabled={uploadingFiles}
                 onClick={() => fileInputRef.current?.click()}

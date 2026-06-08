@@ -2588,6 +2588,7 @@ export const esES: Dict = {
   'settings.skillsCreate': 'Crear',
   'settings.skillsSave': 'Guardar',
   'settings.skillsSaving': 'Guardando…',
+  'settings.skillsUploadFile': 'Subir archivo',
   'settings.skillsFiles': 'Archivos',
   'settings.skillsNoFiles': 'No hay archivos en esta carpeta de habilidad.',
   'settings.skillsNameRequired': 'El nombre de la habilidad es obligatorio.',

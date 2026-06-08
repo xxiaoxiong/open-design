@@ -2588,6 +2588,7 @@ export const th: Dict = {
   'settings.skillsCreate': 'สร้าง',
   'settings.skillsSave': 'บันทึก',
   'settings.skillsSaving': 'กำลังบันทึก…',
+  'settings.skillsUploadFile': 'อัปโหลดไฟล์',
   'settings.skillsFiles': 'ไฟล์',
   'settings.skillsNoFiles': 'ไม่มีไฟล์ในโฟลเดอร์ทักษะนี้',
   'settings.skillsNameRequired': 'ต้องระบุชื่อทักษะ',
