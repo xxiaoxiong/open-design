@@ -306,13 +306,28 @@ export function NewProjectPanel({
   // Design-system selection is now an *array* internally so the same
   // component can drive both single-select and multi-select modes without
   // duplicating state. Single-select coerces to length 0/1.
+  const publishedDesignSystems = useMemo(
+    () => designSystems.filter((d: DesignSystemSummary) => d.status !== 'draft'),
+    [designSystems],
+  );
   const initialDefaultDsSelection = useMemo(
-    () => defaultDesignSystemSelection(defaultDesignSystemId, designSystems),
-    [defaultDesignSystemId, designSystems],
+    () => defaultDesignSystemSelection(defaultDesignSystemId, publishedDesignSystems),
+    [defaultDesignSystemId, publishedDesignSystems],
   );
   const [selectedDsIds, setSelectedDsIds] = useState<string[]>(
     () => initialDefaultDsSelection,
   );
+  const publishedIds = useMemo(
+    () => new Set<string>(publishedDesignSystems.map((d: DesignSystemSummary) => d.id)),
+    [publishedDesignSystems],
+  );
+  useEffect(() => {
+    setSelectedDsIds((prev: string[]) =>
+      prev.length > 0 && prev.some((id: string) => !publishedIds.has(id))
+        ? prev.filter((id: string) => publishedIds.has(id))
+        : prev,
+    );
+  }, [publishedIds]);
   const [dsSelectionTouched, setDsSelectionTouched] = useState(false);
   const [dsMulti, setDsMulti] = useState(false);
 
@@ -574,8 +589,9 @@ export function NewProjectPanel({
   }
 
   function handleDesignSystemChange(ids: string[]) {
+    const filteredIds = ids.filter((id) => publishedIds.has(id));
     setDsSelectionTouched(true);
-    setSelectedDsIds(ids);
+    setSelectedDsIds(filteredIds);
     const previousPrimary = selectedDsIds[0] ?? null;
     const nextPrimary = ids[0] ?? null;
     // Only emit when the primary actually changed; secondary reorders
@@ -873,7 +889,7 @@ export function NewProjectPanel({
 
         {showDesignSystemPicker ? (
           <DesignSystemPicker
-            designSystems={designSystems}
+            designSystems={publishedDesignSystems}
             defaultDesignSystemId={defaultDesignSystemId}
             selectedIds={selectedDsIds}
             multi={dsMulti}
