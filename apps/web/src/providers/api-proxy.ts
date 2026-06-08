@@ -14,9 +14,10 @@ import { isAnthropicSupportedImagePath } from '../utils/apiProtocol';
 /**
  * Optional per-request context that some protocols thread into the
  * proxy body or use to prepare provider-native message payloads:
- *  - `projectId` lets the `generate_image` tool write into the active
- *    project's folder instead of a daemon-global cache, and lets the
- *    Anthropic proxy resolve image attachments into content blocks.
+ - `projectId` lets the `generate_image` tool write into the active
+   project's folder instead of a daemon-global cache, and lets the
+   proxy resolve image attachments into native provider content blocks
+   (Anthropic image blocks, OpenAI image_url blocks, etc.).
  *  - `byokImageModel` is the user's BYOK Settings default for the
  *    image tool. The LLM can still override per-call via the tool's
  *    `model` arg; this is just the fallback when it omits one.
@@ -134,22 +135,103 @@ export async function buildProxyMessages(
   history: ChatMessage[],
   context?: ProxyContext,
 ): Promise<ProxyMessage[]> {
-  if (!usesAnthropicMessagesPayload(endpoint) || !context?.projectId) {
+  if (!context?.projectId) {
     return history.map((m) => ({ role: m.role, content: m.content }));
   }
 
-  const out: ProxyMessage[] = [];
-  for (const message of history) {
-    out.push({
-      role: message.role,
-      content: await buildAnthropicMessageContent(message, context.projectId),
-    });
+  if (usesAnthropicMessagesPayload(endpoint)) {
+    const out: ProxyMessage[] = [];
+    for (const message of history) {
+      out.push({
+        role: message.role,
+        content: await buildAnthropicMessageContent(message, context.projectId),
+      });
+    }
+    return out;
   }
-  return out;
+
+  if (!usesAnthropicMessagesPayload(endpoint)) {
+    return history.map((m) => ({ role: m.role, content: m.content }));
+  }
+
+  return history.map((m) => ({ role: m.role, content: m.content }));
 }
 
 function usesAnthropicMessagesPayload(endpoint: string): boolean {
   return endpoint.includes('/api/proxy/anthropic/');
+}
+
+function usesOpenAIMessagesPayload(endpoint: string): boolean {
+  return (
+    endpoint.includes('/api/proxy/openai/') ||
+    endpoint.includes('/api/proxy/azure/') ||
+    endpoint.includes('/api/proxy/ollama/')
+  );
+}
+
+async function buildOpenAIMessageContent(
+  message: ChatMessage,
+  projectId: string,
+): Promise<ProxyMessageContent> {
+  const imageAttachments = sortAttachmentsByUserOrder(
+    (message.attachments ?? []).filter((attachment): attachment is { kind: 'image'; path: string; name: string; order?: number } =>
+      attachment.kind === 'image',
+    ),
+  );
+  if (message.role !== 'user' || imageAttachments.length === 0) {
+    return message.content;
+  }
+
+  const parts: Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> = [];
+  if (message.content.trim()) {
+    parts.push({ type: 'text', text: message.content });
+  }
+
+  for (const attachment of imageAttachments) {
+    const block = await readOpenAIImageBlock(projectId, attachment.path);
+    if (block) {
+      parts.push(block);
+    } else {
+      parts.push({
+        type: 'text',
+        text: `[Image could not be sent as native image content: path: ${attachment.path} | name: ${attachment.name}]`,
+      });
+    }
+  }
+
+  return (parts.length > 0 ? parts : message.content) as ProxyMessageContent;
+}
+
+async function readOpenAIImageBlock(
+  projectId: string,
+  path: string,
+): Promise<{ type: 'image_url'; image_url: { url: string } } | null> {
+  try {
+    const resp = await fetch(projectFileUrl(projectId, path), { cache: 'no-store' });
+    if (!resp.ok) return null;
+
+    const mediaType = supportedOpenAIImageMediaType(
+      resp.headers.get('content-type') ?? '',
+      path,
+    );
+    if (!mediaType) return null;
+
+    const bytes = new Uint8Array(await resp.arrayBuffer());
+    const base64 = bytesToBase64(bytes);
+    return {
+      type: 'image_url',
+      image_url: { url: `data:${mediaType};base64,${base64}` },
+    };
+  } catch {
+    return null;
+  }
+}
+
+function supportedOpenAIImageMediaType(
+  contentType: string,
+  path: string,
+): 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' | null {
+  return supportedAnthropicImageMediaType(contentType, path);
 }
 
 async function buildAnthropicMessageContent(
