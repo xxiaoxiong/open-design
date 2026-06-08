@@ -326,16 +326,20 @@ function AskUserQuestionCard({
     // without an auto error. Fall back to onSubmitForm only if no run is
     // wired up (e.g. older messages where the run already terminated).
     if (onAnswerToolUse) {
-      setSubmitted(true);
       try {
         const ok = await onAnswerToolUse(toolUseId, formatted);
-        if (ok === false) {
-          // Live route failed (run gone, stdin closed). Revert the local
-          // lock and try the legacy fallback so the user is not stuck.
+        if (ok === true) {
+          setSubmitted(true);
+        } else {
+          // Live route failed (run gone, stdin closed). Keep the card
+          // unlocked and fall back to the legacy onSubmitForm path so
+          // older messages without a live run can still submit.
           setSubmitted(false);
           onSubmitForm?.(formatted);
         }
       } catch {
+        // Live route errored — keep the card unlocked and surface the
+        // failure instead of silently locking and falling back.
         setSubmitted(false);
         onSubmitForm?.(formatted);
       }
