@@ -79,6 +79,7 @@ export function PluginMediaDetail({
 }: Props) {
   const t = useT();
   const [copied, setCopied] = useState(false);
+  const [posterFailed, setPosterFailed] = useState(false);
 
   const manifest: PluginManifest = record.manifest ?? ({} as PluginManifest);
   const od = manifest.od ?? {};
@@ -88,9 +89,11 @@ export function PluginMediaDetail({
   const hasAsset = Boolean(media.poster || media.videoUrl || media.audioUrl);
 
   // Reset transient state when the active record swaps so the next
-  // open never inherits the previous plugin's copied flag.
+  // open never inherits the previous plugin's copied flag or failed
+  // poster state.
   useEffect(() => {
     setCopied(false);
+    setPosterFailed(false);
   }, [record.id]);
 
   function handleCopy() {
@@ -126,20 +129,21 @@ export function PluginMediaDetail({
         />
       ) : media.isAudio && media.audioUrl ? (
         <div className="plugin-media-stage__audio">
-          {media.poster ? (
+          {media.poster && !posterFailed ? (
             <img
               className="plugin-media-stage__audio-poster"
               src={media.poster}
               alt={record.title}
               referrerPolicy="no-referrer"
               loading="lazy"
+              onError={() => setPosterFailed(true)}
             />
           ) : (
             <div
               className="plugin-media-stage__audio-glyph"
               aria-hidden="true"
             >
-              <Icon name="play" size={48} />
+              <Icon name="image" size={48} />
             </div>
           )}
           <audio
@@ -149,15 +153,23 @@ export function PluginMediaDetail({
             preload="none"
           />
         </div>
-      ) : media.poster ? (
+      ) : media.poster && !posterFailed ? (
         <img
           className="plugin-media-stage__image"
           src={media.poster}
           alt={record.title}
           loading="lazy"
           referrerPolicy="no-referrer"
+          onError={() => setPosterFailed(true)}
         />
-      ) : null}
+      ) : (
+        <div
+          className="plugin-media-stage__audio-glyph"
+          aria-hidden="true"
+        >
+          <Icon name="image" size={48} />
+        </div>
+      )}
     </div>
   );
 
