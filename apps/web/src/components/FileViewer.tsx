@@ -7275,6 +7275,7 @@ function HtmlViewer({
     if (screenshotInFlightRef.current) return;
     screenshotInFlightRef.current = true;
     setExportToast({ message: t('fileViewer.screenshotCopying'), tone: 'loading' });
+    await new Promise(requestAnimationFrame);
     try {
       const snap = await captureExportImageSnapshot();
       if (!snap) {
