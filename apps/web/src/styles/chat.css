@@ -1194,6 +1194,7 @@
 }
 .app .composer-row .session-mode-toggle__trigger {
   box-shadow: none;
+  height: 28px;
 }
 /* The agent avatar is a 32px round image; shrink it (and the trigger grid)
    so it fits the 28px control height without being clipped. */
