@@ -7283,6 +7283,7 @@ function HtmlViewer({
     screenshotInFlightRef.current = true;
     setExportToast({ message: t('fileViewer.screenshotCopying'), tone: 'loading' });
     try {
+      await waitForAnimationFrame();
       const snap = await captureExportImageSnapshot();
       if (!snap) {
         setExportToast({ message: t('fileViewer.screenshotPreviewLoading'), tone: 'error' });
