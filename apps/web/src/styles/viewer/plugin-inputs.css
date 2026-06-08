@@ -51,11 +51,29 @@
   border-radius: 6px;
 }
 
+.settings-skills .skills-edit-builtin-warning {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 4px 0;
+}
+.settings-skills .skills-edit-builtin-warning p {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.settings-skills .skills-edit-builtin-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
 .settings-skills .skills-row-detail {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 4px 14px 14px;
+  gap: 16px;
+  padding: 14px 14px 16px;
   border-top: 1px dashed var(--border);
   margin: 0 4px;
 }
