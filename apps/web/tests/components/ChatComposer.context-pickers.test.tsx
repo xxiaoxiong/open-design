@@ -769,4 +769,45 @@ describe('ChatComposer context pickers', () => {
     expect(screen.queryByRole('button', { name: 'Pets — wake, tuck, or pick one' })).toBeNull();
     expect(screen.queryByText('Buddy')).toBeNull();
   });
+
+  it('does not keep a deleted skill selected in the picker', async () => {
+    skills = [
+      makeSkill({ id: 'project-default', name: 'Project Default', triggers: ['default'] }),
+      makeSkill({ id: 'staged-skill', name: 'Staged Skill', triggers: ['staged'] }),
+    ];
+    renderComposer();
+    await flushMounts();
+
+    await typeAndSettle('@staged');
+    await waitFor(() => expect(screen.getByText('Staged Skill')).toBeTruthy());
+    fireEvent.click(screen.getByText('Staged Skill'));
+
+    await waitFor(() => expect(composerText()).toBe('@Staged Skill '));
+    expect(screen.getByTestId('staged-contexts').textContent).toContain('@Staged Skill');
+
+    // Re-open the picker — staged skill should be filtered out.
+    await typeAndSettle('@staged');
+    await waitFor(() => {
+      const items = screen.getByTestId('mention-popover').querySelectorAll('.mention-item strong');
+      const names = Array.from(items).map((node) => node.textContent);
+      expect(names).not.toContain('Staged Skill');
+      expect(names).toContain('Project Default');
+    });
+
+    // Remove the staged skill from the draft.
+    fireEvent.click(screen.getByLabelText('Remove Staged Skill'));
+    await waitFor(() => expect(composerText().trim()).toBe(''));
+
+    // Re-open the picker — the skill should be back and not show as active.
+    await typeAndSettle('@staged');
+    await waitFor(() => {
+      const items = screen.getByTestId('mention-popover').querySelectorAll('.mention-item strong');
+      const names = Array.from(items).map((node) => node.textContent);
+      expect(names).toContain('Staged Skill');
+    });
+    const activeSkillButtons = screen
+      .getByTestId('mention-popover')
+      .querySelectorAll('.mention-item.is-active strong');
+    expect(activeSkillButtons.length).toBe(0);
+  });
 });
