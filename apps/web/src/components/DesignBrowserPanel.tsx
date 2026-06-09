@@ -1247,12 +1247,19 @@ export function DesignBrowserPanel({
       return;
     }
     setSavingAction('screenshot');
-    // Close the dropdown first so it cannot appear in a host compositor capture
-    // (which screenshots the on-screen window region, not the guest surface).
     setMenuOpen(false);
     if (drawOverlayOpen) flushSync(() => setCaptureChromeHidden(true));
+
+    let tooltipLayer: HTMLElement | null = null;
     try {
-      // Let the dropdown unmount + repaint before the compositor capture.
+      // Hide any visible tooltip so it cannot bleed into the host compositor
+      // capture. Tooltip state updates are async React renders, so we also
+      // remove it from the DOM directly before the compositor fires.
+      tooltipLayer = document.querySelector('.od-tooltip-layer');
+      if (tooltipLayer) {
+        tooltipLayer.style.visibility = 'hidden';
+      }
+
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       );
@@ -1277,6 +1284,9 @@ export function DesignBrowserPanel({
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : 'Screenshot failed');
     } finally {
+      if (tooltipLayer) {
+        tooltipLayer.style.visibility = '';
+      }
       setCaptureChromeHidden(false);
       setSavingAction(null);
       setMenuOpen(false);
