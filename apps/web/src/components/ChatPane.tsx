@@ -1512,7 +1512,7 @@ export function ChatPane({
     anchorActiveRef.current = false;
     pinnedToBottomRef.current = true;
     resetTailSpacer();
-    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    el.scrollTop = el.scrollHeight;
   }
 
   useEffect(() => {
