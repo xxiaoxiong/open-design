@@ -1255,9 +1255,14 @@ export function DesignBrowserPanel({
       // Hide any visible tooltip so it cannot bleed into the host compositor
       // capture. Tooltip state updates are async React renders, so we also
       // remove it from the DOM directly before the compositor fires.
+      // Gate on computed visibility so we don't accidentally flip a
+      // pre-positioned hidden node to visible in the finally block.
       tooltipLayer = document.querySelector('.od-tooltip-layer');
       if (tooltipLayer) {
-        tooltipLayer.style.visibility = 'hidden';
+        const computedVisibility = window.getComputedStyle(tooltipLayer).visibility;
+        if (computedVisibility === 'visible') {
+          tooltipLayer.style.visibility = 'hidden';
+        }
       }
 
       await new Promise<void>((resolve) =>
@@ -1285,7 +1290,10 @@ export function DesignBrowserPanel({
       setStatusMessage(error instanceof Error ? error.message : 'Screenshot failed');
     } finally {
       if (tooltipLayer) {
-        tooltipLayer.style.visibility = '';
+        const computedVisibility = window.getComputedStyle(tooltipLayer).visibility;
+        if (computedVisibility === 'hidden') {
+          tooltipLayer.style.visibility = '';
+        }
       }
       setCaptureChromeHidden(false);
       setSavingAction(null);
