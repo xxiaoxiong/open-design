@@ -2427,7 +2427,7 @@ export function ProjectView({
   );
 
   useEffect(() => {
-    if (config.mode !== 'daemon' || !daemonLive || !activeConversationId || streaming) return;
+    if (config.mode !== 'daemon' || !daemonLive || !activeConversationId) return;
     let cancelled = false;
     const reattachConversationId = activeConversationId;
 
@@ -2511,6 +2511,10 @@ export function ProjectView({
           (prev) => ({ ...prev, runStatus: status.status }),
           true,
         );
+
+        if (streaming && streamingConversationIdRef.current === reattachConversationId && !isTerminalRunStatus(status.status)) {
+          continue;
+        }
 
         const controller = new AbortController();
         const cancelController = new AbortController();
