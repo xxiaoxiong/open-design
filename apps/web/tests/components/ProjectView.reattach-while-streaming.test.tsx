@@ -178,9 +178,7 @@ describe('ProjectView reattach while streaming', () => {
     await waitFor(() => expect(reattachDaemonRun).toHaveBeenCalledTimes(1));
     expect(capturedOnDone).not.toBeNull();
 
-    // Simulate downstream consumer finishing; the onDone path should now
-    // persist the terminal state even though the UI started in a streaming state.
-    capturedOnDone!();
+    capturedOnDone?.();
 
     await waitFor(() => {
       const succeeded = saveMessage.mock.calls
