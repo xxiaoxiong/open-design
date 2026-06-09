@@ -1262,7 +1262,7 @@ export function DesignBrowserPanel({
         const computedVisibility = window.getComputedStyle(tooltipLayer).visibility;
         if (computedVisibility === 'visible') {
           tooltipLayer.style.visibility = 'hidden';
-          (tooltipLayer as any).__od_hiddenByScreenshot = True;
+          (tooltipLayer as any).__od_hiddenByScreenshot = true;
         }
       }
 
