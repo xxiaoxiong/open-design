@@ -115,6 +115,8 @@ import {
   scanRunEventsForFinishedProps,
   scanRunEventsForRetrySideEffects,
 } from './runtimes/run-lifecycle-analytics.js';
+import { scanRunEventsForUsageAnalytics } from './run-analytics-observability.js';
+import { detectSkillPluginCandidate } from './plugins/skill-candidates.js';
 export {
   composeLiveInstructionPrompt,
   formatDesignFilesWorkspaceHint,
@@ -1608,36 +1610,6 @@ function formAnswerTransitionForCurrentPrompt(currentPrompt) {
   if (!match) return null;
   const rawFormId = (match[1] || 'form').trim() || 'form';
   const formId = rawFormId.replace(/[^\w.-]/g, '') || 'form';
-  const lines = [
-    '## Latest user turn - form answers submitted',
-    trimmed,
-    '',
-    // Keep the wording in lock-step with main — the stronger "do not
-    // emit any `<question-form>`" suppression now lives in the
-    // system-prompt `FORM_ANSWERED_SYSTEM_OVERRIDE` block, which
-    // every plain / stream-json adapter sees. Diverging the
-    // user-request transition string here breaks `chat-route.test
-    // marks submitted discovery form answers ...` which asserts on
-    // the exact main wording.
-    `The user has answered the ${formId} form. Do not emit another ${formId} form.`,
-  ];
-  if (formId.toLowerCase() === 'discovery' || formId.toLowerCase() === 'task-type') {
-    lines.push(
-      'Continue with RULE 2 / RULE 3 now. For Branch B answers, build now instead of asking another brief.',
-    );
-  } else {
-    lines.push(
-      'Treat these form answers as the active user turn instead of replaying the transcript as a fresh request.',
-    );
-  }
-  return lines.join('\n');
-}
-
-export function composeChatUserRequestForAgent(
-  message,
-  currentPrompt,
-  options: { skipTranscript?: boolean } = {},
-) {
   // When the adapter resumes its own session (today: `agy -c`), the
   // daemon-rendered `## user` / `## assistant` transcript is a duplicate
   // of what the upstream CLI already has in memory — and the embedded
