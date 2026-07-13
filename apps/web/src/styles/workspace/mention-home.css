@@ -694,6 +694,13 @@
   align-items: center;
   gap: 6px;
 }
+:where(.modal-settings.settings-fullscreen) .settings-chrome {
+  /* In fullscreen mode the modal viewport inset matches --modal-padding (24px),
+     so the chrome offset should align with that rhythm instead of the default
+     18px. (#5513) */
+  top: 24px;
+  right: 24px;
+}
 .settings-chrome > * {
   pointer-events: auto;
 }
