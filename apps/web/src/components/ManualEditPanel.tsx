@@ -49,6 +49,8 @@ export function ManualEditPanel({
   onFloatingPositionChange,
   locked = false,
   onToggleLock,
+  canUndo,
+  canRedo,
 }: {
   targets: ManualEditTarget[];
   selectedTarget: ManualEditTarget | null;
