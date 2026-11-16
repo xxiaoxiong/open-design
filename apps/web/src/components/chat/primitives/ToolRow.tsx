@@ -336,7 +336,7 @@ export function ToolRow({
    * (同 `Foldable` 的 `lifecycleOpen` 那段)。所以走 `lifecycleOpen` —— 它还顺带
    * 保住了用户的手:跑的时候手动收起的,跑完不许替他打开;手动展开的,不许替他收走。
    */
-  if (row.command && !row.rawTitle) {
+  if (row.command && !row.rawTitle && !row.failed) {
     return (
       <Foldable
         summary={<>{icon}<span className={styles.name}>{row.title}</span>{failButton}</>}
@@ -422,7 +422,7 @@ export function ToolRow({
    *    失败的命令行落到下面的兜底单行),但共用一个量比复制一个"这里刚好用不到"的
    *    简化版更难写歪:两支的开合规则从此只有一处可改。
    */
-  if (row.command && row.rawTitle && !row.failed) {
+  if (row.command && row.rawTitle) {
     return (
       <Foldable
         summary={(
