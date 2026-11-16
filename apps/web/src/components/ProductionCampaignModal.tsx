@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { randomUUID } from '../../utils/uuid';
+import { randomUUID } from '../utils/uuid';
 import { useI18n } from "../i18n";
 import { getOpenDesignHost } from "@open-design/host";
 import { openExternalUrl } from "../providers/registry";

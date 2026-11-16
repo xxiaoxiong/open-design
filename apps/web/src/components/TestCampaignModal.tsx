@@ -9,7 +9,7 @@ import type {
 	TestRuntimeContextMismatch,
 } from "@open-design/contracts/api/touchpointTestRuntime";
 import { getOpenDesignHost, OPEN_DESIGN_HOST_VERSION } from "@open-design/host";
-import { randomUUID } from '../../utils/uuid';
+import { randomUUID } from '../utils/uuid';
 import { mountTouchpoint } from "./touchpoint-lifecycle";
 import {
 	navigateCampaignTarget,

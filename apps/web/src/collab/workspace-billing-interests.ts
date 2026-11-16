@@ -2,6 +2,7 @@ import type {
   WorkspaceBillingInterestResponse,
   WorkspaceBillingInterestScope,
 } from '@open-design/contracts';
+import { randomUUID } from '../utils/uuid';
 
 const RENEW_FLOOR_MS = 5_000;
 const RENEW_CEILING_MS = 20_000;

@@ -1,5 +1,5 @@
 import type { WorkspaceInviteEntry } from '@open-design/contracts/analytics';
-import { randomUUID } from '../../utils/uuid';
+import { randomUUID } from '../utils/uuid';
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { type WorkspaceCollabContext, type WorkspaceInviteRole } from '@open-design/contracts';
