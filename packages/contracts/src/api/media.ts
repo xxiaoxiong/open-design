@@ -189,6 +189,8 @@ const BARE_STATUS_RE =
 
 /** `no Fal API key — configure it in …`, `no OpenAI credential — …`. */
 const MISSING_CREDENTIAL_RE = /\bno\s+(?:[\w.-]+\s+){0,3}(?:api key|credential)\b/i;
+/** `profile "prod" is not logged in; run vela login` — vela/AMR sign-in missing. */
+const VELA_SIGN_IN_RE = /\bnot logged in\b/i;
 /** Every long-poll adapter gives up with this exact phrase. */
 const RENDER_TIMED_OUT_RE = /\bdid not finish in time\b/i;
 
@@ -243,6 +245,7 @@ export function mediaFailureNextStep(signal: MediaFailureSignal): MediaFailureNe
       if (byEmbedded) return byEmbedded;
     }
     if (MISSING_CREDENTIAL_RE.test(message)) return 'open-settings';
+    if (VELA_SIGN_IN_RE.test(message)) return 'sign-in';
     if (RENDER_TIMED_OUT_RE.test(message)) return 'retry-later';
   }
 
