@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react';
-import { randomUUID } from '../../utils/uuid';
+import { randomUUID } from '../utils/uuid';
 import { useAnalytics } from '../analytics/provider';
 import { trackSettingsPrivacyClick } from '../analytics/events';
 import { useT } from '../i18n';

@@ -1,5 +1,5 @@
 import { getTopModalDialog } from "@open-design/components";
-import { randomUUID } from '../../utils/uuid';
+import { randomUUID } from '../utils/uuid';
 import {
 	type TouchpointComponentV2Manifest as ContentPackageManifest,
 	TouchpointComponentV2ManifestSchema as contentPackageManifestSchema,

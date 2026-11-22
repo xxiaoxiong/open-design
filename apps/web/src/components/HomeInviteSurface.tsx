@@ -1,5 +1,5 @@
 import { useAnalytics } from '../analytics/provider';
-import { randomUUID } from '../../utils/uuid';
+import { randomUUID } from '../utils/uuid';
 import { trackWorkspaceJourneyClick } from '../analytics/events';
 import { workspaceAnalyticsDimensions } from '../analytics/workspace';
 import { useWorkspaceJourney } from '../analytics/use-workspace-journey';
